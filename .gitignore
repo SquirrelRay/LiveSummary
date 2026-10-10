@@ -1,0 +1,26 @@
+# 音訊
+*_音訊/
+*.wav
+# 直播與測試產生的結果檔
+*_直播稿.txt
+*_聊天室.txt
+*_摘要*.md
+*_分鐘摘要*.md
+*_話題摘要*.md
+直播_v*.txt
+驗證_run*.md
+zh回歸測試*.txt
+日文*.txt
+日文*.md
+# 備份與測試資料夾
+診斷暫存/
+修正測試/
+介面3_改前備份/
+# 截圖
+*.png
+# 快取與本機狀態
+__pycache__/
+config.backup.json
+overlay_位置.json
+.env
+*.env
