@@ -17,6 +17,7 @@ MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避�
 用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
 # 逐句字幕翻譯另外算（app.py 的字幕疊加層才會用到），不和摘要的用量混在一起
 翻譯用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
+摘要_思考 = True      # False = 摘要相關呼叫關閉延伸思考（config.json 的 summary_thinking）
 最後停止原因 = ""     # 最近一次回答的停止原因（max_tokens = 被截斷），翻譯失敗時寫進紀錄
 
 
@@ -38,6 +39,8 @@ def 套用設定(設定):
     PROVIDER = 設定["provider"]
     BASE_URL = 設定["base_url"].strip()
     API_KEY_ENV = 設定["api_key_env"].strip()
+    global 摘要_思考
+    摘要_思考 = 設定.get("summary_thinking", True)
 
 
 def 金鑰狀態():
@@ -91,7 +94,7 @@ def _問_anthropic(提示詞, 模型, 類別):
         參數["base_url"] = BASE_URL
     client = anthropic.Anthropic(**參數)
     try:
-        額外 = {"thinking": {"type": "disabled"}} if 類別 == "翻譯" else {}
+        額外 = {"thinking": {"type": "disabled"}} if (類別 == "翻譯" or not 摘要_思考) else {}
         resp = client.messages.create(
             model=模型,
             max_tokens=翻譯_MAX_TOKENS if 類別 == "翻譯" else MAX_TOKENS,

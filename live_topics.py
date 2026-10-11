@@ -171,6 +171,23 @@ class 聊天重播:
 )
 
 
+def 取最後JSON(回答):
+    """關閉思考時用：回答裡可能先有說明文字，取最後一個完整的 JSON（優先有 decision 欄位的）。讀不出來丟出 ValueError。"""
+    解碼 = json.JSONDecoder()
+    找到 = []
+    for m in re.finditer(r"\{", 回答):
+        try:
+            物件, _ = 解碼.raw_decode(回答, m.start())
+        except ValueError:
+            continue
+        if isinstance(物件, dict):
+            找到.append(物件)
+    有 = [o for o in 找到 if "decision" in o]
+    if not (有 or 找到):
+        raise ValueError("讀不出 JSON")
+    return (有 or 找到)[-1]
+
+
 def 問話題(簡述, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 參考詞=None):
     """問模型話題有沒有換。回傳 (decision, new_topic_start, brief, side_notes, minute)；
     解析失敗就當 same。minute 是 (summary, audience)，沒有或失敗就是 None。
@@ -203,7 +220,7 @@ def 問話題(簡述, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
     )
     try:
         回答 = summarize.call_llm(提示詞)
-        資料 = json.loads(re.search(r"\{.*\}", 回答, re.S).group(0))
+        資料 = json.loads(re.search(r"\{.*\}", 回答, re.S).group(0)) if llm.摘要_思考 else 取最後JSON(回答)
         決定 = 資料.get("decision", "same")
         簡述結果 = str(資料.get("topic_brief", 簡述 or ""))
         決定 = 決定 if 決定 in ("same", "new_topic") else "same"
@@ -211,6 +228,7 @@ def 問話題(簡述, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
     except llm.模型錯誤:
         raise                      # 金鑰或連線有問題要立刻停，不能當成「話題沒變」
     except Exception:
+        統計["JSON失敗"] += 1
         return "same", "", 簡述 or "", [], None
     # 分鐘摘要：欄位缺失或格式不對就略過這一輪
     分鐘 = None
@@ -320,7 +338,7 @@ def 加入(話題, 新行們):
         話題["行們"].append(行)
 
 
-統計 = {"分鐘摘要": 0}
+統計 = {"分鐘摘要": 0, "JSON失敗": 0}
 單價 = {"輸入": 1.0, "輸出": 5.0}   # 由 執行() 依設定填入，只用來估算費用
 
 
@@ -479,6 +497,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "minute_summary": "分鐘摘要",
     "save_audio": "存音訊（--live）",
     "fix_with_chat": "聊天室參考詞修正",
+    "summary_thinking": "摘要使用延伸思考（true 較準但較貴；false 關閉思考，較省）",
     "check_minutes": "幾分鐘檢查一次話題",
     "min_topic_min": "話題最短分鐘數",
     "max_topic_min": "話題最長分鐘數",
@@ -503,7 +522,7 @@ def 內建預設():
     import transcribe
     return {
         "chat": True, "minute_summary": True, "save_audio": True, "fix_with_chat": False,
-        "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
+        "summary_thinking": True, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
         "model": summarize.MODEL, "whisper_model": transcribe.GPU_MODEL, "language": "zh",
         "minute_sentences": 2,
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
@@ -557,7 +576,7 @@ def _句數(v):
 
 
 檢查 = {
-    "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林,
+    "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林, "summary_thinking": _布林,
     "check_minutes": _正數, "min_topic_min": _正數, "max_topic_min": _正數,
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
     "provider": _服務, "base_url": _文字, "api_key_env": _文字,
@@ -661,6 +680,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
     for k in llm.用量:
         llm.用量[k] = 0
     統計["分鐘摘要"] = 0
+    統計["JSON失敗"] = 0
     單價["輸入"], 單價["輸出"] = 設定["price_input"], 設定["price_output"]
 
     # 把設定套用到各個模組（模型名稱、話題長短、分鐘摘要句數）
