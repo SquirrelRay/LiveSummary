@@ -170,3 +170,13 @@ def 讀膠囊位置():
 
 def 存膠囊位置(位置):
     _更新介面設定(膠囊位置=None if 位置 is None else [int(位置[0]), int(位置[1])])
+
+
+def 讀旗標(名):
+    """一次性提示之類的開關（例如「主控台收起提示過」）。"""
+    原始 = _讀(介面設定檔, {})
+    return bool(isinstance(原始, dict) and 原始.get(名) is True)
+
+
+def 存旗標(名, 值=True):
+    _更新介面設定(**{名: bool(值)})

@@ -119,6 +119,7 @@ class 設定頁(QScrollArea):
         版.addWidget(self._做框區("summary_box", "摘要框（預設在螢幕上緣）"))
         版.addWidget(self._做框區("subtitle_box", "字幕框（預設在螢幕下緣）"))
         版.addWidget(self._做一般區())
+        版.addWidget(self._做存檔區())
         版.addStretch(1)
         self.setWidget(內)
         self._滾輪 = 滾輪過濾(self)
@@ -229,7 +230,6 @@ class 設定頁(QScrollArea):
             e["subtitle_mode"].addItem(名, 值)
         e["chat"] = QCheckBox("抓聊天室（直播網址模式）")
         e["minute_summary"] = QCheckBox("分鐘摘要")
-        e["save_audio"] = QCheckBox("存音訊（直播網址模式）")
         e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
         e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
         for k in ("ui_max_transcript", "ui_max_chat", "ui_max_translation", "ui_max_summary"):
@@ -270,7 +270,7 @@ class 設定頁(QScrollArea):
             列 += 1
 
         加("逐句字幕模式", e["subtitle_mode"], True)
-        for k in ("chat", "minute_summary", "save_audio", "fix_with_chat", "summary_thinking"):
+        for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking"):
             加("", e[k], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
         加("最新內容顯示在", e["newest_on_top"])
@@ -289,6 +289,29 @@ class 設定頁(QScrollArea):
         加("模型名稱", e["model"], True)
         加("API 金鑰", self.金鑰字)
         return 框
+
+    存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
+              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每 20 秒一段 wav，檔案較大）"))
+
+    def _做存檔區(self):
+        """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
+        框, 格 = self._面板("存檔")
+        說明 = QLabel("打開的項目才會存成檔案（存在專案資料夾）。關掉的內容只顯示在畫面上，超過顯示上限的較早內容會直接移除。")
+        說明.setObjectName("小標")
+        說明.setWordWrap(True)
+        格.addWidget(說明, 0, 0, 1, 4)
+        for i, (k, 名) in enumerate(self.存檔項目):
+            self.欄[k] = QCheckBox(名)
+            格.addWidget(self.欄[k], 1 + i, 0, 1, 3)
+            格.addWidget(self._下次(), 1 + i, 3)
+        self.資料夾鈕 = QPushButton("打開存檔資料夾")
+        self.資料夾鈕.setCursor(Qt.PointingHandCursor)
+        self.資料夾鈕.clicked.connect(self.打開資料夾)
+        格.addWidget(self.資料夾鈕, 1 + len(self.存檔項目), 0, 1, 2)
+        return 框
+
+    def 打開資料夾(self):
+        os.startfile(os.path.dirname(live_topics.設定檔路徑))
 
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):
@@ -381,7 +404,8 @@ class 設定頁(QScrollArea):
         一般 = {
             "subtitle_mode": e["subtitle_mode"].currentData(),
             "chat": e["chat"].isChecked(), "minute_summary": e["minute_summary"].isChecked(),
-            "save_audio": e["save_audio"].isChecked(), "fix_with_chat": e["fix_with_chat"].isChecked(),
+            "fix_with_chat": e["fix_with_chat"].isChecked(),
+            **{k: e[k].isChecked() for k, _ in self.存檔項目},
             "summary_thinking": e["summary_thinking"].isChecked(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
@@ -453,6 +477,8 @@ class 設定頁(QScrollArea):
         if 問題們:
             字 += "\n" + "　".join(問題們)
         self._提示(字, 錯=bool(問題們))
+        if hasattr(self.主, "設定已儲存"):          # 主控台分頁與設定框各有一份設定頁：存了一份就讓另一份重新載入
+            self.主.設定已儲存(self)
 
     def 還原預設(self):
         設定 = live_topics.內建預設()
@@ -466,3 +492,32 @@ class 設定頁(QScrollArea):
     def _提示(self, 字, 錯=False):
         self.狀態字.setStyleSheet(f"color: {'#ff5c7a' if 錯 else '#3ecf8e'};")
         self.狀態字.setText(字)
+
+
+class 設定框(QWidget):
+    """獨立的「設定」視窗（啟動面板的齒輪、膠囊選單的「設定」）：內容就是上面的 設定頁，不另外寫一份。"""
+
+    def __init__(self, 主):
+        super().__init__(None, Qt.Window)
+        self.主 = 主
+        self.setObjectName("根")
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setWindowTitle("直播摘要 設定")
+        self.resize(820, 760)
+        版 = QVBoxLayout(self)
+        版.setContentsMargins(8, 8, 8, 8)
+        self.頁 = 設定頁(主)
+        版.addWidget(self.頁)
+
+    def 打開(self, 螢幕範圍=None):
+        """每次打開都從 config.json 重新載入（沒按「儲存」的修改不保留）。放在指定螢幕範圍的中間。"""
+        if not self.isVisible():
+            self.頁.載入()
+            self.頁.設執行中(self.主.執行中())
+            self.頁.狀態字.setText("")
+            if 螢幕範圍 is not None:
+                self.resize(min(820, 螢幕範圍.width() - 40), min(760, 螢幕範圍.height() - 40))
+                self.move(螢幕範圍.center() - self.rect().center())
+        self.show()
+        self.raise_()
+        self.activateWindow()

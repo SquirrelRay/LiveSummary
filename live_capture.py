@@ -139,7 +139,7 @@ class live_session:
     """用法：s = live_session(網址)；s.稿路徑 是直播稿檔；for 秒, 行 in s: 一句一句吐出
     (直播秒數, "[mm:ss] 文字")，同時即時存成直播稿。"""
 
-    def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True):
+    def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
         self.網址 = 網址
         self.語言 = 語言
         串流名 = 檢查直播(網址)
@@ -147,6 +147,7 @@ class live_session:
         self.串流名 = 串流名
         時間字 = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.稿路徑 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_直播稿.txt")
+        self.存稿 = 存稿          # False：直播稿只送到介面、不寫檔（稿路徑仍用來決定其他檔名）
         # 每段 20 秒音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
         self.音訊資料夾 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_音訊") if 存音訊 else None
         self.存了段數 = 0
@@ -156,7 +157,7 @@ class live_session:
         if 用聊天室:
             import chat_capture
             self.聊天 = chat_capture.聊天室(
-                頻道名稱(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt"))
+                頻道名稱(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt") if 存聊天 else None)
 
     def _存音訊(self, 資料, 序號, 起始秒):
         """把這一段音訊存成 wav，檔名像 0001_00-20.wav（序號_起始秒-結束秒）。失敗就停止存檔，不影響轉錄。"""
@@ -212,11 +213,11 @@ class live_session:
                 佇列.put(資料)
 
         threading.Thread(target=讀聲音, daemon=True).start()
-        events.送出("info", 印出=f"開始擷取直播（Ctrl+C 結束）。直播稿即時存到：{self.稿路徑}")
+        events.送出("info", 印出="開始擷取直播（Ctrl+C 結束）。" + (f"直播稿即時存到：{self.稿路徑}" if self.存稿 else "直播稿不存檔。"))
 
         第幾段, 上一句, 緩存 = 0, "", []
         try:
-            with open(self.稿路徑, "w", encoding="utf-8") as 稿:
+            with open(self.稿路徑 if self.存稿 else os.devnull, "w", encoding="utf-8") as 稿:
                 while True:
                     try:
                         資料 = 佇列.get(timeout=1)

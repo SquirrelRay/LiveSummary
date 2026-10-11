@@ -1,5 +1,6 @@
 # Twitch 聊天室擷取（匿名連線，不需要任何登入或金鑰）
 # 用 Twitch IRC：irc.chat.twitch.tv，帳號用 justinfanXXXXX 這種匿名名稱
+import os
 import re
 import ssl
 import time
@@ -54,7 +55,7 @@ class 聊天室:
 
     def _跑(self):
         失敗 = 0
-        with open(self.存檔路徑, "w", encoding="utf-8") as 檔:
+        with open(self.存檔路徑 or os.devnull, "w", encoding="utf-8") as 檔:      # 存檔路徑 None = 不存聊天室
             while not self._停.is_set():
                 try:
                     self._連線並讀取(檔)

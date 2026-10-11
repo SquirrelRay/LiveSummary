@@ -306,8 +306,9 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔):
         聊天室紀錄=聊天們 or None, 格式=格式)
     區塊 = f"=== {秒轉字(結束秒)} 話題結束 ===\n{內文}\n"
     events.送出("topic_summary", 開始=起, 結束=秒轉字(結束秒), 內文=內文, 印出="\n" + 區塊)
-    with open(輸出檔, "a", encoding="utf-8") as f:
-        f.write(區塊 + "\n")
+    if 存檔["摘要"]:
+        with open(輸出檔, "a", encoding="utf-8") as f:
+            f.write(區塊 + "\n")
 
 
 def 新話題():
@@ -339,6 +340,7 @@ def 加入(話題, 新行們):
 
 
 統計 = {"分鐘摘要": 0, "JSON失敗": 0}
+存檔 = {"摘要": True}               # 由 執行() 依設定 save_summary 填入：關掉時摘要照常產生，只是不寫檔
 單價 = {"輸入": 1.0, "輸出": 5.0}   # 由 執行() 依設定填入，只用來估算費用
 
 
@@ -362,7 +364,7 @@ def 輸出分鐘摘要(分鐘, 支線們, 秒, 有聊天, 分鐘檔):
     文字 = "\n".join(行們)
     events.送出("minute_summary", 秒=秒, 摘要=摘要字, 支線=list(支線們),
                 觀眾反應=觀眾 if 有聊天 else "", 印出=文字)
-    if 分鐘檔:
+    if 分鐘檔 and 存檔["摘要"]:
         with open(分鐘檔, "a", encoding="utf-8") as f:
             f.write(文字 + "\n\n")
     統計["分鐘摘要"] += 1
@@ -495,7 +497,11 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
 設定說明 = {
     "chat": "抓聊天室（--live）",
     "minute_summary": "分鐘摘要",
-    "save_audio": "存音訊（--live）",
+    "save_audio": "存檔：音訊（--live）",
+    "save_summary": "存檔：摘要（分鐘與話題）",
+    "save_transcript": "存檔：直播稿（--live）",
+    "save_chat": "存檔：聊天室（--live）",
+    "save_translation": "存檔：逐句翻譯（介面才有）",
     "fix_with_chat": "聊天室參考詞修正",
     "summary_thinking": "摘要使用延伸思考（true 較準但較貴；false 關閉思考，較省）",
     "ui_max_transcript": "介面：直播稿分頁最多顯示幾行（較舊的從畫面移除，存檔不受影響）",
@@ -528,7 +534,8 @@ def 內建預設():
     """內建預設值：直接取用程式裡現有的常數，維持現在的行為。"""
     import transcribe
     return {
-        "chat": True, "minute_summary": True, "save_audio": True, "fix_with_chat": False,
+        "chat": True, "minute_summary": True, "save_audio": False, "fix_with_chat": False,
+        "save_summary": False, "save_transcript": False, "save_chat": False, "save_translation": False,
         "summary_thinking": True,
         "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "newest_on_top": False, "hotkey_compact": "Ctrl+Shift+M", "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
         "model": summarize.MODEL, "whisper_model": transcribe.GPU_MODEL, "language": "zh",
@@ -590,6 +597,7 @@ def _句數(v):
 
 檢查 = {
     "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林, "summary_thinking": _布林,
+    "save_summary": _布林, "save_transcript": _布林, "save_chat": _布林, "save_translation": _布林,
     "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_translation": _顯示上限, "newest_on_top": _布林, "hotkey_compact": _字串, "ui_max_summary": _顯示上限,
     "check_minutes": _正數, "min_topic_min": _正數, "max_topic_min": _正數,
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
@@ -697,6 +705,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
     統計["分鐘摘要"] = 0
     統計["JSON失敗"] = 0
     單價["輸入"], 單價["輸出"] = 設定["price_input"], 設定["price_output"]
+    存檔["摘要"] = bool(設定["save_summary"])
 
     # 把設定套用到各個模組（模型名稱、話題長短、分鐘摘要句數）
     import transcribe
@@ -719,7 +728,8 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
         import live_capture
         try:
             行來源 = live_capture.live_session(網址, 設定["language"], 用聊天室=設定["chat"],
-                                                 存音訊=設定["save_audio"])
+                                                 存音訊=設定["save_audio"], 存稿=設定["save_transcript"],
+                                                 存聊天=設定["save_chat"])
         except live_capture.直播錯誤 as e:
             events.送出("error", 訊息=str(e), 印出=str(e))
             return False
@@ -733,9 +743,13 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
     if 聊天檔 and not 網址:
         聊天 = 聊天重播(聊天檔)
     # 告訴介面各分頁對應的存檔位置（分頁只顯示最近的內容，較早的在檔案裡）
-    events.送出("files", 稿=os.path.abspath(行來源.稿路徑 if 網址 else 檔案),
-                聊天=(os.path.abspath(聊天.存檔路徑) if 網址 and 聊天 else os.path.abspath(聊天檔) if 聊天檔 and not 網址 else None),
-                分鐘=os.path.abspath(分鐘檔) if 分鐘檔 else None, 話題=os.path.abspath(輸出檔))
+    # 存檔關閉的項目傳 None（介面就顯示「較早的內容已移除」，不顯示「打開檔案」）；基底 = 逐句翻譯存檔用的檔名開頭
+    events.送出("files", 基底=os.path.abspath(基底),
+                稿=os.path.abspath(行來源.稿路徑 if 網址 else 檔案) if 設定["save_transcript"] else None,
+                聊天=(os.path.abspath(聊天.存檔路徑) if 網址 and 聊天 and 聊天.存檔路徑
+                     else os.path.abspath(聊天檔) if 聊天檔 and not 網址 and 設定["save_chat"] else None),
+                分鐘=os.path.abspath(分鐘檔) if 分鐘檔 and 存檔["摘要"] else None,
+                話題=os.path.abspath(輸出檔) if 存檔["摘要"] else None)
     送狀態()
     try:
         話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"])
@@ -761,8 +775,9 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
     if 聊天:
         行們.append(f"聊天室：收到 {聊天.收到} 則，過濾掉 {聊天.過濾} 則"
                   + ("" if 聊天.收到 else "（沒收到留言，可能沒連上）"))
-    檔案們 = [f for f in (輸出檔, 分鐘檔) if f and os.path.exists(f)]
-    行們.append(("已存成：" + "、".join(檔案們)) if 檔案們 else "沒有產生任何內容，所以沒有建立結果檔。")
+    檔案們 = [f for f in (輸出檔, 分鐘檔) if f and 存檔["摘要"] and os.path.exists(f)]
+    行們.append(("已存成：" + "、".join(檔案們)) if 檔案們 else
+              "沒有產生任何內容，所以沒有建立結果檔。" if 存檔["摘要"] else "摘要存檔已關閉（save_summary），沒有建立結果檔。")
     events.送出("finished", 話題數=話題數, 檔案們=檔案們, 印出="\n".join(行們))
     return True
 

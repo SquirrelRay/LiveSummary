@@ -31,6 +31,7 @@ import settings_page # 「設定」分頁
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
+import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -234,8 +235,10 @@ class 分頁基底(QWidget):
         self.上限 = int(n)
 
     def 設檔案(self, 路徑):
+        """路徑 = None：這項內容沒有存檔（存檔關閉），超過上限時只說「已移除」，不顯示「打開檔案」。"""
         self.頂.檔案 = 路徑
-        self.頂.字.setText("較早的內容已存檔")
+        self.頂.字.setText("較早的內容已存檔" if 路徑 else "較早的內容已移除")
+        self.頂.鈕.setVisible(bool(路徑))
 
     def _超過了(self):
         if self.總數 > self.上限:
@@ -1021,8 +1024,12 @@ class 主控台(QMainWindow):
         self.setMinimumSize(640, 520)
         self.執行緒 = None
         self.要關閉 = False
+        self.要結束 = False        # True = 真的結束程式（膠囊或系統匣的「結束程式」）；False = 關主控台只是收起來
         self.結束中 = False
         self._待記網址 = None
+        self.本場設定 = None
+        self.本場檔案 = []
+        self.設定框 = None
 
         # 兩個字幕框：跟著引擎的事件更新，不另外跑引擎
         轉換訊息 = 轉換舊設定()
@@ -1057,7 +1064,8 @@ class 主控台(QMainWindow):
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
         self.面板鈕.setMenu(panel.建立面板選單(self.面板, self))
-        self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和主控台一起顯示）
+        self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和啟動面板一起顯示）
+        self.啟動面板 = launcher.啟動面板(self, 網址欄, 網址清單)
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
@@ -1360,6 +1368,7 @@ class 主控台(QMainWindow):
                       設定["translate_batch_seconds"], 設定["translate_batch_lines"])
         self.字幕器.啟用 = self.字幕框.開啟 or self.面板.要翻譯()     # 逐句翻譯面板開著也會翻譯
         self.面板.開始(設定)
+        self.本場設定, self.本場檔案 = 設定, []
         self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
         self._更新翻譯註()
         self._訊息("　".join("警告：" + w for w in 警告們) or ("正在檢查直播…" if 直播 else "開始重播文字稿…"))
@@ -1372,7 +1381,8 @@ class 主控台(QMainWindow):
         for w in (self.網址框, self.檔案框, self.瀏覽鈕, self.速度選, self.語言選, self.直播鈕, self.檔案鈕):
             w.setEnabled(False)
         self.收合設定(True)              # 開始後收起網址與語言，摘要區變大
-        self.設定頁.設執行中(True)
+        for 頁 in self.設定頁們():
+            頁.設執行中(True)
 
         速度 = self.速度選.currentData()
 
@@ -1425,7 +1435,8 @@ class 主控台(QMainWindow):
         if getattr(self, "_收尾計時", None):
             self._收尾計時.stop()
         self.字幕器.結束()
-        self.設定頁.設執行中(False)
+        for 頁 in self.設定頁們():
+            頁.設執行中(False)
         if self.摘要框.狀態提示 in (結束中文字, 翻譯收尾文字):
             self.摘要框.設狀態("")
         self.開始鈕.setEnabled(True)
@@ -1438,6 +1449,14 @@ class 主控台(QMainWindow):
             self.close()
 
     def closeEvent(self, e):
+        if not self.要結束:              # 關主控台只是收起來（膠囊、系統匣、擷取都照常）；結束程式要用膠囊或系統匣
+            e.ignore()
+            self.網址清單.hide()
+            self.hide()
+            if not ui_state.讀旗標("主控台收起提示過"):
+                ui_state.存旗標("主控台收起提示過")
+                self.膠囊.小提示("主控台已收起，可從膠囊選單重新打開", 秒=6)
+            return
         if self.執行緒 and self.執行緒.is_alive():   # 還在跑：先乾淨結束，完成後自動關窗
             self.要關閉 = True
             self.停止()
@@ -1447,6 +1466,9 @@ class 主控台(QMainWindow):
         events.接收者們.remove(self.橋.接收) if self.橋.接收 in events.接收者們 else None
         self.面板.全部收掉()
         self.膠囊.收掉()
+        self.啟動面板.close()
+        if self.設定框:
+            self.設定框.close()
         for 編號 in 快捷鍵編號.values():
             overlay.取消快捷鍵(int(self.winId()), 編號)
         for 框 in self.框們():
@@ -1454,6 +1476,22 @@ class 主控台(QMainWindow):
                 框.記住位置()
             框.close()
         e.accept()
+        QApplication.quit()              # 主控台常常是隱藏的，不靠「最後一個視窗關閉」來結束
+
+    # ---------- 設定框（齒輪、膠囊選單「設定」）----------
+    def 設定頁們(self):
+        return [self.設定頁] + ([self.設定框.頁] if self.設定框 else [])
+
+    def 開設定框(self):
+        """獨立的設定視窗：內容是 settings_page 的同一個設定頁（另一份實例），存檔後兩份互相同步。"""
+        if self.設定框 is None:
+            self.設定框 = settings_page.設定框(self)
+        self.設定框.打開(self.膠囊.膠囊._所在螢幕())
+
+    def 設定已儲存(self, 來源頁):
+        for 頁 in self.設定頁們():
+            if 頁 is not 來源頁:
+                頁.載入()
 
     # ---------- 兩個字幕框與快捷鍵 ----------
     def 框們(self):
@@ -1550,7 +1588,15 @@ class 主控台(QMainWindow):
         """提示與錯誤一律用可關閉的小提示條（相同的訊息不重複堆疊）。"""
         self.提示層.顯示(字, 錯誤, 秒)
 
-    def _完成提示(self, 檔案們):
+    def _有存檔(self, 摘要檔們):
+        """這一場有沒有真的寫出任何檔案（摘要、直播稿、聊天室、逐句翻譯、音訊）。"""
+        路徑們 = list(摘要檔們) + self.本場檔案 + [self.字幕器.存檔路徑]
+        if any(p and os.path.exists(p) and os.path.getsize(p) > 0 for p in 路徑們):
+            return True
+        設 = self.本場設定 or {}
+        return bool(設.get("save_audio") and self.直播鈕.isChecked())
+
+    def _完成提示(self, 檔案們):         # 舊的完成彈窗：已改成膠囊旁的小提示，留著不刪
         框 = QMessageBox(self)
         框.setIcon(QMessageBox.Information)
         框.setWindowTitle("直播摘要")
@@ -1570,7 +1616,12 @@ class 主控台(QMainWindow):
         if 種類 == "files":
             for 頁, 鍵 in ((self.稿頁, "稿"), (self.聊天頁, "聊天"), (self.分鐘頁, "分鐘"), (self.話題頁, "話題")):
                 頁.設檔案(內容[鍵])
-            self.字幕器.存檔基底 = os.path.splitext(內容["稿"])[0]       # 逐句翻譯存成「原檔名_逐句翻譯.txt」
+            # 這一場寫出的檔案（文字稿模式的直播稿、聊天室是讀進來的原檔，不算）
+            self.本場檔案 = [內容[k] for k in (("稿", "聊天", "分鐘", "話題") if self.直播鈕.isChecked() else ("分鐘", "話題"))
+                          if 內容[k]]
+            # 逐句翻譯存成「原檔名_逐句翻譯.txt」；存檔區的「逐句翻譯」關著就不存
+            存翻譯 = bool(self.本場設定 and self.本場設定["save_translation"])
+            self.字幕器.存檔基底 = 內容["基底"] if 存翻譯 else None
             if self._待記網址:
                 self.網址紀錄.加入(self._待記網址)
                 self._待記網址 = None
@@ -1644,7 +1695,7 @@ class 主控台(QMainWindow):
             翻譯 = self.字幕器.統計文字()
             self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + ("\n" + 翻譯 if 翻譯 else ""))
             self.摘要框.設狀態("已結束")
-            self._完成提示(內容["檔案們"])
+            self.膠囊.小提示("已結束，已存檔" if self._有存檔(內容["檔案們"]) else "已結束")   # 不跳彈窗，膠囊旁幾秒後自動消失
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
             self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
 
@@ -1720,11 +1771,11 @@ def main():
         pass
     app.setFont(選字型())
     app.setStyleSheet(樣式表)
-    窗 = 主控台()
-    窗.show()
+    app.setQuitOnLastWindowClosed(False)      # 主控台、啟動面板都可能收著；只有「結束程式」才結束
+    窗 = 主控台()                # 主控台先建好但不顯示（可從膠囊選單「顯示主控台」打開）
     窗.註冊快捷鍵()
-    窗.面板.還原上次()          # 上次關掉時開著的面板照原樣開回來
-    窗.膠囊.顯示()              # 浮動膠囊與系統匣圖示和主控台一起出現
+    窗.膠囊.顯示()              # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板
+    窗.啟動面板.顯示()          # 面板等按了「開始」才依版面出現
     sys.exit(app.exec())
 
 

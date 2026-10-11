@@ -10,7 +10,7 @@ import json
 
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QObject, QPropertyAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap, QIcon, QCursor, QGuiApplication
-from PySide6.QtWidgets import QApplication, QWidget, QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QMenu, QMessageBox, QSystemTrayIcon
 
 import overlay          # 置頂規則（Windows 原生）
 import panel            # 面板選單（直接重用 建立面板選單）
@@ -263,6 +263,52 @@ class 膠囊(QWidget):
         self.close()
 
 
+class 提示泡(QLabel):
+    """膠囊旁的小提示（例如「已結束」）：不搶焦點、滑鼠點擊穿過，幾秒後自動消失。"""
+
+    def __init__(self):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowTitle("直播摘要 提示")
+        self.setStyleSheet("QLabel { background: transparent; color: #ffffff; border: none; padding: 7px 14px;"
+                           " font-size: 14px; font-weight: 700; }")
+        self.計時 = QTimer(self, singleShot=True, timeout=self.hide)
+        self.置頂計時 = QTimer(self, interval=150, timeout=self._置頂)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QColor(139, 108, 255))
+        p.setBrush(QColor(29, 32, 41))
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 10, 10)
+        p.end()
+        super().paintEvent(e)
+
+    def 顯示(self, 字, 膠, 秒):
+        self.setText(字)
+        self.adjustSize()
+        g, 螢 = 膠.frameGeometry(), 膠._所在螢幕()
+        x = g.left() - self.width() - 6 if g.center().x() > 螢.center().x() else g.right() + 6    # 往螢幕內側放
+        y = g.center().y() - self.height() // 2
+        if not 膠.isVisible():
+            x, y = 螢.right() - self.width() - 20, 螢.bottom() - self.height() - 20
+        self.move(min(max(x, 螢.x()), 螢.right() - self.width()), min(max(y, 螢.y()), 螢.bottom() - self.height()))
+        self.show()
+        self.raise_()
+        # 面板、膠囊在前景是全螢幕程式時會每 0.5 秒把自己拉到最上層；提示顯示的這幾秒也一直拉自己到最上層，才不會被蓋住
+        self.置頂計時.start()
+        self.計時.start(int(秒 * 1000))
+
+    置頂計時 = None
+
+    def _置頂(self):
+        if self.isVisible():
+            overlay.user32.SetWindowPos(int(self.winId()), overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
+        else:
+            self.置頂計時.stop()
+
+
 class 系統匣(QSystemTrayIcon):
     def __init__(self, 管):
         super().__init__(管)
@@ -412,6 +458,8 @@ class 膠囊管理(QObject):
     def 填選單(self, 選單, 含重設=False):
         台 = self.台
         選單.clear()
+        if not 台.執行中() and not 台.結束中:          # 閒置時才有「開始…」（打開啟動面板）
+            選單.addAction("開始…").triggered.connect(台.啟動面板.顯示)
         a = 選單.addAction("停止")
         a.setEnabled(台.執行中() and not 台.結束中)
         a.triggered.connect(self.問停止)
@@ -425,6 +473,7 @@ class 膠囊管理(QObject):
         a.setCheckable(True)
         a.setChecked(self.顯示用量)
         a.toggled.connect(self.設顯示用量)
+        選單.addAction("設定").triggered.connect(台.開設定框)
         選單.addAction("顯示主控台").triggered.connect(self.顯示主控台)
         if 含重設:
             選單.addAction("重設膠囊位置").triggered.connect(self.膠囊.重設位置)
@@ -458,4 +507,11 @@ class 膠囊管理(QObject):
         台 = self.台
         if 台.執行中() and not 確認(self.膠囊, "結束程式", "直播進行中，確定要停止並結束程式嗎？\n（會照原本的流程整理最後一個話題後再關閉）"):
             return
-        台.close()              # 和關閉主控台相同：執行中會先乾淨收尾，完成後自動關閉
+        台.要結束 = True        # 關主控台平常只是收起；這裡才真的結束
+        台.close()              # 執行中會先乾淨收尾，完成後自動關閉
+
+    # ---------- 膠囊旁的小提示（幾秒後自動消失）----------
+    def 小提示(self, 字, 秒=4):
+        if not hasattr(self, "提示泡"):
+            self.提示泡 = 提示泡()
+        self.提示泡.顯示(字, self.膠囊, 秒)
