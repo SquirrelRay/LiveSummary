@@ -31,3 +31,5 @@ overlay_位置.json
 .env
 *.env
 翻譯錯誤紀錄.txt
+版面配置.json
+面板_測試/

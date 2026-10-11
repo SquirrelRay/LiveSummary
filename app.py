@@ -29,6 +29,7 @@ import overlay       # 字幕疊加層與全域快捷鍵
 import subtitle      # 逐句字幕（原文或翻譯）
 import settings_page # 「設定」分頁
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
+import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -1053,6 +1054,8 @@ class 主控台(QMainWindow):
         self.網址紀錄 = ui_state.網址紀錄()
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
+        self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
+        self.面板鈕.setMenu(self.面板.做選單(self.面板鈕))
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
@@ -1147,6 +1150,9 @@ class 主控台(QMainWindow):
         self.字幕鈕.setCursor(Qt.PointingHandCursor)
         self.字幕鈕.setToolTip("同時開關摘要框與字幕框（預設 Ctrl+Shift+S，可在「設定」分頁改）")
         self.字幕鈕.clicked.connect(self.切換字幕)
+        self.面板鈕 = QPushButton("面板")
+        self.面板鈕.setCursor(Qt.PointingHandCursor)
+        self.面板鈕.setToolTip("開關可自由擺放的面板、套用或另存版面")
         self.語言區 = QWidget()
         語言版 = QHBoxLayout(self.語言區)
         語言版.setContentsMargins(0, 0, 0, 0)
@@ -1160,7 +1166,7 @@ class 主控台(QMainWindow):
         按鈕版 = QHBoxLayout(self.按鈕區)
         按鈕版.setContentsMargins(0, 0, 0, 0)
         按鈕版.setSpacing(8)
-        for 鈕 in (self.字幕鈕, self.開始鈕, self.停止鈕):
+        for 鈕 in (self.面板鈕, self.字幕鈕, self.開始鈕, self.停止鈕):
             按鈕版.addWidget(鈕)
         第三列.addWidget(self.按鈕區)
         版.addWidget(self.第三區)
@@ -1293,6 +1299,20 @@ class 主控台(QMainWindow):
         """最新內容顯示在最上面（True）或最下面（False）：五個內容分頁一起換，立即重新排列。"""
         for 頁 in (self.分鐘頁, self.話題頁, self.稿頁, self.翻譯頁, self.聊天頁):
             頁.設方向(bool(置頂))
+        if hasattr(self, "面板"):
+            self.面板.設方向(置頂)
+
+    def 做面板頁(self, 種類):
+        """面板用：做一個和主控台分頁同一種的新清單頁。"""
+        if 種類 == "分鐘摘要":
+            return 卡片清單("分鐘摘要會在這裡出現")
+        if 種類 == "話題摘要":
+            return 卡片清單("每個話題結束時，話題摘要會在這裡出現")
+        if 種類 == "逐句翻譯":
+            return 逐句頁()
+        if 種類 == "直播稿":
+            return 文字清單("逐句轉錄的直播稿會在這裡出現")
+        return 文字清單("聊天室留言會在這裡出現（只有直播網址模式會抓聊天室）")
 
     def _加計數(self, 名):
         self.計數[名] += 1
@@ -1336,7 +1356,8 @@ class 主控台(QMainWindow):
         self.字幕器.開始(設定["subtitle_mode"], 設定["language"], 設定["model"],
                       設定["price_input"], 設定["price_output"],
                       設定["translate_batch_seconds"], 設定["translate_batch_lines"])
-        self.字幕器.啟用 = self.字幕框.開啟
+        self.字幕器.啟用 = self.字幕框.開啟 or self.面板.要翻譯()     # 逐句翻譯面板開著也會翻譯
+        self.面板.開始(設定)
         self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
         self._更新翻譯註()
         self._訊息("　".join("警告：" + w for w in 警告們) or ("正在檢查直播…" if 直播 else "開始重播文字稿…"))
@@ -1422,6 +1443,7 @@ class 主控台(QMainWindow):
             e.ignore()
             return
         events.接收者們.remove(self.橋.接收) if self.橋.接收 in events.接收者們 else None
+        self.面板.全部收掉()
         for 編號 in 快捷鍵編號.values():
             overlay.取消快捷鍵(int(self.winId()), 編號)
         for 框 in self.框們():
@@ -1443,7 +1465,7 @@ class 主控台(QMainWindow):
     def 開關框(self, 框, 開):
         框.顯示() if 開 else 框.隱藏()
         if 框 is self.字幕框:
-            self.字幕器.啟用 = 開          # 字幕框關著就不產生字幕（不翻譯，省錢）
+            self.字幕器.啟用 = 開 or self.面板.要翻譯()     # 字幕框和逐句翻譯面板都關著就不產生字幕（不翻譯，省錢）
             self._更新翻譯註()
         self.字幕鈕.setChecked(any(f.開啟 for f in self.框們()))
         if 開 and 框.穿透:
@@ -1517,7 +1539,7 @@ class 主控台(QMainWindow):
             self.控制版.setContentsMargins(18, 16, 18, 16)
             self.控制版.setSpacing(12)
             self._切換來源()
-        for 鈕 in (self.字幕鈕, self.開始鈕, self.停止鈕, self.收合鈕):
+        for 鈕 in (self.面板鈕, self.字幕鈕, self.開始鈕, self.停止鈕, self.收合鈕):
             鈕.setFixedHeight(30) if 收 else (鈕.setMinimumHeight(0), 鈕.setMaximumHeight(16777215))
         self.收合鈕.setText("▸ 展開網址與語言" if 收 else "▾ 收合網址與語言")
 
@@ -1698,6 +1720,7 @@ def main():
     窗 = 主控台()
     窗.show()
     窗.註冊快捷鍵()
+    窗.面板.還原上次()          # 上次關掉時開著的面板照原樣開回來
     sys.exit(app.exec())
 
 
