@@ -657,7 +657,8 @@ class 網址清單(QFrame):
 
 
 class 話題標(QLabel):
-    """狀態列的「目前話題」：只顯示一行，太長用「…」截斷；點一下展開完整內容的小浮窗，再點一下收回。"""
+    """狀態列的「目前話題」：只顯示一行，太長用「…」截斷；點一下展開完整內容的小浮窗，再點一下（或點別處）收回。
+    浮窗是主視窗裡的一個小元件（不是獨立的彈出視窗）：獨立的 Qt.Popup 會獨佔滑鼠，收不掉時整個主控台就像當掉。"""
 
     def __init__(self):
         super().__init__("")
@@ -668,17 +669,18 @@ class 話題標(QLabel):
         self.setCursor(Qt.PointingHandCursor)
         self.浮窗 = QLabel("")
         self.浮窗.setObjectName("話題浮窗")
-        self.浮窗.setWindowFlags(Qt.Popup)
         self.浮窗.setWordWrap(True)
         self.浮窗.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.浮窗.setStyleSheet("font-weight: 400;")
-        self._關閉時刻 = 0.0
-        self.浮窗.hideEvent = self._浮窗隱藏
+        self.浮窗.hide()
 
     def setText(self, 字):
         self.完整 = str(字)
         self.setToolTip(self.完整)
-        self.浮窗.setText(self.完整)
+        if self.浮窗.text() != self.完整:
+            self.浮窗.setText(self.完整)
+            if self.浮窗.isVisible():
+                self._擺浮窗()
         self._截斷()
 
     def text(self):
@@ -691,22 +693,42 @@ class 話題標(QLabel):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._截斷()
+        if self.浮窗.isVisible():
+            self._擺浮窗()
 
-    def _浮窗隱藏(self, e):
-        self._關閉時刻 = time.monotonic()
-        QLabel.hideEvent(self.浮窗, e)
+    def _擺浮窗(self):
+        窗 = self.window()
+        寬 = min(max(self.width(), 360), max(200, 窗.width() - 40))
+        self.浮窗.setFixedWidth(寬)
+        self.浮窗.setFixedHeight(self.浮窗.heightForWidth(寬) if self.浮窗.hasHeightForWidth() else self.浮窗.sizeHint().height())
+        位置 = 窗.mapFromGlobal(self.mapToGlobal(QPoint(0, self.height() + 4)))
+        self.浮窗.move(max(10, min(位置.x(), 窗.width() - 寬 - 10)), 位置.y())
+        self.浮窗.raise_()
+
+    def _展開(self):
+        if self.浮窗.parent() is not self.window():
+            self.浮窗.setParent(self.window())
+        self._擺浮窗()
+        self.浮窗.show()
+        self.浮窗.raise_()
+        QApplication.instance().installEventFilter(self)
+
+    def _收起(self):
+        self.浮窗.hide()
+        QApplication.instance().removeEventFilter(self)
+
+    def eventFilter(self, 物, e):
+        """展開時點到「目前話題」和浮窗以外的地方就收起來。"""
+        if e.type() == QEvent.MouseButtonPress:
+            w = QApplication.widgetAt(e.globalPosition().toPoint())
+            if not (w and (w is self or w is self.浮窗 or self.浮窗.isAncestorOf(w))):
+                self._收起()
+        return False
 
     def mousePressEvent(self, e):
         if e.button() != Qt.LeftButton:
             return super().mousePressEvent(e)
-        if self.浮窗.isVisible():
-            self.浮窗.hide()
-        elif time.monotonic() - self._關閉時刻 > 0.25:      # 剛被這一下點擊關掉的浮窗，不要馬上又打開
-            寬 = min(max(self.width(), 360), max(360, self.window().width() - 40))
-            self.浮窗.setFixedWidth(寬)
-            self.浮窗.setFixedHeight(self.浮窗.heightForWidth(寬) if self.浮窗.hasHeightForWidth() else self.浮窗.sizeHint().height())
-            self.浮窗.move(self.mapToGlobal(QPoint(0, self.height() + 4)))
-            self.浮窗.show()
+        self._收起() if self.浮窗.isVisible() else self._展開()
 
 
 class 狀態列(QWidget):
