@@ -67,6 +67,12 @@ class 字幕器:
         self._停 = threading.Event()
         self._停.set()             # 還沒開始
         self._佇列 = queue.Queue()
+        self._緩衝 = []            # 已收到、還沒送去翻的句子
+        self._進行中 = False       # 有一批正在翻
+        self._收尾 = threading.Event()   # 按了停止：把剩下的句子翻完再結束
+        self.收尾完成 = threading.Event()
+        self.收尾剩 = 0            # 按停止時還沒翻的句數（測試與回報用）
+        self.收尾翻 = 0            # 收尾時實際翻好幾句
         self.延遲們 = []           # 每批「第一句進來 → 翻好顯示」花了幾秒
         self.模式, self.語言, self.模型, self.單價 = "auto", "zh", "", (0, 0)
 
@@ -84,6 +90,11 @@ class 字幕器:
         self.延遲們 = []
         self._停 = threading.Event()
         self._佇列 = queue.Queue()
+        self._緩衝 = []
+        self._進行中 = False
+        self._收尾 = threading.Event()
+        self.收尾完成 = threading.Event()
+        self.收尾剩 = self.收尾翻 = 0
         self._執行緒 = threading.Thread(target=self._跑, daemon=True)
         self._執行緒.start()
 
@@ -91,12 +102,23 @@ class 字幕器:
         """這一場結束：還沒翻的句子就不翻了。"""
         self._停.set()
 
+    def 有待翻(self):
+        """還有句子沒翻（含正在翻的那一批）。"""
+        return bool(self._執行緒 and self._執行緒.is_alive() and not self._停.is_set()
+                    and (self._緩衝 or self._進行中 or not self._佇列.empty()))
+
+    def 收尾(self):
+        """按了停止：不再收新句子，把還沒翻的翻完（翻譯在背景執行緒做；完成時 收尾完成 會被設起來）。
+        呼叫的人負責設逾時：超時就呼叫 結束() 放棄，剩下的句子不再重送。"""
+        self.收尾剩 = len(self._緩衝) + self._佇列.qsize()
+        self._收尾.set()
+
     def 接收(self, 種類, 內容):
         """events 的接收者：只處理 transcript_line（另外記下自動偵測到的語言）。"""
         if 種類 == "language_detected":
             self.語言 = 內容["語言"]
             return
-        if 種類 != "transcript_line" or not self.啟用 or self._停.is_set():
+        if 種類 != "transcript_line" or not self.啟用 or self._停.is_set() or self._收尾.is_set():
             return
         文字 = 內容["內容"]
         if not 文字:
@@ -106,19 +128,46 @@ class 字幕器:
         else:
             events.送出("subtitle", 時間字=內容["時間字"], 文字=文字, 已翻譯=False)
 
+    def _排乾(self, 緩衝):
+        """收尾：把剩下的句子一批一批翻完（失敗不重送，顯示原文）。被放棄（結束()）就立刻停。"""
+        while True:
+            try:
+                緩衝.append(self._佇列.get_nowait())
+            except queue.Empty:
+                break
+        while 緩衝 and not self._停.is_set():
+            批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            self._進行中 = True
+            譯們 = self._翻(批)
+            self._進行中 = False
+            if self._停.is_set():      # 超時被放棄：這批不顯示了，但用量還是要算
+                self.送狀態()
+                return
+            for (_, 時間字, 原文), 譯 in zip(批, 譯們):
+                events.送出("subtitle", 時間字=時間字, 文字=譯 or 原文, 已翻譯=bool(譯))
+            self.收尾翻 += len(批)
+            self.延遲們.append(time.time() - 批[0][0])
+            self.送狀態()
+        self.收尾完成.set()
+
     def _跑(self):
-        緩衝 = []
+        緩衝 = self._緩衝
         while not self._停.is_set():
             try:
                 緩衝.append(self._佇列.get(timeout=0.3))
             except queue.Empty:
                 pass
+            if self._收尾.is_set():
+                self._排乾(緩衝)
+                return
             if not 緩衝:
                 continue
             if len(緩衝) < 批次句數 and time.time() - 緩衝[0][0] < 批次秒數:
                 continue
-            批, 緩衝 = 緩衝[:每批上限], 緩衝[每批上限:]
+            批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            self._進行中 = True
             譯們 = self._翻(批)
+            self._進行中 = False
             if self._停.is_set():      # 按了停止：這批不顯示了，但用量還是要算
                 self.送狀態()
                 return

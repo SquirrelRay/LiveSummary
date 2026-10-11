@@ -6,10 +6,11 @@ import sys
 import json
 import html
 import shutil
+import time
 import threading
 import subprocess
 
-from PySide6.QtCore import Qt, QObject, Signal
+from PySide6.QtCore import Qt, QObject, Signal, QTimer
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
@@ -93,6 +94,8 @@ QToolTip {{ background: {卡片}; color: {文字色}; border: 1px solid {邊框}
 
 
 結束中文字 = "正在產生最後一個話題的摘要，約需 10 秒…"
+翻譯收尾文字 = "正在翻譯剩下的句子…"
+翻譯收尾最多秒 = 10     # 收尾翻譯最多等幾秒，超時就放棄
 快捷鍵編號 = {"hotkey_toggle": 1, "hotkey_click_through": 2, "hotkey_summary": 3, "hotkey_subtitle": 4}
 
 
@@ -548,21 +551,44 @@ class 主控台(QMainWindow):
 
     def 停止(self):
         """等同 Ctrl+C：引擎會整理最後一個話題、關掉音訊擷取與聊天室。"""
-        events.停止.set()
+        if self.結束中:
+            return
         self.結束中 = True
-        self.字幕器.結束()
         self.停止鈕.setEnabled(False)
+        self._設燈(黃)
+        if self.字幕器.有待翻():       # 先把還沒翻的句子翻完（最多等 10 秒），再整理最後一個話題
+            self.停止鈕.setText(翻譯收尾文字)
+            self._訊息(翻譯收尾文字)
+            self.摘要框.設狀態(翻譯收尾文字)
+            self.字幕器.收尾()
+            self._收尾開始 = time.time()
+            self._收尾計時 = QTimer(self)
+            self._收尾計時.timeout.connect(self._看收尾)
+            self._收尾計時.start(100)
+        else:
+            self._進入整理()
+
+    def _看收尾(self):
+        if self.字幕器.收尾完成.is_set() or time.time() - self._收尾開始 >= 翻譯收尾最多秒:
+            self._收尾計時.stop()
+            self._進入整理()
+
+    def _進入整理(self):
+        """翻譯收尾完成（或超時放棄）後，才通知引擎整理最後一個話題。"""
+        events.停止.set()
+        self.字幕器.結束()          # 超時沒翻完的句子就放棄（不重送）
         self.停止鈕.setText(結束中文字)
         self._訊息(結束中文字 + "（同時關閉音訊擷取與聊天室）")
         self.摘要框.設狀態(結束中文字)
-        self._設燈(黃)
 
     def 跑完了(self):
         self.執行緒 = None
         self.結束中 = False
+        if getattr(self, "_收尾計時", None):
+            self._收尾計時.stop()
         self.字幕器.結束()
         self.設定頁.設執行中(False)
-        if self.摘要框.狀態提示 == 結束中文字:
+        if self.摘要框.狀態提示 in (結束中文字, 翻譯收尾文字):
             self.摘要框.設狀態("")
         self.開始鈕.setEnabled(True)
         self.停止鈕.setEnabled(False)
