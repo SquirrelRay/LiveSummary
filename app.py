@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
 from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
-    QHBoxLayout, QVBoxLayout, QTabWidget, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
+    QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
     QButtonGroup, QSizePolicy,
 )
 
@@ -28,6 +28,7 @@ import live_topics
 import overlay       # 字幕疊加層與全域快捷鍵
 import subtitle      # 逐句字幕（原文或翻譯）
 import settings_page # 「設定」分頁
+import ui_state      # 網址紀錄、並排欄數（本機記憶）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -81,7 +82,17 @@ QPushButton#小鈕 {{ padding: 2px 10px; border-radius: 8px; font-size: 12px; co
 QCheckBox {{ spacing: 6px; }}
 QPushButton#字幕:checked {{ background: rgba(139,108,255,0.18); border: 1px solid {主色}; color: #c4b5ff; font-weight: 700; }}
 QFrame#切換框 {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 12px; }}
-QTabWidget::pane {{ border: 1px solid {邊框}; border-radius: 14px; background: {面板}; top: -1px; }}
+QFrame#窗格 {{ border: 1px solid {邊框}; border-radius: 14px; background: {面板}; }}
+QPushButton#並排鈕 {{ padding: 2px 8px; min-width: 10px; border-radius: 8px; border: none; background: transparent; color: {淡字}; font-size: 12px; }}
+QPushButton#並排鈕:checked {{ background: {主色}; color: white; font-weight: 700; }}
+QPushButton#並排鈕[超過="true"] {{ color: #5a6072; }}
+QPushButton#並排鈕[超過="true"]:checked {{ background: #3a3456; color: #8f88aa; }}
+QTabBar QToolButton {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 6px; }}
+QFrame#網址清單 {{ background: {卡片}; border: 1px solid {主色}; border-radius: 10px; }}
+QFrame#網址列 {{ background: transparent; border: none; border-radius: 8px; }}
+QFrame#網址列:hover {{ background: #262a38; }}
+QPushButton#圖鈕 {{ padding: 0px; border: none; border-radius: 9px; color: {淡字}; background: transparent; min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }}
+QPushButton#圖鈕:hover {{ background: {邊框}; }}
 QTabBar::tab {{
     background: transparent; color: {淡字}; padding: 8px 18px; margin-right: 4px;
     border-top-left-radius: 10px; border-top-right-radius: 10px;
@@ -318,6 +329,333 @@ class 卡片清單(分頁基底):
         self.頂.hide()
 
 
+class 逐句頁(文字清單):
+    """逐句翻譯：每則一行時間＋譯文（主），下面一行較小較淡的原文。原文模式只顯示原文，頂端註明目前模式。"""
+
+    def __init__(self):
+        super().__init__("逐句翻譯會在這裡出現（每則顯示時間、譯文、原文）")
+        self.註 = QLabel("")
+        self.註.setObjectName("淡")
+        self.註.setWordWrap(True)
+        self.註.setContentsMargins(16, 10, 16, 0)
+        self.註.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.註.hide()
+        self.layout().insertWidget(0, self.註)
+
+    def 設註(self, 字):
+        self.註.setText(字)
+        self.註.setVisible(bool(字))
+
+    def 加原文(self, 時間字, 原文):
+        self.加一行(f'<span style="color:{淡字};">{跳脫(時間字)}</span>&nbsp;&nbsp;'
+                  f'<span style="font-size:15px;">{跳脫(原文)}</span>')
+
+    def 加譯文(self, 時間字, 原文, 譯文):
+        頭 = f'<span style="color:{淡字};">{跳脫(時間字)}</span>&nbsp;&nbsp;'
+        if 譯文:
+            self.加一行(頭 + f'<span style="font-size:15px;">{跳脫(譯文)}</span><br>'
+                      f'<span style="color:#6b7186; font-size:12px;">{跳脫(原文)}</span>')
+        else:
+            self.加一行(頭 + f'<span style="color:{淡字}; font-size:13px;">{跳脫(原文)}</span>&nbsp;&nbsp;'
+                      f'<span style="color:{黃}; font-size:12px;">未翻譯</span>')
+
+
+class 並排區(QWidget):
+    """分頁區：1～3 欄，每欄自己一條分頁列，各自選要看哪個分頁。
+    每個分頁（含「設定」）同時只會出現在一欄：在這一欄選到別欄正在看的分頁，兩欄互換。
+    頁面本身只有一份、不會被搬家或重建，所以每欄的自動捲動、往上捲不被拉回、「較早內容已存檔」都和單欄時一樣。
+    視窗窄時自動減欄（窄於 1100 退成 1 欄、窄於 1600 最多 2 欄），寬了就回到使用者選的欄數。"""
+    間距 = 12
+    緊湊 = "QTabBar::tab { padding: 8px 8px; margin-right: 1px; font-size: 12px; }"
+
+    def __init__(self, 頁名們, 頁們, 欄數, 欄頁們, 改了=None, 選到頁=None):
+        super().__init__()
+        self.頁名們 = list(頁名們)
+        self.頁們 = dict(zip(頁名們, 頁們))
+        self.欄數 = 欄數
+        self.欄頁們 = list(欄頁們)
+        self.改了, self.選到頁 = 改了, 選到頁
+        self._同步中 = False
+        self.窗格們 = []
+        for _ in range(3):
+            窗 = QFrame(self)
+            窗.setObjectName("窗格")
+            self.窗格們.append(窗)
+        self.分頁列們 = []
+        for c in range(3):
+            列 = QTabBar(self)
+            列.setExpanding(False)
+            列.setDrawBase(False)
+            列.setUsesScrollButtons(True)
+            列.setElideMode(Qt.ElideNone)
+            列.setFocusPolicy(Qt.NoFocus)
+            for 名 in self.頁名們:
+                列.addTab(名)
+            列.currentChanged.connect(lambda i, c=c: self._點分頁(c, i))
+            self.分頁列們.append(列)
+        for 頁 in 頁們:
+            頁.setParent(self)
+        self.選擇器 = QFrame(self)
+        self.選擇器.setObjectName("切換框")
+        版 = QHBoxLayout(self.選擇器)
+        版.setContentsMargins(8, 2, 3, 2)
+        版.setSpacing(1)
+        標 = QLabel("並排")
+        標.setObjectName("小標")
+        版.addWidget(標)
+        self.欄鈕們 = []
+        self.欄組 = QButtonGroup(self)
+        for n in (1, 2, 3):
+            鈕 = QPushButton(str(n))
+            鈕.setToolTip(f"{n} 欄")
+            鈕.setObjectName("並排鈕")
+            鈕.setCheckable(True)
+            鈕.setCursor(Qt.PointingHandCursor)
+            鈕.setChecked(n == self.欄數)
+            self.欄組.addButton(鈕, n)
+            self.欄鈕們.append(鈕)
+            版.addWidget(鈕)
+        self.欄組.idClicked.connect(self.設欄數)
+        self._同步分頁列()
+        self.setMinimumHeight(120)
+
+    # ---------- 狀態 ----------
+    def 有效欄數(self):
+        寬 = self.window().width()
+        上限 = 1 if 寬 < 1100 else 2 if 寬 < 1600 else 3
+        return min(self.欄數, 上限)
+
+    def 設欄數(self, n):
+        self.欄數 = n
+        self._存()
+        self.排()
+
+    def 選頁(self, 欄, 名):
+        舊 = self.欄頁們[欄]
+        if 名 == 舊:
+            return
+        if 名 in self.欄頁們:                 # 別欄正在看：兩欄互換
+            他 = self.欄頁們.index(名)
+            self.欄頁們[他], self.欄頁們[欄] = 舊, 名
+        else:
+            self.欄頁們[欄] = 名
+        self._同步分頁列()
+        self._存()
+        self.排()
+        if self.選到頁:
+            self.選到頁(名)
+
+    def 設標題(self, 名, 字):
+        i = self.頁名們.index(名)
+        for 列 in self.分頁列們:
+            列.setTabText(i, 字)
+        self.排()
+
+    def _存(self):
+        if self.改了:
+            self.改了(self.欄數, self.欄頁們)
+
+    def _點分頁(self, 欄, i):
+        if not self._同步中:
+            self.選頁(欄, self.頁名們[i])
+
+    def _同步分頁列(self):
+        self._同步中 = True
+        try:
+            for c, 列 in enumerate(self.分頁列們):
+                列.setCurrentIndex(self.頁名們.index(self.欄頁們[c]))
+        finally:
+            self._同步中 = False
+
+    # ---------- 排版 ----------
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.排()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.排()
+
+    def 排(self):
+        n = self.有效欄數()
+        寬, 高 = self.width(), self.height()
+        欄寬 = (寬 - self.間距 * (n - 1)) // n
+        頭高 = self.分頁列們[0].sizeHint().height()
+        選寬 = self.選擇器.sizeHint().width()
+        for 鈕, k in zip(self.欄鈕們, (1, 2, 3)):       # 窄到放不下的欄數用淡色表示（仍記著使用者的選擇）
+            超過 = "true" if k > n else "false"
+            if 鈕.property("超過") != 超過:
+                鈕.setProperty("超過", 超過)
+                鈕.style().unpolish(鈕)
+                鈕.style().polish(鈕)
+            鈕.setToolTip(f"視窗太窄，目前只顯示 {n} 欄（變寬就會自動回來）" if k > n else f"{k} 欄")
+        顯示的 = set()
+        for c in range(3):
+            開 = c < n
+            列, 窗 = self.分頁列們[c], self.窗格們[c]
+            列.setVisible(開)
+            窗.setVisible(開)
+            if not 開:
+                continue
+            x = c * (欄寬 + self.間距)
+            樣式 = self.緊湊 if n > 1 else ""
+            if 列.styleSheet() != 樣式:
+                列.setStyleSheet(樣式)
+            列.setGeometry(x, 0, max(60, 欄寬 - ((選寬 + 8) if c == n - 1 else 0)), 頭高)
+            窗.setGeometry(x, 頭高 - 1, 欄寬, max(10, 高 - 頭高 + 1))
+            頁 = self.頁們[self.欄頁們[c]]
+            頁.setGeometry(x + 1, 頭高, max(10, 欄寬 - 2), max(10, 高 - 頭高 - 1))
+            頁.show()
+            顯示的.add(頁)
+        for 頁 in self.頁們.values():
+            if 頁 not in 顯示的:
+                頁.hide()
+        選高 = self.選擇器.sizeHint().height()
+        self.選擇器.setGeometry((n - 1) * (欄寬 + self.間距) + 欄寬 - 選寬, (頭高 - 選高) // 2 - 1, 選寬, 選高)
+        self.選擇器.raise_()
+
+
+class 網址欄(QLineEdit):
+    """直播網址輸入框：點一下（或用 Tab 移進來）就通知外面顯示網址紀錄。"""
+    點到 = Signal()
+    按了Esc = Signal()
+
+    def mousePressEvent(self, e):
+        super().mousePressEvent(e)
+        if e.button() == Qt.LeftButton:
+            self.點到.emit()
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        if e.reason() == Qt.TabFocusReason:
+            self.點到.emit()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self.按了Esc.emit()
+        super().keyPressEvent(e)
+
+
+class 網址清單(QFrame):
+    """網址框下面的下拉清單（浮在視窗上，不佔版面）：釘選的在最上面，其後是最近用過的 10 個。
+    每筆：★釘選、頻道名稱＋網址（點一下填入）、✕刪除。"""
+    選了 = Signal(str)
+
+    def __init__(self, 根, 紀錄, 網址框):
+        super().__init__(根)
+        self.根, self.紀錄, self.網址框 = 根, 紀錄, 網址框
+        self.setObjectName("網址清單")
+        外 = QVBoxLayout(self)
+        外.setContentsMargins(4, 4, 4, 4)
+        self.捲 = QScrollArea()
+        self.捲.setWidgetResizable(True)
+        self.捲.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        外.addWidget(self.捲)
+        self.hide()
+        網址框.點到.connect(self.顯示)
+        網址框.按了Esc.connect(self.hide)
+        網址框.textEdited.connect(lambda _: self.hide())
+
+    def 顯示(self):
+        if self.isVisible():
+            return
+        if not self.網址框.isEnabled() or not self.紀錄.清單():
+            return
+        self.重建()
+        QApplication.instance().installEventFilter(self)
+        self.show()
+        self.raise_()
+
+    def hideEvent(self, e):
+        QApplication.instance().removeEventFilter(self)
+        super().hideEvent(e)
+
+    def eventFilter(self, 物, e):
+        """點到清單和網址框以外的地方就收起來。"""
+        if e.type() == QEvent.MouseButtonPress:
+            w = QApplication.widgetAt(e.globalPosition().toPoint())
+            if not (w and (w is self or self.isAncestorOf(w) or w is self.網址框)):
+                self.hide()
+        return False
+
+    def 重建(self):
+        內 = QWidget()
+        版 = QVBoxLayout(內)
+        版.setContentsMargins(4, 4, 4, 4)
+        版.setSpacing(2)
+        清單 = self.紀錄.清單()
+        寬 = self.網址框.width()
+        for 組名, 要釘 in (("已釘選", True), ("最近使用", False)):
+            組 = [x for x in 清單 if x["釘選"] == 要釘]
+            if not 組:
+                continue
+            標 = QLabel(組名)
+            標.setObjectName("小標")
+            標.setContentsMargins(6, 4, 0, 2)
+            版.addWidget(標)
+            for 項 in 組:
+                版.addWidget(self._列(項, 寬 - 120))
+        版.addStretch(1)
+        self.捲.setWidget(內)
+        self.setFixedWidth(寬)
+        左上 = self.網址框.mapTo(self.根, QPoint(0, self.網址框.height() + 4))
+        可用 = max(120, self.根.height() - 左上.y() - 20)
+        內.adjustSize()
+        self.setFixedHeight(min(內.sizeHint().height() + 12, 380, 可用))
+        self.move(左上)
+
+    def _列(self, 項, 文字寬):
+        列 = QFrame()
+        列.setObjectName("網址列")
+        版 = QHBoxLayout(列)
+        版.setContentsMargins(4, 3, 4, 3)
+        版.setSpacing(4)
+        釘 = QPushButton("★" if 項["釘選"] else "☆")
+        釘.setObjectName("圖鈕")
+        if 項["釘選"]:
+            釘.setStyleSheet(f"color: {黃};")
+        釘.setToolTip("取消釘選" if 項["釘選"] else "釘選（固定在最上方）")
+        刪 = QPushButton("✕")
+        刪.setObjectName("圖鈕")
+        刪.setToolTip("從紀錄刪除")
+        字 = QLabel()
+        字.setTextFormat(Qt.RichText)
+        網址短 = QFontMetrics(self.font()).elidedText(項["網址"], Qt.ElideMiddle, max(100, 文字寬))
+        字.setText(f'<b>{跳脫(ui_state.頻道名(項["網址"]))}</b><br>'
+                  f'<span style="color:{淡字}; font-size:12px;">{跳脫(網址短)}</span>')
+        字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        字.setCursor(Qt.PointingHandCursor)
+        字.mousePressEvent = lambda e, u=項["網址"]: self._選(u) if e.button() == Qt.LeftButton else None
+        for 鈕 in (釘, 刪):
+            鈕.setFocusPolicy(Qt.NoFocus)
+            鈕.setCursor(Qt.PointingHandCursor)
+        釘.clicked.connect(lambda _=False, u=項["網址"], 要=not 項["釘選"]: self._釘(u, 要))
+        刪.clicked.connect(lambda _=False, u=項["網址"]: self._刪(u))
+        版.addWidget(釘)
+        版.addWidget(字, 1)
+        版.addWidget(刪)
+        return 列
+
+    def _選(self, 網址):
+        self.網址框.setText(網址)
+        self.hide()
+        self.選了.emit(網址)
+
+    def _釘(self, 網址, 要釘):
+        self.紀錄.釘選(網址, 要釘)
+        self._更新()
+
+    def _刪(self, 網址):
+        self.紀錄.刪除(網址)
+        self._更新()
+
+    def _更新(self):
+        if self.紀錄.清單():
+            self.重建()
+        else:
+            self.hide()
+
+
 class 話題標(QLabel):
     """狀態列的「目前話題」：只顯示一行，太長用「…」截斷；點一下展開完整內容的小浮窗，再點一下收回。"""
 
@@ -519,6 +857,7 @@ class 主控台(QMainWindow):
         self.執行緒 = None
         self.要關閉 = False
         self.結束中 = False
+        self._待記網址 = None
 
         # 兩個字幕框：跟著引擎的事件更新，不另外跑引擎
         轉換訊息 = 轉換舊設定()
@@ -547,6 +886,9 @@ class 主控台(QMainWindow):
         總.addWidget(self._做狀態區())
         總.addWidget(self._做分頁(), 1)       # 只有分頁區吃剩下的空間，上面各區高度固定
         self.提示層 = 提示層(根)
+        self.網址紀錄 = ui_state.網址紀錄()
+        self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
+        self._待記網址 = None
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
@@ -597,7 +939,7 @@ class 主控台(QMainWindow):
         第二列 = QHBoxLayout(self.網址區)
         第二列.setContentsMargins(0, 0, 0, 0)
         第二列.setSpacing(8)
-        self.網址框 = QLineEdit()
+        self.網址框 = 網址欄()
         self.網址框.setPlaceholderText("https://www.twitch.tv/頻道名稱")
         self.檔案框 = QLineEdit()
         self.檔案框.setPlaceholderText("選一個文字稿 .txt 檔（每行 [mm:ss] 文字）")
@@ -691,23 +1033,28 @@ class 主控台(QMainWindow):
         self.狀態列.重排()
 
     def _做分頁(self):
-        self.分頁 = QTabWidget()
         self.分鐘頁 = 卡片清單("分鐘摘要會在這裡出現（每檢查一次一則，最新在最下面）")
         self.話題頁 = 卡片清單("每個話題結束時，話題摘要會在這裡出現", 黏底=False)    # 最上面是「進行中」，不自動捲到底
         self.稿頁 = 文字清單("逐句轉錄的直播稿會在這裡出現")
+        self.翻譯頁 = 逐句頁()
         self.聊天頁 = 文字清單("聊天室留言會在這裡出現（只有直播網址模式會抓聊天室）")
-        self.分頁名 = ["分鐘摘要", "話題摘要", "直播稿", "聊天室"]
-        for 頁, 名 in zip((self.分鐘頁, self.話題頁, self.稿頁, self.聊天頁), self.分頁名):
-            self.分頁.addTab(頁, 名)
-        self.計數 = [0, 0, 0, 0]
         self.設定頁 = settings_page.設定頁(self)
-        self.分頁.addTab(self.設定頁, "設定")
+        self.分頁名 = ["分鐘摘要", "話題摘要", "直播稿", "逐句翻譯", "聊天室"]       # 有計數的分頁
+        頁們 = [self.分鐘頁, self.話題頁, self.稿頁, self.翻譯頁, self.聊天頁, self.設定頁]
+        全部名 = self.分頁名 + ["設定"]
+        欄數, 欄頁們 = ui_state.讀介面設定(全部名)
+        self.計數 = dict.fromkeys(self.分頁名, 0)
+        self.並排 = 並排區(全部名, 頁們, 欄數, 欄頁們, 改了=ui_state.存介面設定,
+                          選到頁=lambda 名: self.設定頁.同步位置() if 名 == "設定" else None)
         self.設定頁.載入()
-        self.分頁.currentChanged.connect(lambda i: self.設定頁.同步位置() if self.分頁.widget(i) is self.設定頁 else None)
-        return self.分頁
+        if "設定" in 欄頁們[:self.並排.有效欄數()]:
+            self.設定頁.同步位置()
+        return self.並排
 
     def _切換來源(self):
         直播 = self.直播鈕.isChecked()
+        if hasattr(self, "網址清單"):
+            self.網址清單.hide()
         self.網址框.setVisible(直播)
         self.檔案框.setVisible(not 直播)
         self.瀏覽鈕.setVisible(not 直播)
@@ -719,9 +1066,9 @@ class 主控台(QMainWindow):
         if 路徑:
             self.檔案框.setText(路徑)
 
-    def _加計數(self, i):
-        self.計數[i] += 1
-        self.分頁.setTabText(i, f"{self.分頁名[i]}  {self.計數[i]}")
+    def _加計數(self, 名):
+        self.計數[名] += 1
+        self.並排.設標題(名, f"{名}  {self.計數[名]}")
 
     # ---------- 開始 / 停止 ----------
     def 開始(self):
@@ -738,16 +1085,17 @@ class 主控台(QMainWindow):
         llm.套用設定(設定)
 
         for 頁, 鍵 in ((self.分鐘頁, "ui_max_summary"), (self.話題頁, "ui_max_summary"),
-                      (self.稿頁, "ui_max_transcript"), (self.聊天頁, "ui_max_chat")):
+                      (self.稿頁, "ui_max_transcript"), (self.翻譯頁, "ui_max_translation"),
+                      (self.聊天頁, "ui_max_chat")):
             頁.設上限(設定[鍵])
             頁.設檔案(None)
         for 頁 in (self.分鐘頁, self.話題頁):
             頁.清空()
-        for 頁 in (self.稿頁, self.聊天頁):
+        for 頁 in (self.稿頁, self.翻譯頁, self.聊天頁):
             頁.clear()
-        self.計數 = [0, 0, 0, 0]
-        for i, 名 in enumerate(self.分頁名):
-            self.分頁.setTabText(i, 名)
+        self.計數 = dict.fromkeys(self.分頁名, 0)
+        for 名 in self.分頁名:
+            self.並排.設標題(名, 名)
         self.話題字.setText("準備中…")
         self._設藥丸(self.時間藥丸, "直播時間 --:--")
         self._設藥丸(self.轉錄藥丸, "轉錄：文字稿模式" if not 直播 else "轉錄：等待中")
@@ -761,6 +1109,8 @@ class 主控台(QMainWindow):
                       設定["price_input"], 設定["price_output"],
                       設定["translate_batch_seconds"], 設定["translate_batch_lines"])
         self.字幕器.啟用 = self.字幕框.開啟
+        self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
+        self._更新翻譯註()
         self._訊息("　".join("警告：" + w for w in 警告們) or ("正在檢查直播…" if 直播 else "開始重播文字稿…"))
         self._設燈(綠)
 
@@ -866,6 +1216,7 @@ class 主控台(QMainWindow):
         框.顯示() if 開 else 框.隱藏()
         if 框 is self.字幕框:
             self.字幕器.啟用 = 開          # 字幕框關著就不產生字幕（不翻譯，省錢）
+            self._更新翻譯註()
         self.字幕鈕.setChecked(any(f.開啟 for f in self.框們()))
         if 開 and 框.穿透:
             框.閃提示("穿透：開（按 " + self.ov["hotkey_click_through"] + " 可關閉以拖曳）", 2000)
@@ -923,6 +1274,7 @@ class 主控台(QMainWindow):
     # ---------- 收合、訊息、完成提示 ----------
     def 收合設定(self, 收):
         self.已收合 = 收
+        self.網址清單.hide()
         for w in (self.網址區, self.語言區, self.切換框):
             w.setVisible(not 收)
         # 收合：字幕／開始／停止搬到標題列同一行，下面整列不佔空間；展開：搬回最下面一列
@@ -965,9 +1317,14 @@ class 主控台(QMainWindow):
         if 種類 == "files":
             for 頁, 鍵 in ((self.稿頁, "稿"), (self.聊天頁, "聊天"), (self.分鐘頁, "分鐘"), (self.話題頁, "話題")):
                 頁.設檔案(內容[鍵])
+            self.字幕器.存檔基底 = os.path.splitext(內容["稿"])[0]       # 逐句翻譯存成「原檔名_逐句翻譯.txt」
+            if self._待記網址:
+                self.網址紀錄.加入(self._待記網址)
+                self._待記網址 = None
         elif 種類 == "subtitle":
             self.字幕框.加字幕(內容["文字"], 內容.get("已翻譯", False))
         elif 種類 == "language_detected":
+            self._更新翻譯註()
             名 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}.get(內容["語言"], 內容["語言"])
             if subtitle.要翻譯(self.字幕器.模式, 內容["語言"], ""):
                 self._訊息(f"偵測到{名}，逐句字幕自動切成翻譯。")
@@ -976,20 +1333,28 @@ class 主控台(QMainWindow):
         elif 種類 == "transcript_line":
             self.稿頁.加一行(f'<span style="color:{淡字};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;{跳脫(內容["內容"])}')
             self._設藥丸(self.時間藥丸, f"直播時間 {內容['時間字']}")
-            self._加計數(2)
+            self._加計數("直播稿")
+            if 內容["內容"] and not subtitle.要翻譯(self.字幕器.模式, self.字幕器.語言, 內容["內容"]):
+                self.翻譯頁.加原文(內容["時間字"], 內容["內容"])        # 原文模式：逐句翻譯分頁顯示原文
+                self._加計數("逐句翻譯")
+        elif 種類 == "translation_line":
+            self.翻譯頁.加譯文(內容["時間字"], 內容["原文"], 內容["譯文"])
+            if 內容.get("檔案"):
+                self.翻譯頁.設檔案(內容["檔案"])
+            self._加計數("逐句翻譯")
         elif 種類 == "chat_line":
             色 = 名字顏色[sum(map(ord, 內容["使用者"])) % len(名字顏色)]
             self.聊天頁.加一行(
                 f'<span style="color:{淡字};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;'
                 f'<b style="color:{色};">{跳脫(內容["使用者"])}</b>&nbsp;&nbsp;{跳脫(內容["內容"])}')
-            self._加計數(3)
+            self._加計數("聊天室")
         elif 種類 == "minute_summary":
             self.分鐘頁.加卡片(self._分鐘html(內容))
-            self._加計數(0)
+            self._加計數("分鐘摘要")
             self.摘要框.更新摘要(內容)
         elif 種類 == "topic_summary":
             self.話題頁.加卡片(self._話題html(內容))
-            self._加計數(1)
+            self._加計數("話題摘要")
         elif 種類 == "current_topic":
             簡述 = 內容["簡述"] or "（新話題剛開始）"
             self.話題字.setText(f"目前話題（已進行 {內容['進行分鐘']:.0f} 分鐘）：{簡述}")
@@ -1029,6 +1394,19 @@ class 主控台(QMainWindow):
             self._完成提示(內容["檔案們"])
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
             self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
+
+    def _更新翻譯註(self):
+        """逐句翻譯分頁頂端的說明：原文模式、字幕框關著不翻譯、語言還在偵測。"""
+        模式, 語言 = self.字幕器.模式, self.字幕器.語言
+        if 模式 == "original" or (模式 == "auto" and 語言 == "zh"):
+            字 = "目前為原文模式：這裡顯示原文，不翻譯，也不另外存檔。"
+        elif 模式 == "auto" and 語言 == "auto":
+            字 = "語言自動偵測中：偵測到外語後才會翻譯。"
+        elif not self.字幕器.啟用:
+            字 = "字幕框目前關閉，不會翻譯（省費用）。按「字幕」開啟後，之後的句子才會翻譯。"
+        else:
+            字 = ""
+        self.翻譯頁.設註(字)
 
     def _分鐘html(self, 內容):
         摘要 = 內容["摘要"]

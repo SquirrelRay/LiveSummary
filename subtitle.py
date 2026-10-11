@@ -2,6 +2,8 @@
 # 原文模式：收到 transcript_line 就直接送出 subtitle 事件，不花 API。
 # 翻譯模式：每累積約 8 秒或 4 句（config.json 的 translate_batch_seconds／translate_batch_lines 可調），批次翻成台灣慣用繁體中文再送出；翻譯失敗就送原文。
 # 翻譯的呼叫次數與 token 另外記在 llm.翻譯用量，不和摘要混在一起。
+# 翻譯模式的每一句（原文、譯文）另外送出 translation_line 事件給「逐句翻譯」分頁，並即時存成「原檔名_逐句翻譯.txt」：
+# 檔案在第一句寫入時才建立、已有同名舊檔就改用加了時間的新檔名（不覆蓋）；翻譯失敗或逾時沒翻的句子存原文並標「未翻譯」。
 import os
 import re
 import json
@@ -75,6 +77,10 @@ class 字幕器:
         self.收尾翻 = 0            # 收尾時實際翻好幾句
         self.延遲們 = []           # 每批「第一句進來 → 翻好顯示」花了幾秒
         self.模式, self.語言, self.模型, self.單價 = "auto", "zh", "", (0, 0)
+        self.存檔基底 = None       # 「原檔名」（不含副檔名），由介面在收到 files 事件時設定
+        self.存檔路徑 = None       # 第一句寫入後才有
+        self._檔鎖 = threading.Lock()
+        self._緩衝鎖 = threading.Lock()
 
     def 開始(self, 模式, 語言, 模型, 單價輸入, 單價輸出, 秒數=None, 句數=None):
         global 批次秒數, 批次句數
@@ -88,6 +94,7 @@ class 字幕器:
         for k in llm.翻譯用量:
             llm.翻譯用量[k] = 0
         self.延遲們 = []
+        self.存檔基底 = self.存檔路徑 = None
         self._停 = threading.Event()
         self._佇列 = queue.Queue()
         self._緩衝 = []
@@ -99,8 +106,44 @@ class 字幕器:
         self._執行緒.start()
 
     def 結束(self):
-        """這一場結束：還沒翻的句子就不翻了。"""
+        """這一場結束：還沒翻的句子就不翻了（存檔裡標「未翻譯」）。"""
         self._停.set()
+        self._放棄剩下()
+
+    def _放棄剩下(self):
+        """緩衝與佇列裡還沒翻的句子，記成「未翻譯」。可重複呼叫（每句只記一次）。"""
+        with self._緩衝鎖:
+            剩 = list(self._緩衝)
+            self._緩衝.clear()
+            while True:
+                try:
+                    剩.append(self._佇列.get_nowait())
+                except queue.Empty:
+                    break
+        for _, 時間字, 原文 in 剩:
+            self._記錄(時間字, 原文, "")
+
+    def _記錄(self, 時間字, 原文, 譯):
+        """記下翻譯模式的一句：寫進逐句翻譯存檔，並送出 translation_line 事件。譯 = 空字串代表沒翻到。"""
+        with self._檔鎖:
+            路徑 = self._寫存檔(時間字, 原文, 譯)
+        events.送出("translation_line", 時間字=時間字, 原文=原文, 譯文=譯 or None, 已翻譯=bool(譯), 檔案=路徑)
+
+    def _寫存檔(self, 時間字, 原文, 譯):
+        if not self.存檔基底:
+            return None
+        try:
+            if self.存檔路徑 is None:       # 第一句才建立；舊檔已存在就換新檔名，絕不覆蓋
+                後綴, 號 = "", 1
+                while os.path.exists(self.存檔基底 + "_逐句翻譯" + 後綴 + ".txt"):
+                    後綴 = "_" + time.strftime("%Y%m%d-%H%M") + ("" if 號 == 1 else f"_{號}")
+                    號 += 1
+                self.存檔路徑 = os.path.abspath(self.存檔基底 + "_逐句翻譯" + 後綴 + ".txt")
+            with open(self.存檔路徑, "a", encoding="utf-8") as f:
+                f.write(f"[{時間字}] {原文}" + chr(10) + "　　→ " + (譯 if 譯 else "【未翻譯】") + chr(10))
+        except Exception:
+            return None
+        return self.存檔路徑
 
     def 有待翻(self):
         """還有句子沒翻（含正在翻的那一批）。"""
@@ -136,15 +179,21 @@ class 字幕器:
             except queue.Empty:
                 break
         while 緩衝 and not self._停.is_set():
-            批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            with self._緩衝鎖:
+                批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            if not 批:
+                break
             self._進行中 = True
             譯們 = self._翻(批)
             self._進行中 = False
-            if self._停.is_set():      # 超時被放棄：這批不顯示了，但用量還是要算
+            if self._停.is_set():      # 超時被放棄：這批不顯示字幕了，但用量還是要算；翻好的照樣記進逐句翻譯
+                for (_, 時間字, 原文), 譯 in zip(批, 譯們):
+                    self._記錄(時間字, 原文, 譯)
                 self.送狀態()
                 return
             for (_, 時間字, 原文), 譯 in zip(批, 譯們):
                 events.送出("subtitle", 時間字=時間字, 文字=譯 or 原文, 已翻譯=bool(譯))
+                self._記錄(時間字, 原文, 譯)
             self.收尾翻 += len(批)
             self.延遲們.append(time.time() - 批[0][0])
             self.送狀態()
@@ -164,17 +213,24 @@ class 字幕器:
                 continue
             if len(緩衝) < 批次句數 and time.time() - 緩衝[0][0] < 批次秒數:
                 continue
-            批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            with self._緩衝鎖:
+                批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
+            if not 批:
+                continue
             self._進行中 = True
             譯們 = self._翻(批)
             self._進行中 = False
-            if self._停.is_set():      # 按了停止：這批不顯示了，但用量還是要算
+            if self._停.is_set():      # 按了停止：這批不顯示字幕了，但用量還是要算；翻好的照樣記進逐句翻譯
+                for (_, 時間字, 原文), 譯 in zip(批, 譯們):
+                    self._記錄(時間字, 原文, 譯)
                 self.送狀態()
                 return
             for (_, 時間字, 原文), 譯 in zip(批, 譯們):
                 events.送出("subtitle", 時間字=時間字, 文字=譯 or 原文, 已翻譯=bool(譯))
+                self._記錄(時間字, 原文, 譯)
             self.延遲們.append(time.time() - 批[0][0])
             self.送狀態()
+        self._放棄剩下()
 
     def _翻(self, 批):
         """回傳每句的譯文；失敗的句子是空字串（顯示原文）。任何錯誤都不往外丟。"""

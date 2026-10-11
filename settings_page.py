@@ -5,10 +5,10 @@ import os
 import json
 import shutil
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, QEvent
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
-    QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSlider, QSpinBox,
+    QApplication, QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSlider, QSpinBox,
     QLineEdit, QFontComboBox, QColorDialog, QGridLayout, QHBoxLayout, QVBoxLayout,
 )
 
@@ -70,6 +70,20 @@ class 顏色鈕(QPushButton):
             self.改了()
 
 
+class 滾輪過濾(QObject):
+    """滑桿、數字欄位、下拉選單：沒有點選（沒有取得焦點）時不吃滑鼠滾輪，改成捲動整個設定頁，避免捲頁面時誤改數值。"""
+
+    def __init__(self, 捲動區):
+        super().__init__(捲動區)
+        self.捲動區 = 捲動區
+
+    def eventFilter(self, 物, e):
+        if e.type() == QEvent.Wheel and not 物.hasFocus():
+            QApplication.sendEvent(self.捲動區.verticalScrollBar(), e)
+            return True
+        return False
+
+
 class 設定頁(QScrollArea):
     def __init__(self, 主):
         super().__init__()
@@ -107,6 +121,10 @@ class 設定頁(QScrollArea):
         版.addWidget(self._做一般區())
         版.addStretch(1)
         self.setWidget(內)
+        self._滾輪 = 滾輪過濾(self)
+        for w in (w for w in 內.findChildren(QWidget) if isinstance(w, (QSlider, QSpinBox, QComboBox))):
+            w.setFocusPolicy(Qt.StrongFocus)      # 只有點選過才會有焦點（預設的 Wheel 會讓滾輪也能取得焦點）
+            w.installEventFilter(self._滾輪)
 
     # ---------- 版面 ----------
     def _面板(self, 標題):
@@ -214,7 +232,7 @@ class 設定頁(QScrollArea):
         e["save_audio"] = QCheckBox("存音訊（直播網址模式）")
         e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
         e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
-        for k in ("ui_max_transcript", "ui_max_chat", "ui_max_summary"):
+        for k in ("ui_max_transcript", "ui_max_chat", "ui_max_translation", "ui_max_summary"):
             e[k] = QSpinBox()
             e[k].setRange(10, 100000)
             e[k].setSuffix(" 則")
@@ -253,6 +271,7 @@ class 設定頁(QScrollArea):
         加("分鐘摘要句數", e["minute_sentences"], True)
         加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
         加("聊天室分頁最多顯示", e["ui_max_chat"], True)
+        加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
         加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
         加("翻譯批次：最多等", e["translate_batch_seconds"], True)
         加("翻譯批次：累積", e["translate_batch_lines"], True)
@@ -361,6 +380,7 @@ class 設定頁(QScrollArea):
             "summary_thinking": e["summary_thinking"].isChecked(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
+            "ui_max_translation": e["ui_max_translation"].value(),
             "ui_max_summary": e["ui_max_summary"].value(),
             "translate_batch_seconds": e["translate_batch_seconds"].value(),
             "translate_batch_lines": e["translate_batch_lines"].value(),
