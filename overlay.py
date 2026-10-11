@@ -222,6 +222,7 @@ class 疊加框(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setMouseTracking(True)
         self.setMinimumWidth(240)
+        self.待重畫 = False        # 隱藏期間內容有變，等重新顯示時才重畫
         self.開啟 = False          # 使用者要不要看到（淡出時仍算開啟）
         self.穿透 = True
         self._拖曳中 = False
@@ -343,6 +344,9 @@ class 疊加框(QWidget):
             self.存檔計時.start()
 
     def 內容變了(self):
+        if not self.開啟:          # 隱藏期間只記下內容，不重畫、不排版；重新顯示時再一次畫最新的
+            self.待重畫 = True
+            return
         self._重畫內容()
         self._調高度()
         self._有更新()
@@ -350,6 +354,9 @@ class 疊加框(QWidget):
     # ---------- 顯示、隱藏、淡出 ----------
     def 顯示(self):
         self.開啟 = True
+        if self.待重畫:
+            self.待重畫 = False
+            self._重畫內容()
         self._現身()
         self._有更新()
 

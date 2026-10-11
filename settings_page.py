@@ -214,6 +214,10 @@ class 設定頁(QScrollArea):
         e["save_audio"] = QCheckBox("存音訊（直播網址模式）")
         e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
         e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
+        for k in ("ui_max_transcript", "ui_max_chat", "ui_max_summary"):
+            e[k] = QSpinBox()
+            e[k].setRange(10, 100000)
+            e[k].setSuffix(" 則")
         e["minute_sentences"] = QSpinBox()
         e["minute_sentences"].setRange(1, 3)
         e["minute_sentences"].setSuffix(" 句")
@@ -247,6 +251,9 @@ class 設定頁(QScrollArea):
         for k in ("chat", "minute_summary", "save_audio", "fix_with_chat", "summary_thinking"):
             加("", e[k], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
+        加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
+        加("聊天室分頁最多顯示", e["ui_max_chat"], True)
+        加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
         加("翻譯批次：最多等", e["translate_batch_seconds"], True)
         加("翻譯批次：累積", e["translate_batch_lines"], True)
         加("", e["click_through"])
@@ -353,6 +360,8 @@ class 設定頁(QScrollArea):
             "save_audio": e["save_audio"].isChecked(), "fix_with_chat": e["fix_with_chat"].isChecked(),
             "summary_thinking": e["summary_thinking"].isChecked(),
             "minute_sentences": e["minute_sentences"].value(),
+            "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
+            "ui_max_summary": e["ui_max_summary"].value(),
             "translate_batch_seconds": e["translate_batch_seconds"].value(),
             "translate_batch_lines": e["translate_batch_lines"].value(),
             "provider": e["provider"].currentData(), "model": e["model"].text().strip(),

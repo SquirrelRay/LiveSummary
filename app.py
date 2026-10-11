@@ -134,27 +134,92 @@ def 黏在底部(捲軸):
     捲軸.rangeChanged.connect(lambda lo, hi: 捲軸.setValue(hi) if 狀態["黏"] else None)
 
 
-class 文字清單(QTextBrowser):
-    """直播稿、聊天室用：一行一行往下加。"""
+class 頂列(QWidget):
+    """分頁最上方的一行「較早的內容已存檔」＋「打開檔案」按鈕；內容還沒超過上限時不顯示。"""
+
+    def __init__(self):
+        super().__init__()
+        版 = QHBoxLayout(self)
+        版.setContentsMargins(16, 8, 16, 0)
+        self.字 = QLabel("較早的內容已存檔")
+        self.字.setObjectName("淡")
+        self.鈕 = QPushButton("打開檔案")
+        self.鈕.setObjectName("小鈕")
+        self.鈕.setCursor(Qt.PointingHandCursor)
+        self.鈕.clicked.connect(self.打開)
+        版.addWidget(self.字)
+        版.addWidget(self.鈕)
+        版.addStretch(1)
+        self.檔案 = None
+        self.hide()
+
+    def 打開(self):
+        if self.檔案 and os.path.exists(self.檔案):
+            os.startfile(self.檔案)
+        else:
+            self.字.setText("較早的內容已存檔（檔案找不到）")
+
+
+class 分頁基底(QWidget):
+    """上面一列提示、下面是清單。清單超過上限就從最舊的開始從畫面移除（存檔不受影響）。"""
+
+    def __init__(self, 內):
+        super().__init__()
+        版 = QVBoxLayout(self)
+        版.setContentsMargins(0, 0, 0, 0)
+        版.setSpacing(0)
+        self.頂 = 頂列()
+        版.addWidget(self.頂)
+        版.addWidget(內, 1)
+        self.上限 = 500
+        self.總數 = 0
+
+    def 設上限(self, n):
+        self.上限 = int(n)
+
+    def 設檔案(self, 路徑):
+        self.頂.檔案 = 路徑
+        self.頂.字.setText("較早的內容已存檔")
+
+    def _超過了(self):
+        if self.總數 > self.上限:
+            self.頂.show()
+
+
+class 文字清單(分頁基底):
+    """直播稿、聊天室用：一行一行往下加，只留最近的 上限 行。"""
 
     def __init__(self, 提示):
-        super().__init__()
-        self.setOpenExternalLinks(False)
-        self.setPlaceholderText(提示)
-        self.document().setDocumentMargin(16)
-        黏在底部(self.verticalScrollBar())
+        self.瀏覽 = QTextBrowser()
+        super().__init__(self.瀏覽)
+        self.瀏覽.setOpenExternalLinks(False)
+        self.瀏覽.setPlaceholderText(提示)
+        self.瀏覽.document().setDocumentMargin(16)
+        黏在底部(self.瀏覽.verticalScrollBar())
+
+    def 設上限(self, n):
+        super().設上限(n)
+        self.瀏覽.document().setMaximumBlockCount(self.上限)     # 超過就從最舊的一行開始移除
 
     def 加一行(self, 內容html):
-        self.append(內容html)
+        self.瀏覽.append(內容html)
+        self.總數 += 1
+        self._超過了()
+
+    def clear(self):
+        self.瀏覽.clear()
+        self.總數 = 0
+        self.頂.hide()
 
 
-class 卡片清單(QScrollArea):
-    """分鐘摘要、話題摘要用：一張一張卡片往下加（最新在下面）。"""
+class 卡片清單(分頁基底):
+    """分鐘摘要、話題摘要用：一張一張卡片往下加（最新在下面），只留最近的 上限 張。"""
 
     def __init__(self, 提示):
-        super().__init__()
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.捲 = QScrollArea()
+        super().__init__(self.捲)
+        self.捲.setWidgetResizable(True)
+        self.捲.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         內 = QWidget()
         self.排版 = QVBoxLayout(內)
         self.排版.setContentsMargins(16, 16, 16, 16)
@@ -163,9 +228,9 @@ class 卡片清單(QScrollArea):
         self.提示.setObjectName("淡")
         self.排版.addWidget(self.提示)
         self.排版.addStretch(1)
-        self.setWidget(內)
-        黏在底部(self.verticalScrollBar())
-        self.數量 = 0
+        self.捲.setWidget(內)
+        黏在底部(self.捲.verticalScrollBar())
+        self.數量 = 0         # 畫面上目前有幾張
 
     def 加卡片(self, 內容html):
         self.提示.hide()
@@ -181,6 +246,13 @@ class 卡片清單(QScrollArea):
         版.addWidget(字)
         self.排版.insertWidget(self.排版.count() - 1, 卡)
         self.數量 += 1
+        self.總數 += 1
+        while self.數量 > self.上限:       # 從最舊的一張開始移除
+            項 = self.排版.takeAt(1)
+            if 項.widget():
+                項.widget().deleteLater()
+            self.數量 -= 1
+        self._超過了()
 
     def 清空(self):
         while self.排版.count() > 2:
@@ -189,6 +261,8 @@ class 卡片清單(QScrollArea):
                 項.widget().deleteLater()
         self.提示.show()
         self.數量 = 0
+        self.總數 = 0
+        self.頂.hide()
 
 
 def 時間標(字):
@@ -423,6 +497,10 @@ class 主控台(QMainWindow):
         設定, _, 警告們 = live_topics.載入設定({"language": self.語言選.currentData()})
         llm.套用設定(設定)
 
+        for 頁, 鍵 in ((self.分鐘頁, "ui_max_summary"), (self.話題頁, "ui_max_summary"),
+                      (self.稿頁, "ui_max_transcript"), (self.聊天頁, "ui_max_chat")):
+            頁.設上限(設定[鍵])
+            頁.設檔案(None)
         for 頁 in (self.分鐘頁, self.話題頁):
             頁.清空()
         for 頁 in (self.稿頁, self.聊天頁):
@@ -609,7 +687,10 @@ class 主控台(QMainWindow):
 
     # ---------- 事件 ----------
     def 處理事件(self, 種類, 內容):
-        if 種類 == "subtitle":
+        if 種類 == "files":
+            for 頁, 鍵 in ((self.稿頁, "稿"), (self.聊天頁, "聊天"), (self.分鐘頁, "分鐘"), (self.話題頁, "話題")):
+                頁.設檔案(內容[鍵])
+        elif 種類 == "subtitle":
             self.字幕框.加字幕(內容["文字"], 內容.get("已翻譯", False))
         elif 種類 == "language_detected":
             名 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}.get(內容["語言"], 內容["語言"])

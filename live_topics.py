@@ -498,6 +498,9 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "save_audio": "存音訊（--live）",
     "fix_with_chat": "聊天室參考詞修正",
     "summary_thinking": "摘要使用延伸思考（true 較準但較貴；false 關閉思考，較省）",
+    "ui_max_transcript": "介面：直播稿分頁最多顯示幾行（較舊的從畫面移除，存檔不受影響）",
+    "ui_max_chat": "介面：聊天室分頁最多顯示幾則",
+    "ui_max_summary": "介面：分鐘摘要與話題摘要分頁各最多顯示幾則",
     "check_minutes": "幾分鐘檢查一次話題",
     "min_topic_min": "話題最短分鐘數",
     "max_topic_min": "話題最長分鐘數",
@@ -522,7 +525,8 @@ def 內建預設():
     import transcribe
     return {
         "chat": True, "minute_summary": True, "save_audio": True, "fix_with_chat": False,
-        "summary_thinking": True, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
+        "summary_thinking": True,
+        "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
         "model": summarize.MODEL, "whisper_model": transcribe.GPU_MODEL, "language": "zh",
         "minute_sentences": 2,
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
@@ -571,12 +575,17 @@ def _句數上限(v):
     return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 8
 
 
+def _顯示上限(v):
+    return isinstance(v, int) and not isinstance(v, bool) and 10 <= v <= 100000
+
+
 def _句數(v):
     return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3
 
 
 檢查 = {
     "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林, "summary_thinking": _布林,
+    "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_summary": _顯示上限,
     "check_minutes": _正數, "min_topic_min": _正數, "max_topic_min": _正數,
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
     "provider": _服務, "base_url": _文字, "api_key_env": _文字,
@@ -717,6 +726,10 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
     聊天 = getattr(行來源, "聊天", None)
     if 聊天檔 and not 網址:
         聊天 = 聊天重播(聊天檔)
+    # 告訴介面各分頁對應的存檔位置（分頁只顯示最近的內容，較早的在檔案裡）
+    events.送出("files", 稿=os.path.abspath(行來源.稿路徑 if 網址 else 檔案),
+                聊天=(os.path.abspath(聊天.存檔路徑) if 網址 and 聊天 else os.path.abspath(聊天檔) if 聊天檔 and not 網址 else None),
+                分鐘=os.path.abspath(分鐘檔) if 分鐘檔 else None, 話題=os.path.abspath(輸出檔))
     送狀態()
     try:
         話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"])
