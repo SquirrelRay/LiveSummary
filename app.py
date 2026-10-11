@@ -11,7 +11,7 @@ import threading
 import subprocess
 
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
-from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QTextCursor
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
     QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
@@ -88,6 +88,11 @@ QPushButton#並排鈕:checked {{ background: {主色}; color: white; font-weight
 QPushButton#並排鈕[超過="true"] {{ color: #5a6072; }}
 QPushButton#並排鈕[超過="true"]:checked {{ background: #3a3456; color: #8f88aa; }}
 QTabBar QToolButton {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 6px; }}
+QPushButton#迷你鈕, QPushButton#迷你停止 {{ padding: 2px 0px; min-width: 26px; max-width: 26px; border-radius: 8px; border: none; background: transparent; color: {淡字}; font-size: 12px; }}
+QPushButton#迷你鈕:hover, QPushButton#迷你停止:hover {{ background: {邊框}; }}
+QPushButton#迷你鈕:checked {{ background: {主色}; color: white; }}
+QPushButton#迷你停止 {{ color: {紅}; font-weight: 700; }}
+QPushButton#迷你停止:disabled {{ color: #5a6072; }}
 QFrame#網址清單 {{ background: {卡片}; border: 1px solid {主色}; border-radius: 10px; }}
 QFrame#網址列 {{ background: transparent; border: none; border-radius: 8px; }}
 QFrame#網址列:hover {{ background: #262a38; }}
@@ -522,6 +527,29 @@ class 並排區(QWidget):
             self.欄鈕們.append(鈕)
             版.addWidget(鈕)
         self.欄組.idClicked.connect(self.設欄數)
+        self.精簡鈕 = QPushButton("精簡")
+        self.精簡鈕.setObjectName("並排鈕")
+        self.精簡鈕.setCursor(Qt.PointingHandCursor)
+        self.精簡鈕.setToolTip("精簡模式：隱藏上方標題列與狀態列，只看內容分頁")
+        版.addWidget(self.精簡鈕)
+        # 精簡模式時分頁列右邊只留三個小按鈕（按鈕的動作由主控台接上，行為和原本的按鈕完全相同）
+        self.精簡框 = QFrame(self)
+        self.精簡框.setObjectName("切換框")
+        精版 = QHBoxLayout(self.精簡框)
+        精版.setContentsMargins(4, 2, 4, 2)
+        精版.setSpacing(2)
+        self.迷你停止, self.迷你字幕, self.迷你退出 = QPushButton("■"), QPushButton("字"), QPushButton("⤢")
+        for 鈕, 名, 提示 in ((self.迷你停止, "迷你停止", "停止"), (self.迷你字幕, "迷你鈕", "字幕開關"),
+                           (self.迷你退出, "迷你鈕", "退出精簡模式")):
+            鈕.setObjectName(名)
+            鈕.setToolTip(提示)
+            鈕.setCursor(Qt.PointingHandCursor)
+            鈕.setFocusPolicy(Qt.NoFocus)
+            精版.addWidget(鈕)
+        self.迷你字幕.setCheckable(True)
+        self.迷你停止.setEnabled(False)
+        self.精簡 = False
+        self.精簡框.hide()
         self._同步分頁列()
         self.setMinimumHeight(120)
 
@@ -530,6 +558,12 @@ class 並排區(QWidget):
         寬 = self.window().width()
         上限 = 1 if 寬 < 1100 else 2 if 寬 < 1600 else 3
         return min(self.欄數, 上限)
+
+    def 設精簡(self, 開):
+        self.精簡 = bool(開)
+        self.選擇器.setVisible(not 開)
+        self.精簡框.setVisible(開)
+        self.排()
 
     def 設欄數(self, n):
         self.欄數 = n
@@ -587,7 +621,8 @@ class 並排區(QWidget):
         寬, 高 = self.width(), self.height()
         欄寬 = (寬 - self.間距 * (n - 1)) // n
         頭高 = self.分頁列們[0].sizeHint().height()
-        選寬 = self.選擇器.sizeHint().width()
+        右框 = self.精簡框 if self.精簡 else self.選擇器
+        選寬 = 右框.sizeHint().width()
         for 鈕, k in zip(self.欄鈕們, (1, 2, 3)):       # 窄到放不下的欄數用淡色表示（仍記著使用者的選擇）
             超過 = "true" if k > n else "false"
             if 鈕.property("超過") != 超過:
@@ -604,7 +639,7 @@ class 並排區(QWidget):
             if not 開:
                 continue
             x = c * (欄寬 + self.間距)
-            樣式 = self.緊湊 if n > 1 else ""
+            樣式 = self.緊湊 if (n > 1 or self.精簡) else ""
             if 列.styleSheet() != 樣式:
                 列.setStyleSheet(樣式)
             列.setGeometry(x, 0, max(60, 欄寬 - ((選寬 + 8) if c == n - 1 else 0)), 頭高)
@@ -616,9 +651,9 @@ class 並排區(QWidget):
         for 頁 in self.頁們.values():
             if 頁 not in 顯示的:
                 頁.hide()
-        選高 = self.選擇器.sizeHint().height()
-        self.選擇器.setGeometry((n - 1) * (欄寬 + self.間距) + 欄寬 - 選寬, (頭高 - 選高) // 2 - 1, 選寬, 選高)
-        self.選擇器.raise_()
+        選高 = 右框.sizeHint().height()
+        右框.setGeometry((n - 1) * (欄寬 + self.間距) + 欄寬 - 選寬, (頭高 - 選高) // 2 - 1, 選寬, 選高)
+        右框.raise_()
 
 
 class 網址欄(QLineEdit):
@@ -1014,6 +1049,7 @@ class 主控台(QMainWindow):
         總.addWidget(self._做狀態區())
         總.addWidget(self._做分頁(), 1)       # 只有分頁區吃剩下的空間，上面各區高度固定
         self.提示層 = 提示層(根)
+        self._接精簡與全螢幕()
         self.網址紀錄 = ui_state.網址紀錄()
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
@@ -1194,6 +1230,64 @@ class 主控台(QMainWindow):
         路徑, _ = QFileDialog.getOpenFileName(self, "選擇文字稿", 專案目錄, "文字稿 (*.txt);;所有檔案 (*)")
         if 路徑:
             self.檔案框.setText(路徑)
+
+    # ---------- 精簡模式與全螢幕 ----------
+    def _接精簡與全螢幕(self):
+        並 = self.並排
+        並.精簡鈕.clicked.connect(lambda: self.設精簡(True))
+        並.迷你退出.clicked.connect(lambda: self.設精簡(False))
+        並.迷你停止.clicked.connect(self.停止鈕.click)       # 和原本的停止鍵完全相同
+        並.迷你字幕.clicked.connect(self.字幕鈕.click)
+        鍵, _ = live_topics.載入設定({})[0]["hotkey_compact"], None
+        序 = QKeySequence(鍵)
+        if 序.isEmpty():
+            序 = QKeySequence("Ctrl+Shift+M")
+            self._訊息(f"config.json 的 hotkey_compact「{鍵}」看不懂，改用 Ctrl+Shift+M。")
+        self.精簡快捷 = QShortcut(序, self)        # 只在主控台視窗有焦點時有效（不是全域快捷鍵）
+        self.精簡快捷.setContext(Qt.WindowShortcut)
+        self.精簡快捷.activated.connect(lambda: self.設精簡(not self.精簡中))
+        全 = QShortcut(QKeySequence("F11"), self)
+        全.setContext(Qt.WindowShortcut)
+        全.activated.connect(self.切換全螢幕)
+        self.精簡中 = False
+        self.同步計時 = QTimer(self)               # 精簡模式時，小按鈕跟著原本的停止／字幕按鈕狀態
+        self.同步計時.timeout.connect(self._同步迷你鈕)
+        self.同步計時.start(150)
+        self.設精簡(ui_state.讀精簡(), 存=False)
+
+    def _同步迷你鈕(self):
+        並 = self.並排
+        if not self.精簡中:
+            return
+        並.迷你停止.setEnabled(self.停止鈕.isEnabled())
+        並.迷你停止.setToolTip(self.停止鈕.text() if self.結束中 else "停止")
+        並.迷你字幕.setChecked(self.字幕鈕.isChecked())
+
+    def 設精簡(self, 開, 存=True):
+        """精簡模式：隱藏上方標題列與狀態列，分頁區佔滿視窗。"""
+        self.精簡中 = bool(開)
+        self.控制框.setVisible(not 開)
+        self.狀態框.setVisible(not 開)
+        self.網址清單.hide() if hasattr(self, "網址清單") else None
+        self.並排.設精簡(開)
+        self._同步迷你鈕()
+        if 存:
+            ui_state.存精簡(self.精簡中)
+
+    def 切換全螢幕(self):
+        if self.isFullScreen():
+            self.showMaximized() if self._全螢幕前最大化 else self.showNormal()
+        else:
+            self._全螢幕前最大化 = self.isMaximized()
+            self.showFullScreen()
+
+    _全螢幕前最大化 = False
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape and self.isFullScreen():
+            self.切換全螢幕()
+            return
+        super().keyPressEvent(e)
 
     def 設方向(self, 置頂):
         """最新內容顯示在最上面（True）或最下面（False）：五個內容分頁一起換，立即重新排列。"""
