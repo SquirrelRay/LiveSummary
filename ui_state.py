@@ -1,7 +1,7 @@
 # 介面的本機記憶（只存在這台電腦，不進 git）：
 #   網址紀錄.json  最近用過的直播網址（可釘選、可刪除）
 #   介面設定.json  並排欄數與每欄選的分頁
-# 介面設定.json 另外記著精簡模式的開關。兩個檔案壞了或讀不出來都不會讓程式出錯，當成沒有紀錄。
+# 介面設定.json 另外記著精簡模式的開關與浮動膠囊的位置。兩個檔案壞了或讀不出來都不會讓程式出錯，當成沒有紀錄。
 import os
 import re
 import json
@@ -157,3 +157,16 @@ def 讀精簡():
 
 def 存精簡(開):
     _更新介面設定(精簡=bool(開))
+
+
+def 讀膠囊位置():
+    """回傳 (x, y)；沒有紀錄或壞掉回傳 None。"""
+    原始 = _讀(介面設定檔, {})
+    位 = 原始.get("膠囊位置") if isinstance(原始, dict) else None
+    if isinstance(位, list) and len(位) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in 位):
+        return 位[0], 位[1]
+    return None
+
+
+def 存膠囊位置(位置):
+    _更新介面設定(膠囊位置=None if 位置 is None else [int(位置[0]), int(位置[1])])

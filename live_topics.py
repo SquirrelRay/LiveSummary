@@ -501,6 +501,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "ui_max_transcript": "介面：直播稿分頁最多顯示幾行（較舊的從畫面移除，存檔不受影響）",
     "ui_max_chat": "介面：聊天室分頁最多顯示幾則",
     "hotkey_compact": "介面：切換精簡模式的快捷鍵（只在主控台視窗有焦點時有效）",
+    "capsule_show_usage": "介面：浮動膠囊旁顯示簡短用量（估算費用），預設關",
     "newest_on_top": "介面：內容分頁的最新內容放最上面（true）或最下面（false，預設）",
     "ui_max_translation": "介面：逐句翻譯分頁最多顯示幾則（較舊的從畫面移除，存檔不受影響）",
     "ui_max_summary": "介面：分鐘摘要與話題摘要分頁各最多顯示幾則",
@@ -535,6 +536,7 @@ def 內建預設():
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
         "price_input": 1.0, "price_output": 5.0,
         "subtitle_mode": "auto", "translate_batch_seconds": 8, "translate_batch_lines": 4, "overlay": {},
+        "capsule_show_usage": False,
     }
 
 
@@ -595,6 +597,7 @@ def _句數(v):
     "price_input": _非負, "price_output": _非負,
     "subtitle_mode": _字幕模式, "translate_batch_seconds": _正數, "translate_batch_lines": _句數上限,
     "overlay": _字典,
+    "capsule_show_usage": _布林,
 }
 
 

@@ -30,6 +30,7 @@ import subtitle      # 逐句字幕（原文或翻譯）
 import settings_page # 「設定」分頁
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
+import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -1056,6 +1057,7 @@ class 主控台(QMainWindow):
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
         self.面板鈕.setMenu(panel.建立面板選單(self.面板, self))
+        self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和主控台一起顯示）
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
@@ -1444,6 +1446,7 @@ class 主控台(QMainWindow):
             return
         events.接收者們.remove(self.橋.接收) if self.橋.接收 in events.接收者們 else None
         self.面板.全部收掉()
+        self.膠囊.收掉()
         for 編號 in 快捷鍵編號.values():
             overlay.取消快捷鍵(int(self.winId()), 編號)
         for 框 in self.框們():
@@ -1721,6 +1724,7 @@ def main():
     窗.show()
     窗.註冊快捷鍵()
     窗.面板.還原上次()          # 上次關掉時開著的面板照原樣開回來
+    窗.膠囊.顯示()              # 浮動膠囊與系統匣圖示和主控台一起出現
     sys.exit(app.exec())
 
 

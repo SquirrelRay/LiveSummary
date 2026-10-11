@@ -63,5 +63,6 @@
     }
   },
   "translate_batch_seconds": 8,
-  "translate_batch_lines": 4
+  "translate_batch_lines": 4,
+  "capsule_show_usage": false
 }
