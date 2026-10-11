@@ -3,7 +3,7 @@
   "minute_summary": true,
   "save_audio": true,
   "fix_with_chat": false,
-  "summary_thinking": true,
+  "summary_thinking": false,
   "check_minutes": 1,
   "min_topic_min": 3,
   "max_topic_min": 15,
