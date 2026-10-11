@@ -236,6 +236,10 @@ class 設定頁(QScrollArea):
             e[k] = QSpinBox()
             e[k].setRange(10, 100000)
             e[k].setSuffix(" 則")
+        e["newest_on_top"] = QComboBox()
+        e["newest_on_top"].addItem("最下面", False)
+        e["newest_on_top"].addItem("最上面", True)
+        e["newest_on_top"].currentIndexChanged.connect(self._換方向)
         e["minute_sentences"] = QSpinBox()
         e["minute_sentences"].setRange(1, 3)
         e["minute_sentences"].setSuffix(" 句")
@@ -269,6 +273,7 @@ class 設定頁(QScrollArea):
         for k in ("chat", "minute_summary", "save_audio", "fix_with_chat", "summary_thinking"):
             加("", e[k], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
+        加("最新內容顯示在", e["newest_on_top"])
         加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
         加("聊天室分頁最多顯示", e["ui_max_chat"], True)
         加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
@@ -380,7 +385,7 @@ class 設定頁(QScrollArea):
             "summary_thinking": e["summary_thinking"].isChecked(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
-            "ui_max_translation": e["ui_max_translation"].value(),
+            "ui_max_translation": e["ui_max_translation"].value(), "newest_on_top": bool(e["newest_on_top"].currentData()),
             "ui_max_summary": e["ui_max_summary"].value(),
             "translate_batch_seconds": e["translate_batch_seconds"].value(),
             "translate_batch_lines": e["translate_batch_lines"].value(),
@@ -401,6 +406,11 @@ class 設定頁(QScrollArea):
         框.套用設定(self.讀框(鍵), 動位置=True)
         if not 框.開啟:
             self.主.開關框(框, True)
+
+    def _換方向(self, *_):
+        """選了「最新內容顯示在」就立刻重新排列所有分頁（按「儲存」才寫進 config.json）。"""
+        if not self._載入中:
+            self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
 
     # ---------- 執行中提示 ----------
     def 設執行中(self, 執行中):
@@ -450,6 +460,7 @@ class 設定頁(QScrollArea):
         self.載入(設定)
         for 鍵 in self.框欄:
             self._預覽(鍵)
+        self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
         self._提示("已還原成預設值，字幕框已預覽。按「儲存」才會寫入 config.json。")
 
     def _提示(self, 字, 錯=False):

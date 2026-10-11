@@ -500,6 +500,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "summary_thinking": "摘要使用延伸思考（true 較準但較貴；false 關閉思考，較省）",
     "ui_max_transcript": "介面：直播稿分頁最多顯示幾行（較舊的從畫面移除，存檔不受影響）",
     "ui_max_chat": "介面：聊天室分頁最多顯示幾則",
+    "newest_on_top": "介面：內容分頁的最新內容放最上面（true）或最下面（false，預設）",
     "ui_max_translation": "介面：逐句翻譯分頁最多顯示幾則（較舊的從畫面移除，存檔不受影響）",
     "ui_max_summary": "介面：分鐘摘要與話題摘要分頁各最多顯示幾則",
     "check_minutes": "幾分鐘檢查一次話題",
@@ -527,7 +528,7 @@ def 內建預設():
     return {
         "chat": True, "minute_summary": True, "save_audio": True, "fix_with_chat": False,
         "summary_thinking": True,
-        "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
+        "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "newest_on_top": False, "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
         "model": summarize.MODEL, "whisper_model": transcribe.GPU_MODEL, "language": "zh",
         "minute_sentences": 2,
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
@@ -586,7 +587,7 @@ def _句數(v):
 
 檢查 = {
     "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林, "summary_thinking": _布林,
-    "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_translation": _顯示上限, "ui_max_summary": _顯示上限,
+    "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_translation": _顯示上限, "newest_on_top": _布林, "ui_max_summary": _顯示上限,
     "check_minutes": _正數, "min_topic_min": _正數, "max_topic_min": _正數,
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
     "provider": _服務, "base_url": _文字, "api_key_env": _文字,

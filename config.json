@@ -7,6 +7,7 @@
   "ui_max_transcript": 500,
   "ui_max_chat": 1000,
   "ui_max_translation": 500,
+  "newest_on_top": false,
   "ui_max_summary": 300,
   "check_minutes": 1,
   "min_topic_min": 3,

@@ -11,7 +11,7 @@ import threading
 import subprocess
 
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
-from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
     QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
@@ -148,15 +148,41 @@ class 事件橋(QObject):
         self.收到.emit(種類, dict(內容))
 
 
-def 黏在底部(捲軸):
-    """新內容進來時自動捲到最下面；使用者往上捲的時候就不動。"""
-    狀態 = {"黏": True}
-    捲軸.valueChanged.connect(lambda v: 狀態.update(黏=v >= 捲軸.maximum() - 8))
-    捲軸.rangeChanged.connect(lambda lo, hi: 捲軸.setValue(hi) if 狀態["黏"] else None)
+class 跟隨(QObject):
+    """新內容進來時自動跟隨：最新在下 → 捲在最底時跟著到底；最新在上 → 捲在最頂時留在頂。
+    使用者手動捲離了就不動；最新在上時內容加在上方，會把捲動位置往下補回去，讓使用者正在看的那一段不跑掉。"""
+
+    def __init__(self, 捲軸):
+        super().__init__(捲軸)
+        self.捲軸 = 捲軸
+        self.置頂 = False
+        self.黏 = True
+        self.舊高 = 捲軸.maximum()
+        self.補償 = 0          # 最新在上時，從最下面移除的內容高度（範圍縮小不是因為上方變少）
+        捲軸.valueChanged.connect(self._值變了)
+        捲軸.rangeChanged.connect(self._範圍變了)
+
+    def 設方向(self, 置頂):
+        self.置頂 = 置頂
+        self.黏 = True
+        self.補償 = 0
+        self.舊高 = self.捲軸.maximum()
+        self.捲軸.setValue(0 if 置頂 else self.捲軸.maximum())
+
+    def _值變了(self, v):
+        self.黏 = v <= 8 if self.置頂 else v >= self.捲軸.maximum() - 8
+
+    def _範圍變了(self, lo, hi):
+        舊, self.舊高 = self.舊高, hi
+        if self.黏:
+            self.捲軸.setValue(0 if self.置頂 else hi)
+        elif self.置頂:
+            self.捲軸.setValue(self.捲軸.value() + (hi - 舊) + self.補償)
+        self.補償 = 0
 
 
 class 頂列(QWidget):
-    """分頁最上方的一行「較早的內容已存檔」＋「打開檔案」按鈕；內容還沒超過上限時不顯示。"""
+    """分頁上「較早的內容已存檔」＋「打開檔案」按鈕，放在最舊內容的那一端；內容還沒超過上限時不顯示。"""
 
     def __init__(self):
         super().__init__()
@@ -182,18 +208,20 @@ class 頂列(QWidget):
 
 
 class 分頁基底(QWidget):
-    """上面一列提示、下面是清單。清單超過上限就從最舊的開始從畫面移除（存檔不受影響）。"""
+    """一列提示加一個清單。清單超過上限就從最舊的開始從畫面移除（存檔不受影響）。
+    置頂 = 最新在上：最舊的內容在最下面，提示列也跟著放最下面。"""
 
     def __init__(self, 內):
         super().__init__()
-        版 = QVBoxLayout(self)
-        版.setContentsMargins(0, 0, 0, 0)
-        版.setSpacing(0)
+        self.版 = QVBoxLayout(self)
+        self.版.setContentsMargins(0, 0, 0, 0)
+        self.版.setSpacing(0)
         self.頂 = 頂列()
-        版.addWidget(self.頂)
-        版.addWidget(內, 1)
+        self.版.addWidget(self.頂)
+        self.版.addWidget(內, 1)
         self.上限 = 500
         self.總數 = 0
+        self.置頂 = False
 
     def 設上限(self, n):
         self.上限 = int(n)
@@ -206,9 +234,18 @@ class 分頁基底(QWidget):
         if self.總數 > self.上限:
             self.頂.show()
 
+    def _頂位置(self):
+        return 0
+
+    def 設方向(self, 置頂):
+        self.置頂 = 置頂
+        self.版.removeWidget(self.頂)
+        self.版.insertWidget(self.版.count() if 置頂 else self._頂位置(), self.頂)
+        self.頂.layout().setContentsMargins(16, 0, 16, 8) if 置頂 else self.頂.layout().setContentsMargins(16, 8, 16, 0)
+
 
 class 文字清單(分頁基底):
-    """直播稿、聊天室用：一行一行往下加，只留最近的 上限 行。"""
+    """直播稿、聊天室用：一行一行加，只留最近的 上限 行。最新在下 = 加在底部；最新在上 = 加在頂部。"""
 
     def __init__(self, 提示):
         self.瀏覽 = QTextBrowser()
@@ -216,27 +253,79 @@ class 文字清單(分頁基底):
         self.瀏覽.setOpenExternalLinks(False)
         self.瀏覽.setPlaceholderText(提示)
         self.瀏覽.document().setDocumentMargin(16)
-        黏在底部(self.瀏覽.verticalScrollBar())
+        self.條們 = []              # 目前畫面上每一行的 html，最舊的在前
+        self.跟隨 = 跟隨(self.瀏覽.verticalScrollBar())
 
     def 設上限(self, n):
         super().設上限(n)
-        self.瀏覽.document().setMaximumBlockCount(self.上限)     # 超過就從最舊的一行開始移除
+        self._套上限()
+
+    def _套上限(self):
+        # 最新在下：由 Qt 從最舊（最上面）的一行開始移除；最新在上：最舊的在最下面，Qt 做不到，改成自己移除
+        self.瀏覽.document().setMaximumBlockCount(0 if self.置頂 else self.上限)
 
     def 加一行(self, 內容html):
-        self.瀏覽.append(內容html)
+        self.條們.append(內容html)
+        if not self.置頂:
+            del self.條們[:-self.上限]
+            self.瀏覽.append(內容html)
+        else:
+            if len(self.條們) > self.上限:
+                del self.條們[0]
+                self._移除最後一行()
+            self._頂端插入(內容html)
         self.總數 += 1
         self._超過了()
 
+    def _頂端插入(self, 內容html):
+        文件 = self.瀏覽.document()
+        c = QTextCursor(文件)
+        c.beginEditBlock()
+        if len(self.條們) > 1:
+            c.insertBlock()
+            c.movePosition(QTextCursor.Start)
+        c.insertHtml(內容html)
+        c.endEditBlock()
+
+    def _移除最後一行(self):
+        文件 = self.瀏覽.document()
+        if 文件.blockCount() <= 1:
+            return
+        self.跟隨.補償 += int(文件.documentLayout().blockBoundingRect(文件.lastBlock()).height())
+        c = QTextCursor(文件)
+        c.movePosition(QTextCursor.End)
+        c.movePosition(QTextCursor.StartOfBlock, QTextCursor.KeepAnchor)
+        c.movePosition(QTextCursor.PreviousCharacter, QTextCursor.KeepAnchor)
+        c.removeSelectedText()
+
+    def 設方向(self, 置頂):
+        super().設方向(置頂)
+        self.跟隨.設方向(置頂)
+        self._套上限()
+        self.瀏覽.setUpdatesEnabled(False)
+        self.瀏覽.clear()
+        舊 = list(self.條們)
+        self.條們 = []
+        for 行 in 舊:                          # 由舊到新重排：最新在下 = 一路加在底部；最新在上 = 一路加在頂部
+            self.條們.append(行)
+            if 置頂:
+                self._頂端插入(行)
+            else:
+                self.瀏覽.append(行)
+        self.瀏覽.setUpdatesEnabled(True)
+        self.跟隨.設方向(置頂)
+
     def clear(self):
         self.瀏覽.clear()
+        self.條們 = []
         self.總數 = 0
         self.頂.hide()
 
 
 class 卡片清單(分頁基底):
-    """分鐘摘要、話題摘要用：一張一張卡片往下加（最新在下面），只留最近的 上限 張。"""
+    """分鐘摘要、話題摘要用：一張一張卡片，只留最近的 上限 張。「進行中」卡片永遠在「最新」的那一端。"""
 
-    def __init__(self, 提示, 黏底=True):
+    def __init__(self, 提示):
         self.捲 = QScrollArea()
         super().__init__(self.捲)
         self.捲.setWidgetResizable(True)
@@ -245,18 +334,29 @@ class 卡片清單(分頁基底):
         self.排版 = QVBoxLayout(內)
         self.排版.setContentsMargins(16, 16, 16, 16)
         self.排版.setSpacing(12)
-        self.進行卡 = None      # 話題頁用：最上方「進行中」的話題（排版第 0 格，沒有時是 None）
+        self.進行卡 = None      # 話題頁用：「進行中」的話題
         self.提示 = QLabel(提示)
         self.提示.setObjectName("淡")
-        self.排版.addWidget(self.提示)
-        self.排版.addStretch(1)
+        self.卡們 = []          # 已結束的卡片，最舊的在前
         self.捲.setWidget(內)
-        if 黏底:
-            黏在底部(self.捲.verticalScrollBar())
-        self.數量 = 0         # 畫面上目前有幾張
+        self.跟隨 = 跟隨(self.捲.verticalScrollBar())
+        self._排()
+
+    def _排(self):
+        """依方向把提示、卡片、進行中卡片重新擺進排版（最新在下：舊→新往下；最新在上：新→舊往下）。"""
+        self.捲.setUpdatesEnabled(False)
+        while self.排版.count():
+            self.排版.takeAt(0)
+        依序 = list(self.卡們) + ([self.進行卡] if self.進行卡 is not None else [])
+        if self.置頂:
+            依序.reverse()
+        self.提示.setVisible(not 依序)
+        for w in [self.提示] + 依序:
+            self.排版.addWidget(w)
+        self.排版.addStretch(1)
+        self.捲.setUpdatesEnabled(True)
 
     def 加卡片(self, 內容html):
-        self.提示.hide()
         卡 = QFrame()
         卡.setObjectName("卡片")
         版 = QVBoxLayout(卡)
@@ -267,22 +367,19 @@ class 卡片清單(分頁基底):
         字.setTextInteractionFlags(Qt.TextSelectableByMouse)
         字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         版.addWidget(字)
-        self.排版.insertWidget(self.排版.count() - 1, 卡)
-        self.數量 += 1
+        self.卡們.append(卡)
         self.總數 += 1
-        while self.數量 > self.上限:       # 從最舊的一張開始移除
-            項 = self.排版.takeAt(self._首張())
-            if 項.widget():
-                項.widget().deleteLater()
-            self.數量 -= 1
+        while len(self.卡們) > self.上限:       # 從最舊的一張開始移除
+            舊 = self.卡們.pop(0)
+            if self.置頂:
+                self.跟隨.補償 += 舊.height() + self.排版.spacing()
+            舊.hide()
+            舊.deleteLater()
+        self._排()
         self._超過了()
 
-    def _首張(self):
-        """第一張已結束卡片在排版裡的位置（前面有提示字，話題頁還有「進行中」）。"""
-        return 2 if self.進行卡 is not None else 1
-
     def 設進行中(self, 時間字, 內容):
-        """話題頁最上方的「進行中」卡片：內容是目前話題的完整文字。"""
+        """話題頁的「進行中」卡片：內容是目前話題的完整文字。"""
         if self.進行卡 is None:
             卡 = QFrame()
             卡.setObjectName("進行卡")
@@ -303,30 +400,36 @@ class 卡片清單(分頁基底):
             self.進行字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             版.addLayout(頭)
             版.addWidget(self.進行字)
-            self.排版.insertWidget(0, 卡)
             self.進行卡 = 卡
-        self.提示.hide()
+            self.進行時間.setText(時間字)
+            self.進行字.setText(內容)
+            self._排()
+            return
         self.進行時間.setText(時間字)
         self.進行字.setText(內容)
 
     def 移除進行中(self):
         if self.進行卡 is not None:
             self.排版.removeWidget(self.進行卡)
+            self.進行卡.hide()
             self.進行卡.deleteLater()
             self.進行卡 = None
-            if self.數量 == 0:
-                self.提示.show()
+            self._排()
+
+    def 設方向(self, 置頂):
+        super().設方向(置頂)
+        self.跟隨.設方向(置頂)
+        self._排()
 
     def 清空(self):
         self.移除進行中()
-        while self.排版.count() > 2:
-            項 = self.排版.takeAt(1)
-            if 項.widget():
-                項.widget().deleteLater()
-        self.提示.show()
-        self.數量 = 0
+        for 卡 in self.卡們:
+            卡.hide()
+            卡.deleteLater()
+        self.卡們 = []
         self.總數 = 0
         self.頂.hide()
+        self._排()
 
 
 class 逐句頁(文字清單):
@@ -341,6 +444,9 @@ class 逐句頁(文字清單):
         self.註.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.註.hide()
         self.layout().insertWidget(0, self.註)
+
+    def _頂位置(self):
+        return 1               # 提示列放在頂端的說明文字下面
 
     def 設註(self, 字):
         self.註.setText(字)
@@ -1056,7 +1162,7 @@ class 主控台(QMainWindow):
 
     def _做分頁(self):
         self.分鐘頁 = 卡片清單("分鐘摘要會在這裡出現（每檢查一次一則，最新在最下面）")
-        self.話題頁 = 卡片清單("每個話題結束時，話題摘要會在這裡出現", 黏底=False)    # 最上面是「進行中」，不自動捲到底
+        self.話題頁 = 卡片清單("每個話題結束時，話題摘要會在這裡出現")
         self.稿頁 = 文字清單("逐句轉錄的直播稿會在這裡出現")
         self.翻譯頁 = 逐句頁()
         self.聊天頁 = 文字清單("聊天室留言會在這裡出現（只有直播網址模式會抓聊天室）")
@@ -1069,6 +1175,7 @@ class 主控台(QMainWindow):
         self.並排 = 並排區(全部名, 頁們, 欄數, 欄頁們, 改了=ui_state.存介面設定,
                           選到頁=lambda 名: self.設定頁.同步位置() if 名 == "設定" else None)
         self.設定頁.載入()
+        self.設方向(live_topics.載入設定({})[0]["newest_on_top"])
         if "設定" in 欄頁們[:self.並排.有效欄數()]:
             self.設定頁.同步位置()
         return self.並排
@@ -1087,6 +1194,11 @@ class 主控台(QMainWindow):
         路徑, _ = QFileDialog.getOpenFileName(self, "選擇文字稿", 專案目錄, "文字稿 (*.txt);;所有檔案 (*)")
         if 路徑:
             self.檔案框.setText(路徑)
+
+    def 設方向(self, 置頂):
+        """最新內容顯示在最上面（True）或最下面（False）：五個內容分頁一起換，立即重新排列。"""
+        for 頁 in (self.分鐘頁, self.話題頁, self.稿頁, self.翻譯頁, self.聊天頁):
+            頁.設方向(bool(置頂))
 
     def _加計數(self, 名):
         self.計數[名] += 1
