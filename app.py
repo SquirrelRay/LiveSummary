@@ -10,8 +10,8 @@ import time
 import threading
 import subprocess
 
-from PySide6.QtCore import Qt, QObject, Signal, QTimer
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
     QHBoxLayout, QVBoxLayout, QTabWidget, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
@@ -46,7 +46,14 @@ QLabel {{ background: transparent; border: none; }}
 QLabel#標題 {{ font-size: 18px; font-weight: 700; }}
 QLabel#淡 {{ color: {淡字}; }}
 QLabel#小標 {{ color: {淡字}; font-size: 12px; }}
-QLabel#藥丸 {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 11px; padding: 3px 10px; }}
+QLabel#藥丸 {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 9px; padding: 1px 8px; font-size: 12px; }}
+QFrame#進行卡 {{ background: {卡片}; border: 1px solid {主色}; border-radius: 12px; }}
+QLabel#進行標 {{ background: {主色}; color: white; font-weight: 700; font-size: 12px; border-radius: 8px; padding: 1px 8px; }}
+QFrame#提示條 {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 10px; }}
+QFrame#提示條[錯誤="true"] {{ border: 1px solid {紅}; }}
+QPushButton#關閉 {{ padding: 0px; border: none; border-radius: 9px; color: {淡字}; min-width: 20px; max-width: 20px; min-height: 20px; max-height: 20px; }}
+QPushButton#關閉:hover {{ background: {邊框}; }}
+QLabel#話題浮窗 {{ background: {卡片}; border: 1px solid {主色}; border-radius: 10px; padding: 10px 14px; }}
 QLineEdit, QComboBox {{
     background: {卡片}; border: 1px solid {邊框}; border-radius: 10px; padding: 7px 12px;
     selection-background-color: {主色};
@@ -218,7 +225,7 @@ class 文字清單(分頁基底):
 class 卡片清單(分頁基底):
     """分鐘摘要、話題摘要用：一張一張卡片往下加（最新在下面），只留最近的 上限 張。"""
 
-    def __init__(self, 提示):
+    def __init__(self, 提示, 黏底=True):
         self.捲 = QScrollArea()
         super().__init__(self.捲)
         self.捲.setWidgetResizable(True)
@@ -227,12 +234,14 @@ class 卡片清單(分頁基底):
         self.排版 = QVBoxLayout(內)
         self.排版.setContentsMargins(16, 16, 16, 16)
         self.排版.setSpacing(12)
+        self.進行卡 = None      # 話題頁用：最上方「進行中」的話題（排版第 0 格，沒有時是 None）
         self.提示 = QLabel(提示)
         self.提示.setObjectName("淡")
         self.排版.addWidget(self.提示)
         self.排版.addStretch(1)
         self.捲.setWidget(內)
-        黏在底部(self.捲.verticalScrollBar())
+        if 黏底:
+            黏在底部(self.捲.verticalScrollBar())
         self.數量 = 0         # 畫面上目前有幾張
 
     def 加卡片(self, 內容html):
@@ -251,13 +260,54 @@ class 卡片清單(分頁基底):
         self.數量 += 1
         self.總數 += 1
         while self.數量 > self.上限:       # 從最舊的一張開始移除
-            項 = self.排版.takeAt(1)
+            項 = self.排版.takeAt(self._首張())
             if 項.widget():
                 項.widget().deleteLater()
             self.數量 -= 1
         self._超過了()
 
+    def _首張(self):
+        """第一張已結束卡片在排版裡的位置（前面有提示字，話題頁還有「進行中」）。"""
+        return 2 if self.進行卡 is not None else 1
+
+    def 設進行中(self, 時間字, 內容):
+        """話題頁最上方的「進行中」卡片：內容是目前話題的完整文字。"""
+        if self.進行卡 is None:
+            卡 = QFrame()
+            卡.setObjectName("進行卡")
+            版 = QVBoxLayout(卡)
+            版.setContentsMargins(16, 12, 16, 12)
+            版.setSpacing(6)
+            頭 = QHBoxLayout()
+            標 = QLabel("進行中")
+            標.setObjectName("進行標")
+            self.進行時間 = QLabel("")
+            self.進行時間.setObjectName("淡")
+            頭.addWidget(標)
+            頭.addWidget(self.進行時間)
+            頭.addStretch(1)
+            self.進行字 = QLabel("")
+            self.進行字.setWordWrap(True)
+            self.進行字.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self.進行字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            版.addLayout(頭)
+            版.addWidget(self.進行字)
+            self.排版.insertWidget(0, 卡)
+            self.進行卡 = 卡
+        self.提示.hide()
+        self.進行時間.setText(時間字)
+        self.進行字.setText(內容)
+
+    def 移除進行中(self):
+        if self.進行卡 is not None:
+            self.排版.removeWidget(self.進行卡)
+            self.進行卡.deleteLater()
+            self.進行卡 = None
+            if self.數量 == 0:
+                self.提示.show()
+
     def 清空(self):
+        self.移除進行中()
         while self.排版.count() > 2:
             項 = self.排版.takeAt(1)
             if 項.widget():
@@ -266,6 +316,193 @@ class 卡片清單(分頁基底):
         self.數量 = 0
         self.總數 = 0
         self.頂.hide()
+
+
+class 話題標(QLabel):
+    """狀態列的「目前話題」：只顯示一行，太長用「…」截斷；點一下展開完整內容的小浮窗，再點一下收回。"""
+
+    def __init__(self):
+        super().__init__("")
+        self.完整 = ""
+        self.setStyleSheet("font-weight: 700;")
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(40)
+        self.setCursor(Qt.PointingHandCursor)
+        self.浮窗 = QLabel("")
+        self.浮窗.setObjectName("話題浮窗")
+        self.浮窗.setWindowFlags(Qt.Popup)
+        self.浮窗.setWordWrap(True)
+        self.浮窗.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.浮窗.setStyleSheet("font-weight: 400;")
+        self._關閉時刻 = 0.0
+        self.浮窗.hideEvent = self._浮窗隱藏
+
+    def setText(self, 字):
+        self.完整 = str(字)
+        self.setToolTip(self.完整)
+        self.浮窗.setText(self.完整)
+        self._截斷()
+
+    def text(self):
+        return self.完整
+
+    def _截斷(self):
+        寬 = max(10, self.width())
+        super().setText(QFontMetrics(self.font()).elidedText(self.完整, Qt.ElideRight, 寬))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._截斷()
+
+    def _浮窗隱藏(self, e):
+        self._關閉時刻 = time.monotonic()
+        QLabel.hideEvent(self.浮窗, e)
+
+    def mousePressEvent(self, e):
+        if e.button() != Qt.LeftButton:
+            return super().mousePressEvent(e)
+        if self.浮窗.isVisible():
+            self.浮窗.hide()
+        elif time.monotonic() - self._關閉時刻 > 0.25:      # 剛被這一下點擊關掉的浮窗，不要馬上又打開
+            寬 = min(max(self.width(), 360), max(360, self.window().width() - 40))
+            self.浮窗.setFixedWidth(寬)
+            self.浮窗.setFixedHeight(self.浮窗.heightForWidth(寬) if self.浮窗.hasHeightForWidth() else self.浮窗.sizeHint().height())
+            self.浮窗.move(self.mapToGlobal(QPoint(0, self.height() + 4)))
+            self.浮窗.show()
+
+
+class 狀態列(QWidget):
+    """燈＋目前話題（一行）＋小標籤。放得下就全在同一行；窄了標籤自動換到下一行，高度跟著算好後固定，不會被撐高或截斷。"""
+    間距 = 8
+
+    def __init__(self, 燈, 話題, 標籤們):
+        super().__init__()
+        self.燈, self.話題, self.標籤們 = 燈, 話題, 標籤們
+        for w in (燈, 話題, *標籤們):
+            w.setParent(self)
+        for w in 標籤們:
+            w.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self._排(600)
+
+    def minimumSizeHint(self):
+        return QSize(200, self.height())
+
+    def sizeHint(self):
+        return QSize(400, self.height())
+
+    def 重排(self):
+        self._排(self.width())
+
+    def resizeEvent(self, e):
+        self._排(e.size().width())
+
+    def _排(self, 寬):
+        間 = self.間距
+        燈寬 = self.燈.sizeHint().width()
+        列高 = max(self.話題.sizeHint().height(), self.燈.sizeHint().height(), *(w.sizeHint().height() for w in self.標籤們))
+        標籤寬 = [w.sizeHint().width() for w in self.標籤們]
+        總標籤 = sum(標籤寬) + 間 * (len(標籤寬) - 1)
+        話題最小 = 180
+
+        def 放(w, x, y, 寬度=None):
+            w.setGeometry(x, y + (列高 - w.sizeHint().height()) // 2, 寬度 or w.sizeHint().width(), w.sizeHint().height())
+
+        if 燈寬 + 間 + 話題最小 + 間 + 總標籤 <= 寬:             # 全部同一行
+            放(self.燈, 0, 0)
+            x = 寬 - 總標籤
+            放(self.話題, 燈寬 + 間, 0, x - 間 - 燈寬 - 間)
+            for w, 寬度 in zip(self.標籤們, 標籤寬):
+                放(w, x, 0)
+                x += 寬度 + 間
+            列數 = 1
+        else:                                                  # 話題一行，標籤換到下面（放不下再往下換行）
+            放(self.燈, 0, 0)
+            放(self.話題, 燈寬 + 間, 0, max(10, 寬 - 燈寬 - 間))
+            x, 列 = 0, 1
+            for w, 寬度 in zip(self.標籤們, 標籤寬):
+                if x > 0 and x + 寬度 > 寬:
+                    x, 列 = 0, 列 + 1
+                放(w, x, 列 * (列高 + 4))
+                x += 寬度 + 間
+            列數 = 列 + 1
+        高 = 列數 * 列高 + (列數 - 1) * 4
+        if self.height() != 高:
+            self.setFixedHeight(高)
+
+
+class 提示層(QWidget):
+    """可關閉的小提示條，浮在視窗底部（不佔版面、不會把別的區塊擠變形）。
+    同一則訊息不重複堆疊（再來一次只重新計時），幾秒後自動消失，也可按 ✕ 關掉。"""
+    最多 = 3
+
+    def __init__(self, 根):
+        super().__init__(根)
+        self.根 = 根
+        self.版 = QVBoxLayout(self)
+        self.版.setContentsMargins(0, 0, 0, 0)
+        self.版.setSpacing(6)
+        self.條們 = {}          # 訊息文字 -> (條, 計時器)
+        根.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, 物, e):
+        if 物 is self.根 and e.type() == QEvent.Resize:
+            self.擺放()
+        return False
+
+    def 擺放(self):
+        寬 = max(200, min(self.根.width() - 40, 720))
+        self.setFixedWidth(寬)
+        self.版.activate()
+        self.setFixedHeight(max(1, self.版.heightForWidth(寬)))
+        self.move(20, self.根.height() - self.height() - 14)
+        self.raise_()
+
+    def 顯示(self, 字, 錯誤=False, 秒=8):
+        字 = 字.strip()
+        if not 字:
+            return
+        if 字 in self.條們:
+            self.條們[字][1].start(int(秒 * 1000))
+            self.擺放()
+            return
+        while len(self.條們) >= self.最多:
+            self.移除(next(iter(self.條們)))
+        條 = QFrame()
+        條.setObjectName("提示條")
+        條.setProperty("錯誤", 錯誤)
+        版 = QHBoxLayout(條)
+        版.setContentsMargins(14, 8, 8, 8)
+        標 = QLabel(字)
+        標.setWordWrap(True)
+        標.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        標.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        鈕 = QPushButton("✕")
+        鈕.setObjectName("關閉")
+        鈕.setCursor(Qt.PointingHandCursor)
+        鈕.setToolTip("關閉")
+        鈕.clicked.connect(lambda: self.移除(字))
+        版.addWidget(標, 1)
+        版.addWidget(鈕, 0, Qt.AlignTop)
+        計 = QTimer(條)
+        計.setSingleShot(True)
+        計.timeout.connect(lambda: self.移除(字))
+        計.start(int(秒 * 1000))
+        self.條們[字] = (條, 計)
+        self.版.addWidget(條)
+        self.show()
+        self.擺放()
+
+    def 移除(self, 字):
+        項 = self.條們.pop(字, None)
+        if 項:
+            項[0].hide()
+            項[0].deleteLater()
+        if not self.條們:
+            self.hide()
+        else:
+            QTimer.singleShot(0, self.擺放)
 
 
 def 時間標(字):
@@ -308,21 +545,24 @@ class 主控台(QMainWindow):
         總.setSpacing(14)
         總.addWidget(self._做控制區())
         總.addWidget(self._做狀態區())
-        總.addWidget(self._做分頁(), 1)
+        總.addWidget(self._做分頁(), 1)       # 只有分頁區吃剩下的空間，上面各區高度固定
+        self.提示層 = 提示層(根)
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
-            self.訊息字.show()
 
     # ---------- 版面 ----------
     def _做控制區(self):
         框 = QFrame()
         框.setObjectName("面板")
+        框.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         版 = QVBoxLayout(框)
         版.setContentsMargins(18, 16, 18, 16)
         版.setSpacing(12)
+        self.控制版 = 版
 
         第一列 = QHBoxLayout()
+        self.第一列 = 第一列
         標題 = QLabel("直播摘要")
         標題.setObjectName("標題")
         第一列.addWidget(標題)
@@ -368,8 +608,11 @@ class 主控台(QMainWindow):
         第二列.addWidget(self.瀏覽鈕)
         版.addWidget(self.網址區)
 
-        第三列 = QHBoxLayout()
+        self.第三區 = QWidget()
+        第三列 = QHBoxLayout(self.第三區)
+        第三列.setContentsMargins(0, 0, 0, 0)
         第三列.setSpacing(8)
+        self.第三列 = 第三列
         self.速度標 = QLabel("重播速度")
         self.速度標.setObjectName("淡")
         self.速度選 = QComboBox()
@@ -406,57 +649,51 @@ class 主控台(QMainWindow):
             語言版.addWidget(w)
         第三列.addWidget(self.語言區)
         第三列.addStretch(1)
-        第三列.addWidget(self.字幕鈕)
-        第三列.addWidget(self.開始鈕)
-        第三列.addWidget(self.停止鈕)
-        版.addLayout(第三列)
+        # 字幕／開始／停止放在一個小容器裡：展開時在最下面一列，收合時搬到標題列同一行
+        self.按鈕區 = QWidget()
+        按鈕版 = QHBoxLayout(self.按鈕區)
+        按鈕版.setContentsMargins(0, 0, 0, 0)
+        按鈕版.setSpacing(8)
+        for 鈕 in (self.字幕鈕, self.開始鈕, self.停止鈕):
+            按鈕版.addWidget(鈕)
+        第三列.addWidget(self.按鈕區)
+        版.addWidget(self.第三區)
+        self.控制框 = 框
         return 框
 
     def _做狀態區(self):
         框 = QFrame()
         框.setObjectName("面板")
-        框.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        框.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         版 = QVBoxLayout(框)
-        版.setContentsMargins(14, 7, 14, 7)
-        版.setSpacing(3)
+        版.setContentsMargins(14, 8, 14, 8)
 
-        上 = QHBoxLayout()
-        上.setSpacing(8)
         self.燈 = QLabel("●")
         self.燈.setStyleSheet(f"color: {淡字}; font-size: 14px;")
-        self.話題字 = QLabel("尚未開始")
-        self.話題字.setWordWrap(True)
-        self.話題字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.話題字.setStyleSheet("font-weight: 700;")
-        上.addWidget(self.燈, 0, Qt.AlignVCenter)
-        上.addWidget(self.話題字, 1)
-        下 = 上            # 狀態藥丸和話題放同一列，卡片比較扁
+        self.話題字 = 話題標()
+        self.話題字.setText("尚未開始")
         self.時間藥丸 = QLabel("直播時間 --:--")
         self.轉錄藥丸 = QLabel("轉錄：等待中")
         self.費用藥丸 = QLabel("呼叫 0 次 · 估算 $0.000")
         self.費用藥丸.setToolTip("費用用 config.json 的單價估算，單價未查證，僅供參考")
         self.翻譯藥丸 = QLabel("翻譯 0 次 · $0.000")
         self.翻譯藥丸.setToolTip("逐句字幕翻譯的呼叫次數與估算費用（和摘要分開算，單價未查證）")
-        for w in (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸):
+        藥丸們 = (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸)
+        for w in 藥丸們:
             w.setObjectName("藥丸")
-            下.addWidget(w)
-        註 = QLabel("（單價未查證）")
-        註.setObjectName("小標")
-        下.addWidget(註)
-        版.addLayout(上)
-
-        self.訊息字 = QLabel("")
-        self.訊息字.setObjectName("小標")
-        self.訊息字.setWordWrap(True)
-        self.訊息字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.訊息字.hide()          # 沒有訊息時不佔空間
-        版.addWidget(self.訊息字)
+        self.狀態列 = 狀態列(self.燈, self.話題字, 藥丸們)
+        版.addWidget(self.狀態列)
+        self.狀態框 = 框
         return 框
+
+    def _設藥丸(self, 標, 字):
+        標.setText(字)
+        self.狀態列.重排()
 
     def _做分頁(self):
         self.分頁 = QTabWidget()
         self.分鐘頁 = 卡片清單("分鐘摘要會在這裡出現（每檢查一次一則，最新在最下面）")
-        self.話題頁 = 卡片清單("每個話題結束時，話題摘要會在這裡出現")
+        self.話題頁 = 卡片清單("每個話題結束時，話題摘要會在這裡出現", 黏底=False)    # 最上面是「進行中」，不自動捲到底
         self.稿頁 = 文字清單("逐句轉錄的直播稿會在這裡出現")
         self.聊天頁 = 文字清單("聊天室留言會在這裡出現（只有直播網址模式會抓聊天室）")
         self.分頁名 = ["分鐘摘要", "話題摘要", "直播稿", "聊天室"]
@@ -512,11 +749,11 @@ class 主控台(QMainWindow):
         for i, 名 in enumerate(self.分頁名):
             self.分頁.setTabText(i, 名)
         self.話題字.setText("準備中…")
-        self.時間藥丸.setText("直播時間 --:--")
-        self.轉錄藥丸.setText("轉錄：文字稿模式" if not 直播 else "轉錄：等待中")
+        self._設藥丸(self.時間藥丸, "直播時間 --:--")
+        self._設藥丸(self.轉錄藥丸, "轉錄：文字稿模式" if not 直播 else "轉錄：等待中")
         self.轉錄藥丸.setStyleSheet("")
-        self.費用藥丸.setText("呼叫 0 次 · 估算 $0.000")
-        self.翻譯藥丸.setText("翻譯 0 次 · $0.000")
+        self._設藥丸(self.費用藥丸, "呼叫 0 次 · 估算 $0.000")
+        self._設藥丸(self.翻譯藥丸, "翻譯 0 次 · $0.000")
         self.結束中 = False
         self.摘要框.清空()
         self.字幕框.清空()
@@ -688,13 +925,25 @@ class 主控台(QMainWindow):
         self.已收合 = 收
         for w in (self.網址區, self.語言區, self.切換框):
             w.setVisible(not 收)
-        if not 收:
+        # 收合：字幕／開始／停止搬到標題列同一行，下面整列不佔空間；展開：搬回最下面一列
+        if 收:
+            self.第三區.hide()
+            self.第一列.addWidget(self.按鈕區)
+            self.控制版.setContentsMargins(14, 8, 14, 8)
+            self.控制版.setSpacing(0)
+        else:
+            self.第三列.addWidget(self.按鈕區)
+            self.第三區.show()
+            self.控制版.setContentsMargins(18, 16, 18, 16)
+            self.控制版.setSpacing(12)
             self._切換來源()
+        for 鈕 in (self.字幕鈕, self.開始鈕, self.停止鈕, self.收合鈕):
+            鈕.setFixedHeight(30) if 收 else (鈕.setMinimumHeight(0), 鈕.setMaximumHeight(16777215))
         self.收合鈕.setText("▸ 展開網址與語言" if 收 else "▾ 收合網址與語言")
 
-    def _訊息(self, 字):
-        self.訊息字.setText(字)
-        self.訊息字.setVisible(bool(字))
+    def _訊息(self, 字, 錯誤=False, 秒=8):
+        """提示與錯誤一律用可關閉的小提示條（相同的訊息不重複堆疊）。"""
+        self.提示層.顯示(字, 錯誤, 秒)
 
     def _完成提示(self, 檔案們):
         框 = QMessageBox(self)
@@ -726,7 +975,7 @@ class 主控台(QMainWindow):
                 self._訊息(f"偵測到{名}，逐句字幕顯示原文。")
         elif 種類 == "transcript_line":
             self.稿頁.加一行(f'<span style="color:{淡字};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;{跳脫(內容["內容"])}')
-            self.時間藥丸.setText(f"直播時間 {內容['時間字']}")
+            self._設藥丸(self.時間藥丸, f"直播時間 {內容['時間字']}")
             self._加計數(2)
         elif 種類 == "chat_line":
             色 = 名字顏色[sum(map(ord, 內容["使用者"])) % len(名字顏色)]
@@ -742,30 +991,32 @@ class 主控台(QMainWindow):
             self.話題頁.加卡片(self._話題html(內容))
             self._加計數(1)
         elif 種類 == "current_topic":
-            self.話題字.setText(f"目前話題：{內容['簡述'] or '（新話題剛開始）'}　·　已進行 {內容['進行分鐘']:.0f} 分鐘")
+            簡述 = 內容["簡述"] or "（新話題剛開始）"
+            self.話題字.setText(f"目前話題（已進行 {內容['進行分鐘']:.0f} 分鐘）：{簡述}")
+            self.話題頁.設進行中(f"已進行 {內容['進行分鐘']:.0f} 分鐘", 簡述)
             self.摘要框.更新話題(內容["簡述"])
         elif 種類 == "status":
             if "跟上" in 內容:
                 跟上 = 內容["跟上"]
-                self.轉錄藥丸.setText("轉錄：跟得上" if 跟上 else "轉錄：跟不上直播")
+                self._設藥丸(self.轉錄藥丸, "轉錄：跟得上" if 跟上 else "轉錄：跟不上直播")
                 self.轉錄藥丸.setStyleSheet(f"color: {綠 if 跟上 else 紅};")
             if "次數" in 內容:
                 費用 = "無法計算" if 內容["費用"] is None else f"${內容['費用']:.3f}"
-                self.費用藥丸.setText(f"呼叫 {內容['次數']} 次 · 估算 {費用}")
+                self._設藥丸(self.費用藥丸, f"呼叫 {內容['次數']} 次 · 估算 {費用}")
             if "翻譯次數" in 內容:
                 費用 = "無法計算" if 內容["翻譯費用"] is None else f"${內容['翻譯費用']:.3f}"
                 延遲 = f" · 延遲約 {內容['翻譯延遲']:.0f} 秒" if 內容["翻譯延遲"] is not None else ""
-                self.翻譯藥丸.setText(f"翻譯 {內容['翻譯次數']} 次 · {費用}{延遲}")
+                self._設藥丸(self.翻譯藥丸, f"翻譯 {內容['翻譯次數']} 次 · {費用}{延遲}")
         elif 種類 == "info":
             if not self.結束中:          # 結束中一直顯示「正在產生最後一個話題的摘要…」
                 self._訊息((內容.get("印出") or "").strip())
         elif 種類 == "error":
-            self._訊息("已停止：" + 內容["訊息"])
             self.摘要框.設狀態("已停止")
             if self.話題字.text() == "準備中…":
                 self.話題字.setText("已停止")
+            self.話題頁.移除進行中()
             self._設燈(紅)
-            self._錯誤框(內容["訊息"])
+            self._錯誤框("已停止：" + 內容["訊息"])
         elif 種類 == "finished":
             self.結束中 = False
             if 內容["檔案們"]:
@@ -777,6 +1028,7 @@ class 主控台(QMainWindow):
             self.摘要框.設狀態("已結束")
             self._完成提示(內容["檔案們"])
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
+            self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
 
     def _分鐘html(self, 內容):
         摘要 = 內容["摘要"]
@@ -817,13 +1069,7 @@ class 主控台(QMainWindow):
         self.燈.setStyleSheet(f"color: {色}; font-size: 14px;")
 
     def _錯誤框(self, 訊息):
-        框 = QMessageBox(self)
-        框.setIcon(QMessageBox.Warning)
-        框.setWindowTitle("直播摘要")
-        框.setText(訊息)
-        框.setStandardButtons(QMessageBox.Ok)
-        框.button(QMessageBox.Ok).setText("知道了")
-        框.exec()
+        self._訊息(訊息, 錯誤=True, 秒=12)
 
 
 def 選字型():
