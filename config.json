@@ -15,7 +15,7 @@
   "api_key_env": "ANTHROPIC_API_KEY",
   "price_input": 1.0,
   "price_output": 5.0,
-  "subtitle_mode": "translate",
+  "subtitle_mode": "auto",
   "overlay": {
     "click_through": true,
     "hotkey_toggle": "Ctrl+Shift+S",
@@ -33,7 +33,7 @@
       "fade_seconds": 0,
       "position": "free",
       "screen": 1,
-      "width": 912,
+      "width": 842,
       "show_minute": true,
       "show_topic": false,
       "show_side": true,
@@ -49,9 +49,9 @@
       "bg_opacity": 0.45,
       "text_effect": "outline",
       "fade_seconds": 0,
-      "position": "free",
+      "position": "bottom",
       "screen": 1,
-      "width": 1316,
+      "width": 808,
       "lines": 2
     }
   },
