@@ -13,6 +13,7 @@ import live_topics
 
 語言選項 = [("自動偵測", "auto"), ("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko")]
 寬 = 480
+VOD提示 = "目前只支援直播網址，直播檔（VOD）之後才會支援"
 
 
 class 啟動面板(QWidget):
@@ -149,6 +150,8 @@ class 啟動面板(QWidget):
         網址 = self.網址框.text().strip()
         if not 網址 and not self.測試檔案:
             return self.設狀態("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱", 錯誤=True)
+        if not self.測試檔案 and "/videos/" in 網址.lower():
+            return self.設狀態(VOD提示, 錯誤=True)
         # 和主控台的「開始」完全相同：把網址、語言填進主控台，再呼叫主控台的 開始
         if self.測試檔案:
             台.檔案鈕.setChecked(True)

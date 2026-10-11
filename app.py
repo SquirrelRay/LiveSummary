@@ -663,7 +663,7 @@ class 並排區(QWidget):
 
 class 網址欄(QLineEdit):
     """直播網址輸入框：點一下（或用 Tab 移進來）就通知外面顯示網址紀錄。"""
-    點到 = Signal()
+    點到 = Signal()        # 使用者用滑鼠點了網址欄，或按了向下鍵（程式自動移焦點、Tab 都不算）
     按了Esc = Signal()
 
     def mousePressEvent(self, e):
@@ -671,15 +671,21 @@ class 網址欄(QLineEdit):
         if e.button() == Qt.LeftButton:
             self.點到.emit()
 
-    def focusInEvent(self, e):
-        super().focusInEvent(e)
-        if e.reason() == Qt.TabFocusReason:
-            self.點到.emit()
-
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
             self.按了Esc.emit()
+        elif e.key() == Qt.Key_Down:
+            self.點到.emit()
         super().keyPressEvent(e)
+
+
+class 網址文字(QLabel):
+    """清單裡的一筆網址：點一下發出訊號（用正式的 mousePressEvent 覆寫，不靠事後指定）。"""
+    點到 = Signal()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.點到.emit()
 
 
 class 網址清單(QFrame):
@@ -764,14 +770,14 @@ class 網址清單(QFrame):
         刪 = QPushButton("✕")
         刪.setObjectName("圖鈕")
         刪.setToolTip("從紀錄刪除")
-        字 = QLabel()
+        字 = 網址文字()
         字.setTextFormat(Qt.RichText)
         網址短 = QFontMetrics(self.font()).elidedText(項["網址"], Qt.ElideMiddle, max(100, 文字寬))
         字.setText(f'<b>{跳脫(ui_state.頻道名(項["網址"]))}</b><br>'
                   f'<span style="color:{淡字}; font-size:12px;">{跳脫(網址短)}</span>')
         字.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         字.setCursor(Qt.PointingHandCursor)
-        字.mousePressEvent = lambda e, u=項["網址"]: self._選(u) if e.button() == Qt.LeftButton else None
+        字.點到.connect(lambda u=項["網址"]: self._選(u))
         for 鈕 in (釘, 刪):
             鈕.setFocusPolicy(Qt.NoFocus)
             鈕.setCursor(Qt.PointingHandCursor)
@@ -783,8 +789,9 @@ class 網址清單(QFrame):
         return 列
 
     def _選(self, 網址):
-        self.網址框.setText(網址)
+        """填入網址並立刻關閉清單；游標留在網址欄，但不會再把清單打開。"""
         self.hide()
+        self.網址框.setText(網址)
         self.選了.emit(網址)
 
     def _釘(self, 網址, 要釘):
@@ -1333,8 +1340,11 @@ class 主控台(QMainWindow):
         直播 = self.直播鈕.isChecked()
         網址 = self.網址框.text().strip() if 直播 else None
         檔案 = self.檔案框.text().strip().strip('"') if not 直播 else None
+        self.網址清單.hide()
         if 直播 and not 網址:
             return self._錯誤框("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱")
+        if 直播 and "/videos/" in 網址.lower():
+            return self._錯誤框(launcher.VOD提示)
         if not 直播 and not os.path.isfile(檔案 or ""):
             return self._錯誤框("找不到這個文字稿檔案，請重新選擇。")
 
