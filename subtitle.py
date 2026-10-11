@@ -2,6 +2,7 @@
 # 原文模式：收到 transcript_line 就直接送出 subtitle 事件，不花 API。
 # 翻譯模式：每累積約 8 秒或 4 句（config.json 的 translate_batch_seconds／translate_batch_lines 可調），批次翻成台灣慣用繁體中文再送出；翻譯失敗就送原文。
 # 翻譯的呼叫次數與 token 另外記在 llm.翻譯用量，不和摘要混在一起。
+import os
 import re
 import json
 import time
@@ -42,6 +43,21 @@ def 要翻譯(模式, 語言, 文字):
     if re.search(r"[぀-ヿ가-힯]", 文字):
         return True
     return not re.search(r"[一-鿿]", 文字)
+
+
+def 讀譯文(回答):
+    """從模型的回答裡讀出譯文清單。回答前後可能多了說明文字或程式碼框，所以不能整段直接讀：
+    找出回答裡每一個 JSON 陣列，優先用「最後一個」（模型有時會先寫一段說明，最後才給正式答案）。讀不出來回傳 None。"""
+    解碼 = json.JSONDecoder()
+    找到 = []
+    for m in re.finditer(r"\[", 回答):
+        try:
+            物件, _ = 解碼.raw_decode(回答, m.start())
+        except ValueError:
+            continue
+        if isinstance(物件, list) and 物件 and all(isinstance(x, str) for x in 物件):
+            找到.append([x.strip() for x in 物件])
+    return 找到[-1] if 找到 else None
 
 
 class 字幕器:
@@ -114,16 +130,32 @@ class 字幕器:
     def _翻(self, 批):
         """回傳每句的譯文；失敗的句子是空字串（顯示原文）。任何錯誤都不往外丟。"""
         提示詞 = 翻譯規則 + "\n".join(f"{i + 1}. {原文}" for i, (_, _, 原文) in enumerate(批))
+        回答 = ""
         try:
             回答 = llm.call_llm(提示詞, self.模型, 類別="翻譯")
-            譯們 = json.loads(re.search(r"\[.*\]", 回答, re.S).group(0))
-            譯們 = [str(x).strip() for x in 譯們]
-            if len(譯們) != len(批):
-                return [""] * len(批)
-            return 譯們
         except Exception as e:
-            events.送出("info", 印出=f"（逐句翻譯失敗，先顯示原文：{type(e).__name__}）")
+            self._記錄失敗(批, 回答, e)
+            events.送出("info", 印出="（這幾句翻譯失敗，暫時顯示原文）")
             return [""] * len(批)
+        譯們 = 讀譯文(回答)
+        if 譯們 is None:                 # 讀不出來：不重送（避免多花錢），直接顯示原文
+            self._記錄失敗(批, 回答, ValueError("讀不出譯文"))
+            events.送出("info", 印出="（這幾句翻譯失敗，暫時顯示原文）")
+            return [""] * len(批)
+        if len(譯們) != len(批):         # 句數對不上：對得上的照常顯示，缺的那幾句顯示原文
+            self._記錄失敗(批, 回答, ValueError(f"句數對不上（要 {len(批)} 句，收到 {len(譯們)} 句）"))
+            events.送出("info", 印出="（有幾句翻譯缺漏，缺的暫時顯示原文）")
+            譯們 = (譯們 + [""] * len(批))[:len(批)]
+        return 譯們
+
+    def _記錄失敗(self, 批, 回答, 錯誤):
+        """翻譯失敗時把模型原始回傳、停止原因、句數寫進 翻譯錯誤紀錄.txt（找原因用）。"""
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "翻譯錯誤紀錄.txt"), "a", encoding="utf-8") as f:
+                f.write(f"=== {time.strftime('%H:%M:%S')} 送 {len(批)} 句；停止原因={llm.最後停止原因}；"
+                        f"錯誤={type(錯誤).__name__}；回傳 {len(回答)} 字 ===" + chr(10) + 回答 + chr(10) + chr(10))
+        except Exception:
+            pass
 
     def 費用(self):
         u = llm.翻譯用量

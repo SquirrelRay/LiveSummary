@@ -17,6 +17,7 @@ MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避�
 用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
 # 逐句字幕翻譯另外算（app.py 的字幕疊加層才會用到），不和摘要的用量混在一起
 翻譯用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
+最後停止原因 = ""     # 最近一次回答的停止原因（max_tokens = 被截斷），翻譯失敗時寫進紀錄
 
 
 class 模型錯誤(Exception):
@@ -101,6 +102,8 @@ def _問_anthropic(提示詞, 模型, 類別):
         raise 金鑰錯誤(_金鑰訊息()) from None
     except anthropic.APIConnectionError:
         raise 連線錯誤(_連線訊息()) from None
+    global 最後停止原因
+    最後停止原因 = str(getattr(resp, "stop_reason", ""))
     u = getattr(resp, "usage", None)
     _記用量(getattr(u, "input_tokens", None), getattr(u, "output_tokens", None), 類別)
     # 回應可能先有「思考」區塊，只取真正的文字區塊
