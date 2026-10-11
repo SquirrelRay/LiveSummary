@@ -3,7 +3,7 @@
 # 面板不另外跑引擎：和主控台接同一條事件（主控台的 事件橋），內容的顯示上限、捲動方向（newest_on_top）、
 # 手動往上捲不被拉回、「較早的內容已存檔」都直接重用主控台分頁的元件（app.py 的 卡片清單／文字清單／逐句頁）。
 # 每個面板兩種樣式：清單（深色背景的內容清單）、字幕（透明背景、大字置中、只顯示最新幾則）。
-# 控制項平常隱藏，滑鼠移到面板上才在角落浮現（離開約 1.5 秒後淡出）。
+# 面板上只有一個小 ✕（滑鼠移到面板上才在右上角浮現，離開約 1.5 秒後淡出）；其他設定都在主控台的「面板」選單（建立面板選單）。
 # 版面配置（面板種類、位置、大小、樣式、各項設定）存在 版面配置.json（本機檔案，不進 git），可存多組、各自命名。
 import os
 import re
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QInputDialog, QMessageBox, QGraphicsOpacityEffect, QGraphicsDropShadowEffect, QSizePolicy,
     QAbstractButton, QAbstractSlider,
 )
+from PySide6.QtGui import QActionGroup
 
 import overlay          # 最上層、滑鼠穿透（Windows 原生）
 import subtitle
@@ -31,6 +32,9 @@ import live_topics
 清單基準字級 = 14          # 清單樣式的字級 = 14 時和主控台分頁一樣大
 HWND_NOTOPMOST = overlay.wintypes.HWND(-2)
 WS_EX_TOPMOST = 0x8
+
+最小尺寸 = {"清單": (200, 40), "字幕": (200, 20)}     # (最小寬, 最小高)
+透明度級距 = [1.0, 0.8, 0.6, 0.4, 0.2]               # 文字、背景透明度選單的固定級距（背景另外多一個 0%）
 
 面板預設 = {
     "樣式": "清單",          # 清單 / 字幕
@@ -70,7 +74,8 @@ def 整理面板設定(原始):
     s["字幕則數"] = int(_數(原始.get("字幕則數"), 2, 1, 10))
     for k, 預 in (("x", 100), ("y", 100), ("w", 420), ("h", 300)):
         s[k] = int(_數(原始.get(k), 預, -100000, 100000))
-    s["w"], s["h"] = max(30, s["w"]), max(20, s["h"])
+    最寬, 最高 = 最小尺寸[s["樣式"]]
+    s["w"], s["h"] = max(最寬, s["w"]), max(最高, s["h"])
     return s
 
 
@@ -127,160 +132,70 @@ class 紀錄:
 
 
 # ---------- 面板 ----------
-class 控制列(QFrame):
-    """滑鼠移到面板上時浮現的小控制區（獨立的小視窗：面板很窄時也放得下，會擺到面板外側）。"""
+class 關閉鈕(QPushButton):
+    """面板右上角的小 ✕：是面板裡面的一個小元件（不是獨立視窗），所以滑鼠停在上面或在面板與 ✕ 之間移動都不會閃。
+    滑鼠在面板範圍內就顯示（淡入），離開約 1.5 秒後淡出；其他設定都在主控台的「面板」選單。"""
+    尺寸 = 22
 
     def __init__(self, 面):
-        super().__init__(None, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
+        super().__init__("✕", 面)
         self.面 = 面
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setObjectName("面板控制")
-        self.setStyleSheet("""
-            QFrame#面板控制 { background: rgba(22,25,32,240); border: 1px solid #8b6cff; border-radius: 10px; }
-            QLabel { color: #8a91a5; font-size: 12px; background: transparent; }
-            QLabel#名 { color: #e7e9ef; font-weight: 700; }
-            QPushButton { padding: 2px 8px; min-width: 14px; border-radius: 7px; border: 1px solid #2a2e3a;
-                          background: #1d2029; color: #e7e9ef; font-size: 12px; }
-            QPushButton:hover { border: 1px solid #8b6cff; }
-            QPushButton:checked { background: #8b6cff; color: white; border: 1px solid #8b6cff; font-weight: 700; }
-            QPushButton#關 { color: #ff5c7a; }
-            QSlider { min-width: 70px; }
-        """)
-        版 = QVBoxLayout(self)
-        版.setContentsMargins(8, 6, 8, 6)
-        版.setSpacing(5)
-        列1 = QHBoxLayout()
-        列1.setSpacing(4)
-        self.名 = QLabel(面.種類)
-        self.名.setObjectName("名")
-        列1.addWidget(self.名)
-        列1.addStretch(1)
-        self.清單鈕 = self._鈕("清單", "清單樣式：深色背景的內容清單", True)
-        self.字幕鈕 = self._鈕("字幕", "字幕樣式：透明背景、大字置中、只顯示最新幾則", True)
-        self.置頂鈕 = self._鈕("置頂", "疊在其他視窗上（開／關）", True)
-        self.穿透鈕 = self._鈕("穿透", "穿透（開／關）：開啟後滑鼠點擊會穿過面板，控制項也會暫時無法操作；"
-                                   "要取消請用主控台「面板」選單的「全部取消穿透」", True)
-        self.小鈕 = self._鈕("A−", "字縮小")
-        self.大鈕 = self._鈕("A+", "字放大")
-        self.關鈕 = self._鈕("✕", "關閉面板")
-        self.關鈕.setObjectName("關")
-        for w in (self.清單鈕, self.字幕鈕, self.置頂鈕, self.穿透鈕, self.小鈕, self.大鈕, self.關鈕):
-            列1.addWidget(w)
-        版.addLayout(列1)
-        列2 = QHBoxLayout()
-        列2.setSpacing(6)
-        self.文字條 = self._條(10, 100)
-        self.背景條 = self._條(0, 100)
-        列2.addWidget(QLabel("文字"))
-        列2.addWidget(self.文字條, 1)
-        列2.addWidget(QLabel("背景"))
-        列2.addWidget(self.背景條, 1)
-        版.addLayout(列2)
-        self.則數區 = QWidget()
-        列3 = QHBoxLayout(self.則數區)
-        列3.setContentsMargins(0, 0, 0, 0)
-        列3.setSpacing(4)
-        列3.addWidget(QLabel("字幕則數"))
-        self.則少 = self._鈕("−", "少一則")
-        self.則數字 = QLabel("2")
-        self.則數字.setObjectName("名")
-        self.則多 = self._鈕("+", "多一則")
-        for w in (self.則少, self.則數字, self.則多):
-            列3.addWidget(w)
-        列3.addStretch(1)
-        版.addWidget(self.則數區)
-
-        self.清單鈕.clicked.connect(lambda: 面.設樣式("清單"))
-        self.字幕鈕.clicked.connect(lambda: 面.設樣式("字幕"))
-        self.置頂鈕.clicked.connect(lambda: 面.設置頂(self.置頂鈕.isChecked()))
-        self.穿透鈕.clicked.connect(lambda: 面.設穿透(self.穿透鈕.isChecked()))
-        self.小鈕.clicked.connect(lambda: 面.改字級(-2))
-        self.大鈕.clicked.connect(lambda: 面.改字級(+2))
-        self.關鈕.clicked.connect(面.關閉)
-        self.文字條.valueChanged.connect(lambda v: 面.設文字透明度(v / 100))
-        self.背景條.valueChanged.connect(lambda v: 面.設背景透明度(v / 100))
-        self.則少.clicked.connect(lambda: 面.改則數(-1))
-        self.則多.clicked.connect(lambda: 面.改則數(+1))
-
-        self.動畫 = QPropertyAnimation(self, b"windowOpacity", self)
+        self.setToolTip("關閉這個面板")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setFixedSize(self.尺寸, self.尺寸)
+        self.setStyleSheet("QPushButton { background: rgba(22,25,32,235); color: #ff5c7a; border: 1px solid #8b6cff;"
+                           " border-radius: 11px; padding: 0; font-size: 12px; font-weight: 700; }"
+                           "QPushButton:hover { background: #ff5c7a; color: white; }")
+        self.效果 = QGraphicsOpacityEffect(self)
+        self.效果.setOpacity(0.0)
+        self.setGraphicsEffect(self.效果)
+        self.動畫 = QPropertyAnimation(self.效果, b"opacity", self)
         self.動畫.setDuration(250)
-        self.動畫.finished.connect(lambda: self.hide() if self.windowOpacity() <= 0.01 else None)
+        self.動畫.finished.connect(self._完成)
         self.淡出計時 = QTimer(self, singleShot=True, interval=1500, timeout=self.淡出)
+        self.目標 = 0.0
+        self.hide()
+        self.clicked.connect(面.關閉)
 
-    def _鈕(self, 字, 提示, 可切換=False):
-        b = QPushButton(字)
-        b.setToolTip(提示)
-        b.setCheckable(可切換)
-        b.setCursor(Qt.PointingHandCursor)
-        b.setFocusPolicy(Qt.NoFocus)
-        return b
+    def _動到(self, v):
+        if self.目標 == v:
+            return
+        self.目標 = v
+        self.動畫.stop()
+        self.動畫.setStartValue(self.效果.opacity())
+        self.動畫.setEndValue(v)
+        self.動畫.start()
 
-    def _條(self, 小, 大):
-        s = QSlider(Qt.Horizontal)
-        s.setRange(小, 大)
-        s.setFocusPolicy(Qt.NoFocus)
-        return s
-
-    def 同步(self):
-        s = self.面.設
-        for w, v in ((self.清單鈕, s["樣式"] == "清單"), (self.字幕鈕, s["樣式"] == "字幕"),
-                     (self.置頂鈕, s["置頂"]), (self.穿透鈕, s["穿透"])):
-            w.setChecked(v)
-        for 條, v in ((self.文字條, s["文字透明度"]), (self.背景條, s[s["樣式"] + "背景"])):
-            條.blockSignals(True)
-            條.setValue(round(v * 100))
-            條.blockSignals(False)
-        self.則數字.setText(str(s["字幕則數"]))
-        self.則數區.setVisible(s["樣式"] == "字幕")
-        self.adjustSize()
-
-    def 擺放(self):
-        """面板夠大就放在面板右上角內側，太窄或太矮就放到面板外側（下方，放不下改上方），不超出螢幕。"""
-        self.adjustSize()
-        g = self.面.frameGeometry()
-        w, h = self.width(), self.height()
-        sc = QGuiApplication.screenAt(g.center()) or QGuiApplication.primaryScreen()
-        a = sc.availableGeometry()
-        if g.width() >= w + 12 and g.height() >= h + 12:
-            x, y = g.right() - w - 6, g.top() + 6
-        else:
-            x = g.right() - w
-            y = g.bottom() + 4 if g.bottom() + 4 + h <= a.bottom() else g.top() - h - 4
-        x = min(max(x, a.x()), a.x() + a.width() - w)
-        y = min(max(y, a.y()), a.y() + a.height() - h)
-        self.move(x, y)
+    def _完成(self):
+        if self.目標 == 0.0:
+            self.hide()
 
     def 浮現(self):
+        """滑鼠在面板上：持續呼叫也不會重新開始動畫，不會閃。"""
         self.淡出計時.stop()
         if not self.isVisible():
-            self.同步()
-            self.擺放()
-            self.setWindowOpacity(0.0)
             self.show()
-        overlay.user32.SetWindowPos(int(self.winId()), overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
-        正在淡入 = self.動畫.state() == QPropertyAnimation.Running and self.動畫.endValue() == 1.0
-        if self.windowOpacity() < 1 and not 正在淡入:
-            self.動畫.stop()
-            self.動畫.setStartValue(self.windowOpacity())
-            self.動畫.setEndValue(1.0)
-            self.動畫.start()
+        self.raise_()
+        self._動到(1.0)
 
     def 準備淡出(self):
-        正在淡出 = self.動畫.state() == QPropertyAnimation.Running and self.動畫.endValue() == 0.0
-        if self.isVisible() and not self.淡出計時.isActive() and not 正在淡出:
+        if self.isVisible() and self.目標 == 1.0 and not self.淡出計時.isActive():
             self.淡出計時.start()
 
     def 淡出(self):
-        self.動畫.stop()
-        self.動畫.setStartValue(self.windowOpacity())
-        self.動畫.setEndValue(0.0)
-        self.動畫.start()
+        self._動到(0.0)
 
     def 立刻隱藏(self):
         self.淡出計時.stop()
         self.動畫.stop()
-        self.動畫.setEndValue(0.0)
+        self.目標 = 0.0
+        self.效果.setOpacity(0.0)
         self.hide()
+
+    def 擺放(self):
+        self.move(self.面.width() - self.width() - 4, 4)
+        self.raise_()
 
 
 class 面板(QWidget):
@@ -293,7 +208,7 @@ class 面板(QWidget):
         self.setWindowTitle("直播摘要 面板：" + self.種類)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setMinimumSize(30, 20)
+        self.setMinimumSize(*最小尺寸[設定.get('樣式', '清單')])
         self.清單頁 = None
         self.清單容器 = QWidget(self)
         self.清單容器.setObjectName("面板清單")
@@ -313,9 +228,9 @@ class 面板(QWidget):
         self.字幕影.setOffset(0, 0)
         self.字幕影.setBlurRadius(6)
         self.字幕字.setGraphicsEffect(self.字幕影)
-        self.控制 = 控制列(self)
+        self.關鈕 = 關閉鈕(self)
         self.懸停 = False
-        self.置頂計時 = QTimer(self, interval=1000, timeout=self._保持置頂)
+        self.置頂計時 = QTimer(self, interval=500, timeout=self._保持置頂)
         self.存計時 = QTimer(self, singleShot=True, interval=500, timeout=self.管理.存目前)
         self.setGeometry(self.設["x"], self.設["y"], self.設["w"], self.設["h"])
         self.重建清單()
@@ -405,11 +320,9 @@ class 面板(QWidget):
         self.字幕影.setColor(QColor(0, 0, 0, round(240 * s["文字透明度"])))
         if 字幕:
             self._畫字幕()
+        self.setMinimumSize(*最小尺寸[s["樣式"]])
         self._排()
         self.update()
-        self.控制.同步()
-        if self.控制.isVisible():
-            self.控制.擺放()
 
     def 改了(self):
         self._套樣式()
@@ -436,7 +349,10 @@ class 面板(QWidget):
         self.改了()
 
     def 改則數(self, 差):
-        self.設["字幕則數"] = min(10, max(1, self.設["字幕則數"] + 差))
+        self.設則數(self.設["字幕則數"] + 差)
+
+    def 設則數(self, n):
+        self.設["字幕則數"] = min(10, max(1, int(n)))
         self.改了()
 
     def 設置頂(self, 開):
@@ -447,9 +363,8 @@ class 面板(QWidget):
     def 設穿透(self, 開):
         self.設["穿透"] = bool(開)
         if 開:
-            self.控制.立刻隱藏()
+            self.關鈕.立刻隱藏()
         self._套視窗樣式()
-        self.控制.同步()
         self.update()
         self.存計時.start()
 
@@ -467,8 +382,10 @@ class 面板(QWidget):
                                     0, 0, 0, 0, overlay.SWP_旗標)
         self.置頂計時.start() if self.設["置頂"] else self.置頂計時.stop()
 
-    def _保持置頂(self):          # 定時確保在最上層（蓋過瀏覽器全螢幕）
-        if self.isVisible() and self.設["置頂"]:
+    def _保持置頂(self):
+        """只有前景是全螢幕程式（例如瀏覽器全螢幕播放）才重新拉到最上層；
+        截圖工具、工作管理員、開始選單等系統視窗出現時不去蓋它們。"""
+        if self.isVisible() and self.設["置頂"] and overlay.前景是全螢幕程式():
             overlay.user32.SetWindowPos(int(self.winId()), overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
 
     def 視窗旗標(self):
@@ -486,15 +403,12 @@ class 面板(QWidget):
         self._套視窗樣式()
 
     def 關閉(self):
-        self.控制.立刻隱藏()
+        self.關鈕.立刻隱藏()
         self.管理.面板關了(self)
 
     def 收掉(self):
         self.存計時.stop()          # 已經關掉的面板不能再把版面存回去
         self.置頂計時.stop()
-        self.控制.立刻隱藏()
-        self.控制.close()
-        self.控制.deleteLater()
         self.close()
         self.deleteLater()
 
@@ -502,6 +416,7 @@ class 面板(QWidget):
         r = self.rect()
         self.清單容器.setGeometry(r.adjusted(2, 2, -2, -2))
         self.字幕字.setGeometry(r.adjusted(6, 2, -6, -2))
+        self.關鈕.擺放()
         if self.清單頁 is not None:          # 很矮的橫條：不顯示「較早的內容已存檔」那一列，把空間留給內容
             self.清單頁.頂.setMaximumHeight(0 if self.height() < 90 else 16777215)
 
@@ -510,15 +425,11 @@ class 面板(QWidget):
         self._排()
         if self.isVisible():
             self.存計時.start()
-            if self.控制.isVisible():
-                self.控制.擺放()
 
     def moveEvent(self, e):
         super().moveEvent(e)
         if self.isVisible():
             self.存計時.start()
-            if self.控制.isVisible():
-                self.控制.擺放()
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -789,19 +700,17 @@ class 面板管理(QObject):
         for 面 in list(self.面板們.values()):
             if not 面.isVisible():
                 continue
-            在上面 = 面.frameGeometry().contains(點) or (面.控制.isVisible() and 面.控制.frameGeometry().contains(點))
-            if 面.設["穿透"]:
-                在上面 = False
+            在上面 = 面.frameGeometry().contains(點) and not 面.設["穿透"]
             if 在上面 != 面.懸停:
                 面.懸停 = 在上面
                 面.update()
             if 在上面:
-                面.控制.浮現()
-                if 面.frameGeometry().contains(點) and not 面.控制.frameGeometry().contains(點):
+                面.關鈕.浮現()
+                if not 面.關鈕.geometry().contains(面.mapFromGlobal(點)):
                     邊 = 面.邊緣(面.mapFromGlobal(點))
                     邊游標 = 游標形狀.get(_值(邊)) if _值(邊) else None
             else:
-                面.控制.準備淡出()
+                面.關鈕.準備淡出()
         if 邊游標 != self._游標覆蓋:
             if self._游標覆蓋 is not None:
                 QApplication.restoreOverrideCursor()
@@ -820,56 +729,110 @@ class 面板管理(QObject):
                 return True
         return False
 
-    # ---------- 主控台的「面板」選單 ----------
-    def 做選單(self, 父):
-        選單 = QMenu(父)
-        選單.setStyleSheet("""
-            QMenu { background: #1d2029; border: 1px solid #2a2e3a; padding: 4px; }
-            QMenu::item { padding: 6px 22px 6px 22px; border-radius: 6px; color: #e7e9ef; }
-            QMenu::item:selected { background: #8b6cff; color: white; }
-            QMenu::item:disabled { color: #5a6072; }
-            QMenu::separator { height: 1px; background: #2a2e3a; margin: 4px 8px; }
-            QMenu::indicator { width: 14px; height: 14px; left: 4px; }
-        """)
-        選單.aboutToShow.connect(lambda: self._填選單(選單))
-        return 選單
-
-    def _填選單(self, 選單):
-        選單.clear()
-        for k in 種類們:
-            a = 選單.addAction(k + " 面板")
-            a.setCheckable(True)
-            a.setChecked(k in self.面板們)
-            a.toggled.connect(lambda 開, k=k: self.開關(k, 開))
-        選單.addSeparator()
-        套 = 選單.addMenu("套用版面")
-        刪 = 選單.addMenu("刪除版面")
-        for 子 in (套, 刪):
-            子.setStyleSheet(選單.styleSheet())
-        名們 = self.版面名們()
-        for 名 in 名們:
-            套.addAction(名).triggered.connect(lambda _=False, 名=名: self.套用版面(名))
-            刪.addAction(名).triggered.connect(lambda _=False, 名=名: self._問刪除(名))
-        套.setEnabled(bool(名們))
-        刪.setEnabled(bool(名們))
-        選單.addAction("另存版面…").triggered.connect(self._問另存)
-        選單.addAction("重設為預設版面").triggered.connect(self.重設預設)
-        選單.addSeparator()
-        a = 選單.addAction("全部取消穿透")
-        a.setEnabled(any(面.設["穿透"] for 面 in self.面板們.values()))
-        a.triggered.connect(self.全部取消穿透)
-
-    def _問另存(self):
-        名, 好 = QInputDialog.getText(self.台, "另存版面", "版面名稱（同名會覆蓋）：")
+    # ---------- 版面對話框 ----------
+    def 問另存(self, 父=None):
+        父 = 父 or self.台
+        名, 好 = QInputDialog.getText(父, "另存版面", "版面名稱（同名會覆蓋）：")
         名 = (名 or "").strip()
         if not 好 or not 名:
             return
         if 名 in self.存檔["版面們"]:
-            if QMessageBox.question(self.台, "另存版面", f"已經有「{名}」，要覆蓋嗎？") != QMessageBox.Yes:
+            if QMessageBox.question(父, "另存版面", f"已經有「{名}」，要覆蓋嗎？") != QMessageBox.Yes:
                 return
         self.另存版面(名)
         self.台._訊息(f"已存成版面「{名}」（{len(self.面板們)} 個面板）。")
 
-    def _問刪除(self, 名):
-        if QMessageBox.question(self.台, "刪除版面", f"確定刪除版面「{名}」？") == QMessageBox.Yes:
+    def 問刪除(self, 名, 父=None):
+        if QMessageBox.question(父 or self.台, "刪除版面", f"確定刪除版面「{名}」？") == QMessageBox.Yes:
             self.刪除版面(名)
+
+
+選單樣式 = """
+    QMenu { background: #1d2029; border: 1px solid #2a2e3a; padding: 4px; }
+    QMenu::item { padding: 6px 22px 6px 22px; border-radius: 6px; color: #e7e9ef; }
+    QMenu::item:selected { background: #8b6cff; color: white; }
+    QMenu::item:disabled { color: #5a6072; }
+    QMenu::separator { height: 1px; background: #2a2e3a; margin: 4px 8px; }
+    QMenu::indicator { width: 14px; height: 14px; left: 4px; }
+"""
+
+
+def 建立面板選單(管, 父=None):
+    """「面板」選單：開關五種面板、每個已開面板的設定子選單、套用／另存／刪除版面、重設為預設版面、全部取消穿透。
+    獨立函式：只需要「面板管理」物件，之後要整份搬到浮動膠囊直接呼叫這個函式即可。
+    每次要顯示前才重新填內容（aboutToShow），所以隨時反映目前開了哪些面板。"""
+    選單 = QMenu(父)
+    選單.setStyleSheet(選單樣式)
+    選單.aboutToShow.connect(lambda: 填面板選單(管, 選單, 父))
+    return 選單
+
+
+def _子選單(上層, 標題):
+    m = 上層.addMenu(標題)
+    m.setStyleSheet(選單樣式)
+    return m
+
+
+def _單選(選單, 項目們, 目前, 動作, 相同=None):
+    """項目們：[(顯示文字, 值)]；目前值打勾，點了呼叫 動作(值)。"""
+    組 = QActionGroup(選單)
+    組.setExclusive(True)
+    for 字, 值 in 項目們:
+        a = 選單.addAction(字)
+        a.setCheckable(True)
+        a.setActionGroup(組)
+        a.setChecked((相同 or (lambda x, y: x == y))(值, 目前))
+        a.triggered.connect(lambda _=False, v=值: 動作(v))
+
+
+def 填面板選單(管, 選單, 父=None):
+    選單.clear()
+    for k in 種類們:
+        a = 選單.addAction(k + " 面板")
+        a.setCheckable(True)
+        a.setChecked(k in 管.面板們)
+        a.toggled.connect(lambda 開, k=k: 管.開關(k, 開))
+    開著的 = [k for k in 種類們 if k in 管.面板們]
+    if 開著的:
+        選單.addSeparator()
+    for k in 開著的:
+        面 = 管.面板們[k]
+        s = 面.設
+        子 = _子選單(選單, f"{k} 設定")
+        樣 = _子選單(子, "樣式")
+        _單選(樣, [("清單", "清單"), ("字幕", "字幕")], s["樣式"], 面.設樣式)
+        a = 子.addAction("疊在其他視窗上（置頂）")
+        a.setCheckable(True)
+        a.setChecked(s["置頂"])
+        a.triggered.connect(lambda 開, 面=面: 面.設置頂(開))
+        a = 子.addAction("滑鼠穿透")
+        a.setCheckable(True)
+        a.setChecked(s["穿透"])
+        a.triggered.connect(lambda 開, 面=面: 面.設穿透(開))
+        近 = lambda 值, 目前: abs(值 - 目前) < 0.1
+        文 = _子選單(子, "文字透明度")
+        _單選(文, [(f"{round(v * 100)}%", v) for v in 透明度級距], s["文字透明度"], 面.設文字透明度, 近)
+        背 = _子選單(子, "背景透明度")
+        _單選(背, [(f"{round(v * 100)}%", v) for v in 透明度級距 + [0.0]], s[s["樣式"] + "背景"], 面.設背景透明度, 近)
+        子.addAction("字級放大").triggered.connect(lambda _=False, 面=面: 面.改字級(+2))
+        子.addAction("字級縮小").triggered.connect(lambda _=False, 面=面: 面.改字級(-2))
+        if s["樣式"] == "字幕":
+            則 = _子選單(子, "字幕則數")
+            _單選(則, [(f"{n} 則", n) for n in range(1, 6)], s["字幕則數"], 面.設則數)
+        子.addSeparator()
+        子.addAction("關閉這個面板").triggered.connect(lambda _=False, 面=面: 面.關閉())
+    選單.addSeparator()
+    套 = _子選單(選單, "套用版面")
+    刪 = _子選單(選單, "刪除版面")
+    名們 = 管.版面名們()
+    for 名 in 名們:
+        套.addAction(名).triggered.connect(lambda _=False, 名=名: 管.套用版面(名))
+        刪.addAction(名).triggered.connect(lambda _=False, 名=名: 管.問刪除(名, 父))
+    套.setEnabled(bool(名們))
+    刪.setEnabled(bool(名們))
+    選單.addAction("另存版面…").triggered.connect(lambda: 管.問另存(父))
+    選單.addAction("重設為預設版面").triggered.connect(管.重設預設)
+    選單.addSeparator()
+    a = 選單.addAction("全部取消穿透")
+    a.setEnabled(any(面.設["穿透"] for 面 in 管.面板們.values()))
+    a.triggered.connect(管.全部取消穿透)

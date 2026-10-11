@@ -1055,7 +1055,7 @@ class 主控台(QMainWindow):
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
-        self.面板鈕.setMenu(self.面板.做選單(self.面板鈕))
+        self.面板鈕.setMenu(panel.建立面板選單(self.面板, self))
         self._切換來源()
         if 轉換訊息:
             self._訊息(轉換訊息)
