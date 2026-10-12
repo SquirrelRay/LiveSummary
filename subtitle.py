@@ -72,6 +72,7 @@ class 字幕器:
         self._佇列 = queue.Queue()
         self._緩衝 = []            # 已收到、還沒送去翻的句子
         self._進行中 = False       # 有一批正在翻
+        self._已送過首批 = False   # 第一批不等批次秒數與句數，句子停止湧入就送
         self._收尾 = threading.Event()   # 按了停止：把剩下的句子翻完再結束
         self.收尾完成 = threading.Event()
         self.收尾剩 = 0            # 按停止時還沒翻的句數（測試與回報用）
@@ -100,6 +101,7 @@ class 字幕器:
         self._佇列 = queue.Queue()
         self._緩衝 = []
         self._進行中 = False
+        self._已送過首批 = False
         self._收尾 = threading.Event()
         self.收尾完成 = threading.Event()
         self.收尾剩 = self.收尾翻 = 0
@@ -204,8 +206,10 @@ class 字幕器:
     def _跑(self):
         緩衝 = self._緩衝
         while not self._停.is_set():
+            有新句 = False
             try:
                 緩衝.append(self._佇列.get(timeout=0.3))
+                有新句 = True
             except queue.Empty:
                 pass
             if self._收尾.is_set():
@@ -213,12 +217,17 @@ class 字幕器:
                 return
             if not 緩衝:
                 continue
-            if len(緩衝) < 批次句數 and time.time() - 緩衝[0][0] < 批次秒數:
+            if not self._已送過首批:
+                # 第一批：不等批次秒數。同一段轉錄出來的句子會連續進來，所以等它們停下來（最多 0.3 秒）再送
+                if 有新句 and len(緩衝) < 批次句數 and time.time() - 緩衝[0][0] < 批次秒數:
+                    continue
+            elif len(緩衝) < 批次句數 and time.time() - 緩衝[0][0] < 批次秒數:
                 continue
             with self._緩衝鎖:
                 批, 緩衝[:] = 緩衝[:每批上限], 緩衝[每批上限:]
             if not 批:
                 continue
+            self._已送過首批 = True
             self._進行中 = True
             譯們 = self._翻(批)
             self._進行中 = False

@@ -25,7 +25,7 @@
 外語直播（日文等）：
   config.json 的 language 可填 "zh"（預設，中文）、"ja"（日文）、"en"（英文）、"ko"（韓文）、"auto"（自動偵測）。
   命令列臨時覆蓋：  python live_topics.py --live 網址 --lang ja     或   --lang auto
-  auto：開頭累積約 1 分鐘有人聲的音訊判斷語言，判斷出來就鎖定，之後都用這個語言；失敗會印警告並退回中文。
+  auto：用第一段（約 20 秒）有人聲的音訊判斷語言（靜音或只有音樂的段會跳過、等下一段），判斷出來就鎖定，之後都用這個語言；失敗會印警告並退回中文。
   不管直播什麼語言，摘要一律是繁體中文；專有名詞第一次出現會附原文，看不懂的詞會標「不確定」。
   轉錄外語影片：  python transcribe.py 影片或網址 --lang ja
   文字稿模式跑外語稿：  python live_topics.py 日文稿.txt --lang ja

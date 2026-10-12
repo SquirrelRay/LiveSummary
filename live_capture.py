@@ -35,7 +35,7 @@ import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
         "시청해 주셔서 감사합니다", "시청해주셔서 감사합니다"]
 
 語言名稱 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}
-偵測句數 = 3          # auto 模式：累積幾段「有人聲」的音訊再判斷語言
+偵測句數 = 1          # auto 模式：累積幾段「有人聲」的音訊再判斷語言（原本是 3，改成 1 讓第一句字幕早約 40 秒出現）
 最低信心 = 0.4        # 偵測出來的語言平均信心低於這個值，就當作失敗
 
 
@@ -146,6 +146,34 @@ def 轉錄一段(model, 音訊, 語言):
     return 結果
 
 
+def 含人聲(音訊):
+    """這一段是不是真的有人在說話：音量夠大，而且 VAD（語音偵測）找得到說話的部分。
+    只有音樂、只有環境音、靜音都算沒有人聲。VAD 載不起來就只看音量（和以前一樣）。"""
+    if np.abs(音訊).max() < 0.005:
+        return False
+    try:
+        from faster_whisper.vad import get_speech_timestamps
+        return bool(get_speech_timestamps(音訊))
+    except (ImportError, ValueError, RuntimeError, OSError):
+        return True
+
+
+class 偵測緩存:
+    """auto 模式鎖定語言之前：把「有人聲」的段先存著，湊到 偵測句數 段就交出來給語言偵測；沒人聲的段不算、繼續等下一段。"""
+
+    def __init__(self):
+        self.段們 = []
+
+    def 加入(self, 段號, 音訊):
+        """回傳 None = 還要繼續等；回傳 [(段號, 音訊), ...] = 可以偵測了（緩存同時清空）。"""
+        if 含人聲(音訊):
+            self.段們.append((段號, 音訊))
+        if len(self.段們) >= 偵測句數:
+            交出, self.段們 = self.段們, []
+            return 交出
+        return None
+
+
 class live_session:
     """用法：s = live_session(網址)；s.稿路徑 是直播稿檔；for 秒, 行 in s: 一句一句吐出
     (直播秒數, "[mm:ss] 文字")，同時即時存成直播稿。"""
@@ -231,7 +259,7 @@ class live_session:
         threading.Thread(target=讀聲音, daemon=True).start()
         events.送出("info", 印出="開始擷取直播（Ctrl+C 結束）。" + (f"直播稿即時存到：{self.稿路徑}" if self.存稿 else "直播稿不存檔。"))
 
-        第幾段, 上一句, 緩存 = 0, "", []
+        第幾段, 上一句, 緩存 = 0, "", 偵測緩存()
         try:
             with open(self.稿路徑 if self.存稿 else os.devnull, "w", encoding="utf-8") as 稿:
                 while True:
@@ -252,13 +280,12 @@ class live_session:
                     音訊 = np.frombuffer(資料, dtype=np.int16).astype(np.float32) / 32768.0
                     待轉 = [(第幾段, 音訊)]
                     if self.語言 == "auto":      # 還沒鎖定：有人聲的段先存著，湊夠了再一起判斷
-                        if np.abs(音訊).max() >= 0.005:
-                            緩存.append((第幾段, 音訊))
                         待轉 = []
-                        if len(緩存) >= 偵測句數:
-                            self.語言 = 偵測語言(model, [a for _, a in 緩存])
+                        湊好 = 緩存.加入(第幾段, 音訊)
+                        if 湊好:
+                            self.語言 = 偵測語言(model, [a for _, a in 湊好])
                             里程碑.標記(里程碑.語言偵測完成, 語言=self.語言)
-                            待轉, 緩存 = 緩存, []
+                            待轉 = 湊好
                     for 段號, 音訊 in 待轉:
                         里程碑.標記(里程碑.第一段送轉錄, 語言=self.語言)
                         結果們 = 轉錄一段(model, 音訊, self.語言)
