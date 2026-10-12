@@ -1,0 +1,2 @@
+# hook 必須是 LF，否則 Windows 上 sh 會報錯
+.githooks/* text eol=lf
