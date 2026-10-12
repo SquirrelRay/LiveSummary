@@ -115,3 +115,9 @@
 膠囊與系統匣的滑鼠提示也會顯示目前語言。重新偵測成功或按停止後，「⚠ 語言」就消失。
 錯誤提示：直播中途的錯誤（例如金鑰失效）、config.json 的設定警告，除了主控台的提示條，也會在膠囊旁用紅框中文提示約 12 秒。
 啟動中的錯誤（網址錯誤、沒開播）照舊顯示在啟動面板裡。
+
+開發者：啟用提交前檢查（新電腦 clone 後做一次）：
+   pip install -r requirements-dev.txt
+   git config core.hooksPath .githooks
+   之後每次 git commit 會自動跑 pytest 與 ruff（警告數不得超過 .ruff-baseline），沒過就不能提交。
+   手動檢查：python scripts/check.py

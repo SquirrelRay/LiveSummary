@@ -1,0 +1,8 @@
+#!/bin/sh
+# 提交前檢查（由 core.hooksPath 指向 .githooks）。失敗就擋下 commit。
+cd "$(git rev-parse --show-toplevel)" || exit 1
+export PYTHONIOENCODING=utf-8
+if command -v python >/dev/null 2>&1; then PY=python
+elif command -v py >/dev/null 2>&1; then PY="py -3"
+else echo "找不到 Python，無法執行提交前檢查。"; exit 1; fi
+exec $PY scripts/check.py
