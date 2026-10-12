@@ -26,6 +26,8 @@ zh回歸測試*.txt
 *.png
 # 快取與本機狀態
 __pycache__/
+# 個人設定（git 只放範例 config.example.json）
+config.json
 config.backup.json
 overlay_位置.json
 .env

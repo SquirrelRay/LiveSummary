@@ -14,6 +14,10 @@
 
 設定檔 config.json（用 live_topics.py 時）：
   功能開關和常用數字都寫在 config.json，用記事本打開改就好，改完存檔，下次執行就生效。
+  config.json 是本機檔案，不進 git；git 裡只有範例 config.example.json（內容 = 出廠預設）。
+  沒有 config.json 時（例如剛 clone）程式照常啟動、全部用出廠預設，不會自動建立；
+  想用記事本改就把 config.example.json 複製成 config.json 再改，或直接在設定框按「儲存」（會建立 config.json）。
+  預設值、欄位檢查、欄位說明、語言清單、讀寫 config.json 的程式都在 config.py（新增欄位只要改那裡，加上設定框）。
   命令列參數只是「這一次」臨時覆蓋，優先順序：命令列 > config.json > 程式內建預設。
   欄位：chat（聊天室）、minute_summary（分鐘摘要）、save_audio（存音訊）、fix_with_chat（聊天室參考詞修正）、
         check_minutes、min_topic_min、max_topic_min、model、whisper_model、language、minute_sentences（1 到 3）。
@@ -65,8 +69,9 @@
 
 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」；主控台已沒有「設定」分頁）：
   可調字幕模式、聊天室、分鐘摘要、參考詞修正、延伸思考、分鐘摘要句數、內容顯示方向、各分頁顯示上限、字幕速度、模型服務與模型名稱、存檔。
-  按「儲存」才寫回 config.json，寫之前自動備份成 config.backup.json；只改表單上的欄位，其他欄位原樣保留。
-  「還原預設值」會把表單變回預設（一樣要按「儲存」才寫入）。金鑰只顯示「已設定／未設定」。
+  按「儲存」才寫回 config.json，寫之前自動備份成 config.backup.json，先寫暫存檔再取代（寫到一半失敗原檔不會壞）；只改表單上的欄位，其他欄位原樣保留。
+  膠囊選單的「顯示用量」也用同一套寫法。
+  「還原預設值」會把表單變回出廠預設（config.py 的固定值，不受上一場影響；一樣要按「儲存」才寫入）。金鑰只顯示「已設定／未設定」。
   執行中改到的功能、模型等項目會標「下次開始生效」。
 
 逐句翻譯（字幕模式 subtitle_mode："original" 原文、"translate" 一律翻譯、"auto" 中文原文其他語言翻譯）：
