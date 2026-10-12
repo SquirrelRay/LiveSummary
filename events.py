@@ -11,6 +11,7 @@
 #   status           狀態（只放有變的欄位）：跟上（True/False）、次數、輸入、輸出、費用（None = 無法計算）
 #   info             一般提示訊息：印出
 #   error            錯誤：訊息（給對話框）、印出
+#   stage            啟動階段（給啟動面板顯示「啟動中…」的階段文字）：階段
 #   finished         結束：話題數、檔案們、印出
 import threading
 

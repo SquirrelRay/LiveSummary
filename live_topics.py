@@ -719,6 +719,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
         if 設定["language"] == "auto" and not 網址:
             events.送出("info", 印出="提醒：文字稿模式無法自動偵測語言，一律照外語說明處理。")
 
+    events.送出("stage", 階段="檢查 API 金鑰")
     錯誤 = llm.檢查金鑰()
     if 錯誤:
         events.送出("error", 訊息=錯誤, 印出=錯誤)

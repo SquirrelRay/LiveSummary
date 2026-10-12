@@ -60,10 +60,20 @@ def 頻道名稱(網址):
 
 def 檢查直播(網址):
     """確認頻道有開播、能抓到音訊。有問題就丟出中文提示。回傳要用的串流名稱。"""
-    結果 = subprocess.run([sys.executable, "-m", "streamlink_cli", "--json", 網址],
-                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    events.送出("stage", 階段="連線直播、確認有開播")
+    子 = subprocess.Popen([sys.executable, "-m", "streamlink_cli", "--json", 網址],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    while True:              # 等結果的同時每 0.2 秒看一次有沒有要結束，按「結束」時才不會卡住、也不留下背景程序
+        try:
+            輸出, _ = 子.communicate(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            if events.停止.is_set():
+                子.kill()
+                子.communicate()
+                raise 直播錯誤("已取消啟動。") from None
     try:
-        資料 = json.loads(結果.stdout)
+        資料 = json.loads(輸出)
     except Exception:
         raise 直播錯誤("無法檢查直播，請確認網址正確（例如 https://www.twitch.tv/頻道名稱）。")
     錯誤 = str(資料.get("error", ""))
@@ -143,6 +153,7 @@ class live_session:
         self.網址 = 網址
         self.語言 = 語言
         串流名 = 檢查直播(網址)
+        events.送出("stage", 階段="尋找 ffmpeg")
         self.ffmpeg = 找ffmpeg()
         self.串流名 = 串流名
         時間字 = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -156,6 +167,7 @@ class live_session:
         self.聊天 = None     # 有聊天室時，這裡是 chat_capture.聊天室 物件
         if 用聊天室:
             import chat_capture
+            events.送出("stage", 階段="準備聊天室")
             self.聊天 = chat_capture.聊天室(
                 頻道名稱(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt") if 存聊天 else None)
 

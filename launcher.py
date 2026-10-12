@@ -7,9 +7,11 @@
 # 啟動面板不另外跑引擎，也不改主控台的行為。
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar
 
+import events
 import live_topics
+from launch_state import 啟動狀態
 
 語言選項 = [("自動偵測", "auto"), ("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko")]
 寬 = 480
@@ -23,7 +25,7 @@ class 啟動面板(QWidget):
         self.setWindowTitle("直播摘要")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(寬)
-        self.等待中 = False             # 按了開始、還沒確定成功或失敗
+        self.狀態 = 啟動狀態()           # 按了開始、還沒確定成功或失敗 = 啟動中
         self.測試檔案 = None            # 測試專用：設成文字稿路徑時，改用「文字稿重播」開始（使用者介面不會用到）
 
         版 = QVBoxLayout(self)
@@ -67,11 +69,26 @@ class 啟動面板(QWidget):
         self.開始鈕.setCursor(Qt.PointingHandCursor)
         self.開始鈕.setMinimumWidth(110)
         self.開始鈕.clicked.connect(self.開始)
+        self.結束鈕 = QPushButton("結束")
+        self.結束鈕.setToolTip("結束程式（含膠囊、系統匣）")
+        self.結束鈕.setCursor(Qt.PointingHandCursor)
+        self.結束鈕.setMinimumWidth(80)
+        self.結束鈕.clicked.connect(self.結束)
         列.addWidget(語言標)
         列.addWidget(self.語言選)
         列.addStretch(1)
+        列.addWidget(self.結束鈕)
         列.addWidget(self.開始鈕)
         版.addLayout(列)
+
+        self.進度條 = QProgressBar()         # 啟動中的動態指示（跑動的條，表示沒有當掉）
+        self.進度條.setRange(0, 0)
+        self.進度條.setTextVisible(False)
+        self.進度條.setFixedHeight(4)
+        self.進度條.setStyleSheet("QProgressBar { background: #2a2e3a; border: none; border-radius: 2px; }"
+                              "QProgressBar::chunk { background: #5b8cff; border-radius: 2px; }")
+        self.進度條.hide()
+        版.addWidget(self.進度條)
 
         self.狀態字 = QLabel("")
         self.狀態字.setWordWrap(True)
@@ -91,6 +108,7 @@ class 啟動面板(QWidget):
         self.網址清單.重建 = 重建
         self.網址清單.選了.connect(lambda _: self.網址框.setFocus())
         台.橋.收到.connect(self.收事件)
+        台.橋.結束.connect(self._引擎結束)
         self.setFixedHeight(self._基本高())
 
     # ---------- 外觀 ----------
@@ -117,14 +135,24 @@ class 啟動面板(QWidget):
         if e.button() == Qt.LeftButton and self.windowHandle():     # 拖曳空白處移動
             self.windowHandle().startSystemMove()
 
+    @property
+    def 等待中(self):
+        return self.狀態.啟動中
+
+    def _套用狀態(self):
+        """依啟動狀態更新：開始鈕、進度條、提示文字。"""
+        self.開始鈕.setEnabled(self.狀態.開始鈕可用())
+        self.進度條.setVisible(self.狀態.顯示進度條())
+        self.設狀態(self.狀態.文字(), 錯誤=self.狀態.是錯誤())
+
     # ---------- 顯示 ----------
     def 顯示(self):
         """打開啟動面板（直播中不會打開），放在膠囊所在螢幕的正中間。"""
         if self.台.執行中() or self.台.結束中:
             return
         if not self.等待中:
-            self.設狀態("")
-            self.開始鈕.setEnabled(True)
+            self._套用狀態()            # 待命：清掉提示（上一次失敗的錯誤文字會保留）
+            self.結束鈕.setEnabled(True)
         if not self.isVisible():
             self._回基本高()
             螢 = self.台.膠囊.膠囊._所在螢幕()
@@ -162,27 +190,44 @@ class 啟動面板(QWidget):
             台.網址框.setText(網址)
         台._切換來源()
         台.語言選.setCurrentIndex(max(0, 台.語言選.findData(self.語言選.currentData())))
-        self.等待中 = True
-        self.開始鈕.setEnabled(False)
-        self.設狀態("正在檢查直播…" if not self.測試檔案 else "開始重播文字稿…")
+        self.狀態.開始("檢查直播" if not self.測試檔案 else "開始重播文字稿")
+        self._套用狀態()
         台.開始()
         if not 台.執行中():           # 主控台在開始前就擋下來（例如找不到檔案）
-            self.等待中 = False
-            self.開始鈕.setEnabled(True)
-            self.設狀態("無法開始，請確認網址後再試一次。", 錯誤=True)
+            self.狀態.失敗("無法開始，請確認網址後再試一次。")
+            self._套用狀態()
+
+    def 結束(self):
+        """結束程式：啟動面板階段還沒開始擷取，不需要確認。啟動中按結束，引擎會在下一個檢查點（約 0.2 秒）收到停止。"""
+        self.結束鈕.setEnabled(False)
+        self.開始鈕.setEnabled(False)
+        if self.等待中:
+            self.設狀態("正在結束…")
+        events.停止.set()
+        self.台.要結束 = True
+        self.台.close()              # 引擎還在跑會先收尾，完成後自動關閉；沒在跑就直接關閉全部
+
+    def _引擎結束(self):
+        """引擎執行緒結束了，但啟動面板還在等（沒收到 files 也沒收到 error）：不能卡在啟動中。"""
+        if self.等待中 and not self.台.要結束:
+            self.狀態.失敗("啟動失敗，請再試一次。")
+            self._套用狀態()
 
     def 收事件(self, 種類, 內容):
         if not self.等待中:
             return
-        if 種類 == "files":                   # 成功開始擷取：收起，套用版面讓面板出現
-            self.等待中 = False
-            self.開始鈕.setEnabled(True)
-            self.設狀態("")
+        if 種類 == "stage":                   # 啟動階段文字
+            self.狀態.換階段(內容.get("階段", ""))
+            self._套用狀態()
+        elif 種類 == "files":                 # 成功開始擷取：收起，套用版面讓面板出現
+            self.狀態.成功()
+            self._套用狀態()
             self.hide()
             self.台.面板.套用上次或預設()
         elif 種類 == "error":                 # 網址錯誤、頻道沒開播、金鑰問題等：留在啟動面板顯示
-            self.等待中 = False
-            self.開始鈕.setEnabled(True)
-            self.設狀態(內容.get("訊息") or "發生錯誤，請再試一次。", 錯誤=True)
+            if self.台.要結束:                # 正在結束中被取消，不顯示錯誤
+                return
+            self.狀態.失敗(內容.get("訊息") or "發生錯誤，請再試一次。")
+            self._套用狀態()
             if not self.isVisible():
                 self.顯示()
