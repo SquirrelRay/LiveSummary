@@ -38,7 +38,7 @@ def test_不是私訊的行不吻合(行):
 
 # ---------- 機器人與洗版 ----------
 @pytest.mark.parametrize("名稱,預期", [
-    ("Nightbot", True), ("StreamElements", True), ("my_bot_123", True), ("Fossabot", True),
+    ("Nightbot", True), ("StreamElements", True), ("my_bot", True), ("Fossabot", True),
     ("alice", False), ("robert", False),
 ])
 def test_是機器人(名稱, 預期):
@@ -158,6 +158,17 @@ def test_中文留言被正確解碼(事件們, 假連線):
     assert c.訊息們[0][2] == "笑死"
 
 
-@pytest.mark.xfail(strict=True, reason="疑似 bug：是機器人 只要名稱含 'bot' 就判定為機器人，真人暱稱如 Abbott、Botan 會被誤濾掉")
-def test_名稱含bot的真人不該被當成機器人():
-    assert cc.是機器人("Abbott") is False
+@pytest.mark.parametrize("名稱", sorted(cc.機器人))
+def test_名單中的機器人都會被擋(名稱):
+    assert cc.是機器人(名稱) is True
+    assert cc.是機器人(名稱.upper()) is True          # 不分大小寫
+
+
+@pytest.mark.parametrize("名稱", ["SomeBot", "cool_BOT", "mychannelbot", "Bot"])
+def test_以bot結尾的會被擋(名稱):
+    assert cc.是機器人(名稱) is True
+
+
+@pytest.mark.parametrize("名稱", ["Abbott", "Botan", "botanist", "robotfan", "bottle_man", "bot_lover99"])
+def test_名稱含bot但不是以bot結尾的真人不該被當成機器人(名稱):
+    assert cc.是機器人(名稱) is False

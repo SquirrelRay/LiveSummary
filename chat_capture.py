@@ -11,7 +11,8 @@ import threading
 import transcribe  # 沿用 [mm:ss] 的時間格式
 import events      # 每則留言送出 chat_line 事件
 
-機器人 = {"nightbot", "moobot", "streamelements", "streamlabs", "fossabot"}
+機器人 = {"nightbot", "moobot", "streamelements", "streamlabs", "fossabot", "wizebot", "sery_bot", "soundalerts",
+       "commanderroot", "anotherttvviewer", "streamstickers", "pretzelrocks", "lurxx"}
 重試次數 = 3
 
 私訊 = re.compile(r"^:(\w+)!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :(.*)$")
@@ -19,7 +20,7 @@ import events      # 每則留言送出 chat_line 事件
 
 def 是機器人(名稱):
     名稱 = 名稱.lower()
-    return "bot" in 名稱 or 名稱 in 機器人
+    return 名稱.endswith("bot") or 名稱 in 機器人
 
 
 def 是洗版(內容):

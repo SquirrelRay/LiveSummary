@@ -4,6 +4,7 @@
 通過回傳 0，失敗回傳 1。由 .githooks/pre-commit 在 git commit 時自動呼叫。
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ def run(args):
     return subprocess.run(  # noqa: S603
         [sys.executable, "-m", *args], cwd=ROOT, capture_output=True,
         text=True, encoding="utf-8", errors="replace", check=False,
+        env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},   # 子程序一律輸出 UTF-8，中文訊息才不會亂碼
     )
 
 
