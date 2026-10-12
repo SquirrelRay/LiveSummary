@@ -91,3 +91,29 @@ def 秒數(紀, 名稱):
     return None
 
 
+
+
+# ---------- 保護：測試不准在專案資料夾留下新檔案 ----------
+專案根 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+忽略資料夾 = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}      # 工具自己的快取，不算污染
+
+
+def 專案檔案們():
+    """專案資料夾（含子資料夾）目前所有檔案的相對路徑集合。"""
+    結果 = set()
+    for 路, 資料夾們, 檔們 in os.walk(專案根):
+        資料夾們[:] = [d for d in 資料夾們 if d not in 忽略資料夾]
+        結果.update(os.path.relpath(os.path.join(路, f), 專案根) for f in 檔們)
+    return 結果
+
+
+def pytest_sessionstart(session):
+    session.config._專案檔案前 = 專案檔案們()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    新增 = sorted(專案檔案們() - session.config._專案檔案前)
+    if 新增:
+        sys.stderr.write("\n【失敗】測試在專案資料夾留下了新檔案（請改用 tmp_path）：\n"
+                         + "\n".join(f"  {f}" for f in 新增) + "\n")
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED

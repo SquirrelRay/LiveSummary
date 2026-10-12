@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
 )
 
 專案目錄 = os.path.dirname(os.path.abspath(__file__))
-os.chdir(專案目錄)            # 結果檔和命令列一樣存在專案資料夾
 sys.path.insert(0, 專案目錄)
 
 import events
@@ -1607,6 +1606,7 @@ def 選字型():
 
 
 def main():
+    os.chdir(專案目錄)            # 結果檔和命令列一樣存在專案資料夾（放在啟動時，import app 不會改工作目錄）
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     try:

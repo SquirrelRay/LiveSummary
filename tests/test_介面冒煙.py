@@ -79,6 +79,7 @@ def 環境(qapp, tmp_path, monkeypatch, capfd):
     monkeypatch.setattr(ui_state, "介面設定檔", str(tmp_path / "介面設定.json"))
     monkeypatch.setattr(panel, "版面檔", str(tmp_path / "版面配置.json"))
     monkeypatch.setattr(startup_timeline.紀錄, "資料夾", str(tmp_path / "logs"))
+    monkeypatch.setattr(假引擎, "基底", str(tmp_path / "假基底"))
     模型 = 假模型()
     monkeypatch.setattr(llm, "call_llm", 模型)
     monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
@@ -112,13 +113,15 @@ def 環境(qapp, tmp_path, monkeypatch, capfd):
 
 # ---------- 假直播引擎：送出 files 後一直等到按停止（或測試叫它送錯誤） ----------
 class 假引擎:
+    基底 = "假基底"          # 環境 fixture 會換成暫存資料夾底下的絕對路徑
+
     def __init__(self, 錯誤訊息=None):
         self.送錯誤 = threading.Event()
         self.錯誤訊息 = 錯誤訊息
 
     def __call__(self, 設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
         events.送出("stage", 階段="檢查直播")
-        events.送出("files", 基底="假基底", 稿=None, 聊天=None, 分鐘=None, 話題=None)
+        events.送出("files", 基底=self.基底, 稿=None, 聊天=None, 分鐘=None, 話題=None)
         while not events.停止.is_set():
             if self.送錯誤.is_set():
                 events.送出("error", 訊息=self.錯誤訊息, 印出=self.錯誤訊息)
