@@ -361,6 +361,7 @@ class 膠囊管理(QObject):
         self.出錯 = False
         self.費用 = 0.0              # 摘要估算費用（None = 無法計算）
         self.翻譯費用 = 0.0          # 翻譯估算費用（None = 無法計算）
+        self.聊天翻譯費用 = 0.0      # 聊天室翻譯估算費用（None = 無法計算）
         self.面板子選單 = {}         # 每個選單各自一份「面板」子選單（建立一次，每次顯示前自己重新填）
         self._匣狀態 = None          # 系統匣上次畫的 (狀態, 語言字, 語言警示)，變了才重畫
         self.選單開著 = False
@@ -400,6 +401,8 @@ class 膠囊管理(QObject):
                 self.費用 = 內容["費用"]
             if "翻譯費用" in 內容:
                 self.翻譯費用 = 內容["翻譯費用"]
+            if "聊天翻譯費用" in 內容:
+                self.聊天翻譯費用 = 內容["聊天翻譯費用"]
         elif 種類 == "error":
             self.出錯 = True
         self.更新()
@@ -415,7 +418,7 @@ class 膠囊管理(QObject):
     def 更新(self):
         執行中 = self.台.執行中()
         if 執行中 and not self._執行中:          # 新的一場開始：清掉上一場的錯誤與用量
-            self.出錯, self.跟上, self.費用, self.翻譯費用 = False, None, 0.0, 0.0
+            self.出錯, self.跟上, self.費用, self.翻譯費用, self.聊天翻譯費用 = False, None, 0.0, 0.0, 0.0
         self._執行中 = 執行中
         新 = self.計算狀態()
         if 新 == "收尾" and not self.閃計時.isActive():
@@ -447,9 +450,9 @@ class 膠囊管理(QObject):
         return s.文字() if s.顯示中() else ""
 
     def 總費用(self):
-        if self.費用 is None or self.翻譯費用 is None:
+        if self.費用 is None or self.翻譯費用 is None or self.聊天翻譯費用 is None:
             return None
-        return (self.費用 or 0.0) + (self.翻譯費用 or 0.0)
+        return (self.費用 or 0.0) + (self.翻譯費用 or 0.0) + (self.聊天翻譯費用 or 0.0)
 
     def 用量短字(self):
         總 = self.總費用()
@@ -459,6 +462,7 @@ class 膠囊管理(QObject):
         台 = self.台
         行們 = ["直播摘要：" + 狀態們[self.狀態][1],
               台.時間藥丸.text(), 台.轉錄藥丸.text(), "摘要：" + 台.費用藥丸.text(), 台.翻譯藥丸.text(),
+              *([台.聊天翻譯藥丸.text()] if not 台.聊天翻譯藥丸.isHidden() else []),
               "（費用依 config.json 的單價估算，單價未查證）"]
         if self.語言字():
             行們.insert(1, ("⚠ " if self.語言警示() else "") + self.語言字())
@@ -503,6 +507,12 @@ class 膠囊管理(QObject):
             子.setTitle("面板")
             self.面板子選單[id(選單)] = 子
         選單.addMenu(子)
+        開 = 台.聊天翻譯器.開啟
+        a = 選單.addAction("聊天室翻譯：" + ("開" if 開 else "關"))      # 當場生效；外語直播且聊天室面板開著才會翻
+        a.setCheckable(True)
+        a.setChecked(開)
+        a.setToolTip("外語直播時把聊天室留言翻成繁體中文（聊天室面板要開著）；另外計費")
+        a.toggled.connect(台.設聊天翻譯)
         a = 選單.addAction("顯示用量")
         a.setCheckable(True)
         a.setChecked(self.顯示用量)

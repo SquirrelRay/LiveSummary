@@ -58,7 +58,8 @@ class 比較表框(QWidget):
         for 列 in 列們:
             底 = " bgcolor='#2e2752'" if 列["目前"] else ""
             名 = f"<b>{列['名稱']}</b>" + ("　<span style='color:#c4b5ff;'>◀ 目前</span>" if 列["目前"] else "")
-            每小時 = f"<b>{列['合計']}</b><br><span style='color:#8a91a5;'>摘要 {列['摘要']} ＋ 翻譯 {列['翻譯']}</span>"
+            聊天 = f" ＋ 聊天 {列['聊天']}" if 列.get("聊天") else ""
+            每小時 = f"<b>{列['合計']}</b><br><span style='color:#8a91a5;'>摘要 {列['摘要']} ＋ 翻譯 {列['翻譯']}{聊天}</span>"
             字.append(f"<tr{底}><td {格}>{名}</td><td {格}>{列['延遲']}</td><td {格}>{列['準確度']}</td><td {格}>{每小時}</td></tr>")
         字.append("</table>")
         self.表.setText("".join(字))
@@ -279,7 +280,7 @@ class 啟動面板(QWidget):
         可改 = self.段位可改()
         for 鈕 in self.段位鈕們.values():
             鈕.setEnabled(可改)
-        結果 = cost_estimate.估算(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用())
+        結果 = cost_estimate.估算(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用(), self.台.面板.聊天將開啟())
         字 = cost_estimate.總費用字(結果)
         量 = QFontMetrics(self.總費用.font())
         self.總費用.setMinimumWidth(max(量.horizontalAdvance(字), 量.horizontalAdvance("每小時約 US$99.99（估算）")) + 2)   # 保證放得下、不被截斷
@@ -290,11 +291,12 @@ class 啟動面板(QWidget):
             self._回基本高()
 
     def _費用設定(self):
-        return dict(config.目前設定(), language=self.語言選.currentData(), subtitle_speed=self.段位())
+        return dict(config.目前設定(), language=self.語言選.currentData(), subtitle_speed=self.段位(),
+                    chat_translate=self.台.聊天翻譯器.開啟)     # 聊天室翻譯可能剛在膠囊選單切換過
 
     # ---------- 資訊圖示：三個段位的比較表 ----------
     def _填比較表(self):
-        列們 = cost_estimate.比較表列們(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用())
+        列們 = cost_estimate.比較表列們(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用(), self.台.面板.聊天將開啟())
         註 = [cost_estimate.備註們[1]] + ([] if self.段位可改() else ["直播進行中不能切換字幕速度，下次開始生效"])
         self.比較框.填(列們, 註)
 

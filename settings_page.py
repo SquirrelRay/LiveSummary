@@ -111,6 +111,11 @@ class 設定頁(QScrollArea):
         e["minute_summary"] = QCheckBox("分鐘摘要")
         e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
         e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
+        e["chat_translate"] = QCheckBox("聊天室翻譯：外語直播時把留言翻成繁體中文（聊天室面板開著才翻，另外計費）")
+        e["chat_translate_max_per_min"] = QSpinBox()
+        e["chat_translate_max_per_min"].setRange(1, 600)
+        e["chat_translate_max_per_min"].setSuffix(" 則")
+        e["chat_translate_max_per_min"].setToolTip("超過就平均抽樣，沒翻到的留言只顯示原文")
         for k in ("ui_max_transcript", "ui_max_chat", "ui_max_translation", "ui_max_summary"):
             e[k] = QSpinBox()
             e[k].setRange(10, 100000)
@@ -127,9 +132,10 @@ class 設定頁(QScrollArea):
             e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
         e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
         e["subtitle_mode"].currentIndexChanged.connect(self._更新段位說明)
-        for k in ("chat", "minute_summary", "summary_thinking"):
+        for k in ("chat", "minute_summary", "summary_thinking", "chat_translate"):
             e[k].toggled.connect(self._更新段位說明)
         e["minute_sentences"].valueChanged.connect(self._更新段位說明)
+        e["chat_translate_max_per_min"].valueChanged.connect(self._更新段位說明)
         self.段位說明 = QLabel()
         self.段位說明.setObjectName("小標")
         self.段位說明.setWordWrap(True)
@@ -153,6 +159,8 @@ class 設定頁(QScrollArea):
         加("逐句字幕模式", e["subtitle_mode"], True)
         for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking"):
             加("", e[k], True)
+        加("", e["chat_translate"])                 # 按「儲存」當場生效（膠囊選單也可以直接切換）
+        加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
         加("最新內容顯示在", e["newest_on_top"])
         加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
@@ -183,6 +191,11 @@ class 設定頁(QScrollArea):
             註.setWordWrap(True)
             self.費用註們.append(註)
             格.addWidget(註, 1 + i, 0, 1, 4)
+        self.聊天註 = QLabel("")                   # 熱門台的聊天室翻譯有每分鐘上限封頂（金額依目前單價與上限）
+        self.聊天註.setObjectName("小標")
+        self.聊天註.setWordWrap(True)
+        self.費用註們.append(self.聊天註)
+        格.addWidget(self.聊天註, 1 + len(cost_estimate.備註們), 0, 1, 4)
         self.費用表 = []                 # 目前表格每一列的文字（測試與除錯用）
         return 框
 
@@ -248,11 +261,15 @@ class 設定頁(QScrollArea):
         return dict(config.目前設定(),
                     subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
                     minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
-                    minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1])
+                    minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1],
+                    chat_translate=e["chat_translate"].isChecked(),
+                    chat_translate_max_per_min=e["chat_translate_max_per_min"].value())
 
     def _更新費用表(self):
         代碼 = self.欄["subtitle_speed"].currentData()
-        結果 = cost_estimate.估算(self._表單設定(), 代碼, self.主.面板.翻譯將啟用())
+        表單 = self._表單設定()
+        結果 = cost_estimate.估算(表單, 代碼, self.主.面板.翻譯將啟用(), self.主.面板.聊天將開啟())
+        self.聊天註.setText(cost_estimate.聊天備註(表單))
         格 = self.費用格
         while 格.count():
             w = 格.takeAt(0).widget()
@@ -284,6 +301,8 @@ class 設定頁(QScrollArea):
             "fix_with_chat": e["fix_with_chat"].isChecked(),
             **{k: e[k].isChecked() for k, _ in self.存檔項目},
             "summary_thinking": e["summary_thinking"].isChecked(),
+            "chat_translate": e["chat_translate"].isChecked(),
+            "chat_translate_max_per_min": e["chat_translate_max_per_min"].value(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
             "ui_max_translation": e["ui_max_translation"].value(), "newest_on_top": bool(e["newest_on_top"].currentData()),
@@ -299,6 +318,10 @@ class 設定頁(QScrollArea):
         if not self._載入中:
             self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
 
+    def 同步聊天翻譯(self, 開):
+        """膠囊選單切換了聊天室翻譯：表單上的勾選跟著改（已經寫進 config.json 了）。"""
+        self.欄["chat_translate"].setChecked(bool(開))
+
     # ---------- 執行中提示 ----------
     def 設執行中(self, 執行中):
         for w in self.下次標們:
@@ -313,6 +336,8 @@ class 設定頁(QScrollArea):
             config.寫入設定(一般)        # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留；寫之前先備份
         except Exception as e:
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
+        self.主.聊天翻譯器.開啟 = 一般["chat_translate"]     # 聊天室翻譯開關當場生效（和膠囊選單一樣）
+        self.主._更新聊天藥丸()
         字 = "已儲存到 config.json（舊的設定備份在 config.backup.json）。"
         if self.主.執行中():
             字 += "標示「下次開始生效」的項目，要等下次按「開始」才會用新的設定。"

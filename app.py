@@ -22,6 +22,7 @@ import events
 import llm
 import live_topics
 import subtitle      # 逐句字幕（原文或翻譯）
+import chat_translate  # 聊天室翻譯（和逐句字幕分開的另一條翻譯執行緒）
 import settings_page # 設定框
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
@@ -228,8 +229,29 @@ class 分頁基底(QWidget):
         self.頂.layout().setContentsMargins(16, 0, 16, 8) if 置頂 else self.頂.layout().setContentsMargins(16, 8, 16, 0)
 
 
+def 留言資料(內容):
+    """chat_line 事件 → 聊天室一則留言的資料（加留言、補譯文用）。"""
+    return {"編號": 內容.get("編號"), "時間字": 內容["時間字"], "使用者": 內容["使用者"], "內容": 內容["內容"], "譯文": None}
+
+
+def 留言html(資料, 只看譯文=False):
+    """聊天室一則留言的 html。資料：{編號, 時間字, 使用者, 內容, 譯文}（譯文 None = 沒翻或還沒翻好）。
+    有譯文：原文改淡色，下一行縮排「↳ 譯文」（較亮）；只看譯文：有譯文的只顯示譯文，沒譯文的照樣顯示原文。"""
+    色 = 名字顏色[sum(map(ord, 資料["使用者"])) % len(名字顏色)]
+    頭 = (f'<span style="color:{淡字};">{跳脫(資料["時間字"])}</span>&nbsp;&nbsp;'
+         f'<b style="color:{色};">{跳脫(資料["使用者"])}</b>&nbsp;&nbsp;')
+    譯 = 資料.get("譯文")
+    if not 譯:
+        return 頭 + 跳脫(資料["內容"])
+    if 只看譯文:
+        return 頭 + f'<span style="color:#ffffff;">{跳脫(譯)}</span>'
+    return (頭 + f'<span style="color:{淡字};">{跳脫(資料["內容"])}</span><br>'
+            f'&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:{淡字};">↳</span>&nbsp;<span style="color:#ffffff;">{跳脫(譯)}</span>')
+
+
 class 文字清單(分頁基底):
-    """直播稿、聊天室用：一行一行加，只留最近的 上限 行。最新在下 = 加在底部；最新在上 = 加在頂部。"""
+    """直播稿、聊天室用：一行一行加，只留最近的 上限 行。最新在下 = 加在底部；最新在上 = 加在頂部。
+    聊天室留言用 加留言：原文立刻顯示；譯文到了用 補譯文 補在同一則下面（每則留言是文件裡的一個段落，用編號找回）。"""
 
     def __init__(self, 提示):
         self.瀏覽 = QTextBrowser()
@@ -238,6 +260,8 @@ class 文字清單(分頁基底):
         self.瀏覽.setPlaceholderText(提示)
         self.瀏覽.document().setDocumentMargin(16)
         self.條們 = []              # 目前畫面上每一行的 html，最舊的在前
+        self.條資料 = []            # 和 條們 一一對應：聊天室留言的資料（dict），一般行是 None
+        self.只看譯文 = False
         self.跟隨 = 跟隨(self.瀏覽.verticalScrollBar())
 
     def 設上限(self, n):
@@ -249,17 +273,73 @@ class 文字清單(分頁基底):
         self.瀏覽.document().setMaximumBlockCount(0 if self.置頂 else self.上限)
 
     def 加一行(self, 內容html):
+        self._加(內容html, None)
+
+    def 加留言(self, 資料):
+        """聊天室留言（原文立刻顯示）。資料是 dict，補譯文時會直接改它（面板的共用紀錄也就跟著有譯文）。"""
+        self._加(留言html(資料, self.只看譯文), 資料)
+
+    def _加(self, 內容html, 資料):
         self.條們.append(內容html)
+        self.條資料.append(資料)
         if not self.置頂:
             del self.條們[:-self.上限]
+            del self.條資料[:-self.上限]
             self.瀏覽.append(內容html)
         else:
             if len(self.條們) > self.上限:
                 del self.條們[0]
+                del self.條資料[0]
                 self._移除最後一行()
             self._頂端插入(內容html)
         self.總數 += 1
         self._超過了()
+
+    def 補譯文(self, 編號, 譯文):
+        """把譯文補在編號那一則下面。那一則已經因為顯示上限被移除了就什麼都不做，回傳 False。"""
+        位置 = next((i for i, d in enumerate(self.條資料) if d is not None and d["編號"] == 編號), None)
+        if 位置 is None:
+            return False
+        資料 = self.條資料[位置]
+        資料["譯文"] = 譯文
+        self._重畫(位置)
+        return True
+
+    def _重畫(self, 位置):
+        """重畫 條們[位置] 那一行（聊天室留言）。最新在下：第 位置 段；最新在上：倒過來數。"""
+        html_ = 留言html(self.條資料[位置], self.只看譯文)
+        self.條們[位置] = html_
+        段 = 位置 if not self.置頂 else len(self.條們) - 1 - 位置
+        文件 = self.瀏覽.document()
+        塊 = 文件.findBlockByNumber(段)
+        if not 塊.isValid():
+            return
+        捲軸 = self.瀏覽.verticalScrollBar()
+        黏, 舊值 = self.跟隨.黏, 捲軸.value()
+        c = QTextCursor(塊)
+        c.beginEditBlock()
+        c.movePosition(QTextCursor.StartOfBlock)
+        c.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        c.removeSelectedText()
+        c.insertHtml(html_)
+        c.endEditBlock()
+        if not 黏:                    # 使用者往上捲在看舊的：不要被補譯文拉走
+            捲軸.setValue(舊值)
+
+    def 設只看譯文(self, 開):
+        """聊天室：有譯文的留言只顯示譯文（沒譯文的照樣顯示原文）。整份重畫。"""
+        self.只看譯文 = bool(開)
+        self.條們 = [留言html(d, self.只看譯文) if d is not None else h for h, d in zip(self.條們, self.條資料, strict=True)]
+        self._重排全部()
+
+    def 行文字(self):
+        """測試用：畫面上由上到下每一行的純文字（同一則的換行用 / 表示，連續空白與不換行空白都併成一個空白）。"""
+        文件 = self.瀏覽.document()
+        b, 結果 = 文件.begin(), []
+        while b.isValid():
+            結果.append(" ".join(b.text().replace("\u2028", " / ").split()))
+            b = b.next()
+        return 結果
 
     def _頂端插入(self, 內容html):
         文件 = self.瀏覽.document()
@@ -286,22 +366,26 @@ class 文字清單(分頁基底):
         super().設方向(置頂)
         self.跟隨.設方向(置頂)
         self._套上限()
+        self._重排全部()
+        self.跟隨.設方向(置頂)
+
+    def _重排全部(self):
         self.瀏覽.setUpdatesEnabled(False)
         self.瀏覽.clear()
         舊 = list(self.條們)
         self.條們 = []
         for 行 in 舊:                          # 由舊到新重排：最新在下 = 一路加在底部；最新在上 = 一路加在頂部
             self.條們.append(行)
-            if 置頂:
+            if self.置頂:
                 self._頂端插入(行)
             else:
                 self.瀏覽.append(行)
         self.瀏覽.setUpdatesEnabled(True)
-        self.跟隨.設方向(置頂)
 
     def clear(self):
         self.瀏覽.clear()
         self.條們 = []
+        self.條資料 = []
         self.總數 = 0
         self.頂.hide()
 
@@ -989,6 +1073,10 @@ class 主控台(QMainWindow):
         # 逐句字幕（翻譯）：只有逐句翻譯面板開著時才產生（見 panel.面板管理.要翻譯）
         self.字幕器 = subtitle.字幕器()
         events.接收者們.append(self.字幕器.接收)
+        # 聊天室翻譯：設定開著、聊天室面板開著、外語直播才翻（見 chat_translate.py）；膠囊選單可當場開關
+        self.聊天翻譯器 = chat_translate.聊天翻譯器()
+        self.聊天翻譯器.開啟 = bool(config.目前設定()["chat_translate"])
+        events.接收者們.append(self.聊天翻譯器.接收)
 
         self.橋 = 事件橋()
         self.橋.收到.connect(self.處理事件)
@@ -1135,6 +1223,8 @@ class 主控台(QMainWindow):
         self.費用藥丸.setToolTip("費用用 config.json 的單價估算，單價未查證，僅供參考")
         self.翻譯藥丸 = QLabel("翻譯 0 次 · $0.000")
         self.翻譯藥丸.setToolTip("逐句字幕翻譯的呼叫次數與估算費用（和摘要分開算，單價未查證）")
+        self.聊天翻譯藥丸 = QLabel("聊天翻譯 0 次 · $0.000")
+        self.聊天翻譯藥丸.setToolTip("聊天室翻譯的呼叫次數與估算費用（和摘要、逐句翻譯分開算，單價未查證）")
         self.語言藥丸 = QLabel("")            # 目前語言；放在狀態列，一眼看得到
         self.語言藥丸.setToolTip("目前使用的語言。自動偵測可能判錯，按「重新偵測」或在設定裡手動選語言。")
         self.重偵鈕 = QPushButton("重新偵測")
@@ -1142,9 +1232,10 @@ class 主控台(QMainWindow):
         self.重偵鈕.setCursor(Qt.PointingHandCursor)
         self.重偵鈕.setFocusPolicy(Qt.NoFocus)
         self.重偵鈕.clicked.connect(self.重新偵測語言)
-        藥丸們 = (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸, self.語言藥丸, self.重偵鈕)
-        for w in 藥丸們[:5]:
+        藥丸們 = (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸, self.聊天翻譯藥丸, self.語言藥丸, self.重偵鈕)
+        for w in 藥丸們[:6]:
             w.setObjectName("藥丸")
+        self.聊天翻譯藥丸.setVisible(self.聊天翻譯器.開啟)
         self.語言藥丸.hide()
         self.重偵鈕.hide()
         self.狀態列 = 狀態列(self.燈, self.話題字, 藥丸們)
@@ -1288,6 +1379,7 @@ class 主控台(QMainWindow):
         self.轉錄藥丸.setStyleSheet("")
         self._設藥丸(self.費用藥丸, "呼叫 0 次 · 估算 $0.000")
         self._設藥丸(self.翻譯藥丸, "翻譯 0 次 · $0.000")
+        self._設藥丸(self.聊天翻譯藥丸, "聊天翻譯 0 次 · $0.000")
         self.結束中 = False
         self.語言狀態.開始(設定["language"], 直播)
         events.重新偵測.clear()
@@ -1296,6 +1388,10 @@ class 主控台(QMainWindow):
                       設定["price_input"], 設定["price_output"],
                       段位["批次秒"], 段位["批次句"])
         self.字幕器.啟用 = self.面板.要翻譯()     # 只有逐句翻譯面板開著才翻譯（省費用）
+        self.聊天翻譯器.開始(設定["chat_translate"], 設定["language"], 設定["model"],
+                        設定["price_input"], 設定["price_output"], 設定["chat_translate_max_per_min"])
+        self.聊天翻譯器.面板開著 = self.面板.聊天面板開著()
+        self._更新聊天藥丸()
         startup_timeline.開始({
             "來源": "直播網址" if 直播 else "文字稿重播", "語言設定": 設定["language"], "字幕模式": 設定["subtitle_mode"],
             "摘要模型": 設定["model"], "轉錄模型": 設定["whisper_model"],
@@ -1360,6 +1456,7 @@ class 主控台(QMainWindow):
         """翻譯收尾完成（或超時放棄）後，才通知引擎整理最後一個話題。"""
         events.停止.set()
         self.字幕器.結束()          # 超時沒翻完的句子就放棄（不重送）
+        self.聊天翻譯器.結束()      # 聊天室翻譯不收尾：還沒翻的留言只顯示原文
         self.停止鈕.setText(結束中文字)
         self._訊息(結束中文字 + "（同時關閉音訊擷取與聊天室）")
 
@@ -1371,6 +1468,7 @@ class 主控台(QMainWindow):
         if getattr(self, "_收尾計時", None):
             self._收尾計時.stop()
         self.字幕器.結束()
+        self.聊天翻譯器.結束()
         for 頁 in self.設定頁們():
             頁.設執行中(False)
         self.開始鈕.setEnabled(True)
@@ -1493,11 +1591,10 @@ class 主控台(QMainWindow):
                 self.翻譯頁.設檔案(內容["檔案"])
             self._加計數("逐句翻譯")
         elif 種類 == "chat_line":
-            色 = 名字顏色[sum(map(ord, 內容["使用者"])) % len(名字顏色)]
-            self.聊天頁.加一行(
-                f'<span style="color:{淡字};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;'
-                f'<b style="color:{色};">{跳脫(內容["使用者"])}</b>&nbsp;&nbsp;{跳脫(內容["內容"])}')
+            self.聊天頁.加留言(留言資料(內容))
             self._加計數("聊天室")
+        elif 種類 == "chat_translation":
+            self.聊天頁.補譯文(內容["編號"], 內容["譯文"])
         elif 種類 == "minute_summary":
             self.分鐘頁.加卡片(self._分鐘html(內容))
             self._加計數("分鐘摘要")
@@ -1520,6 +1617,10 @@ class 主控台(QMainWindow):
                 費用 = "無法計算" if 內容["翻譯費用"] is None else f"${內容['翻譯費用']:.3f}"
                 延遲 = f" · 延遲約 {內容['翻譯延遲']:.0f} 秒" if 內容["翻譯延遲"] is not None else ""
                 self._設藥丸(self.翻譯藥丸, f"翻譯 {內容['翻譯次數']} 次 · {費用}{延遲}")
+            if "聊天翻譯次數" in 內容:
+                費用 = "無法計算" if 內容["聊天翻譯費用"] is None else f"${內容['聊天翻譯費用']:.3f}"
+                self._設藥丸(self.聊天翻譯藥丸, f"聊天翻譯 {內容['聊天翻譯次數']} 次 · {費用}")
+                self._更新聊天藥丸()
         elif 種類 == "info":
             if not self.結束中:          # 結束中一直顯示「正在產生最後一個話題的摘要…」
                 self._訊息((內容.get("印出") or "").strip())
@@ -1537,11 +1638,28 @@ class 主控台(QMainWindow):
                 檔案 = "結果已存成：" + "、".join(os.path.basename(f) for f in 內容["檔案們"])
             else:
                 檔案 = "沒有產生內容，所以沒有建立結果檔。"
-            翻譯 = self.字幕器.統計文字()
-            self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + ("\n" + 翻譯 if 翻譯 else ""))
+            統計們 = [x for x in (self.字幕器.統計文字(), self.聊天翻譯器.統計文字()) if x]     # 逐句翻譯、聊天室翻譯各一行
+            self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + "".join("\n" + x for x in 統計們))
             self.膠囊.小提示("已結束，已存檔" if self._有存檔(內容["檔案們"]) else "已結束")   # 不跳彈窗，膠囊旁幾秒後自動消失
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
             self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
+
+    def 設聊天翻譯(self, 開):
+        """膠囊選單「聊天室翻譯：開／關」：當場生效（直播中也是），並寫回 config.json。"""
+        self.聊天翻譯器.開啟 = bool(開)
+        capsule.寫設定("chat_translate", bool(開))
+        self._更新聊天藥丸()
+        if self.設定框:
+            self.設定框.頁.同步聊天翻譯(bool(開))
+        if self.啟動面板.isVisible():         # 啟動面板的每小時總費用跟著變
+            self.啟動面板._更新段位註()
+
+    def _更新聊天藥丸(self):
+        """聊天翻譯藥丸：聊天室翻譯開著、或這一場已經有呼叫過才顯示。"""
+        顯示 = self.聊天翻譯器.開啟 or llm.聊天翻譯用量["次數"] > 0
+        if self.聊天翻譯藥丸.isHidden() == 顯示:
+            self.聊天翻譯藥丸.setVisible(顯示)
+            self.狀態列.重排()
 
     def _更新翻譯註(self):
         """逐句翻譯分頁頂端的說明：原文模式、逐句翻譯面板沒開所以不翻譯、語言還在偵測。"""

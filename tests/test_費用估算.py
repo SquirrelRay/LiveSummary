@@ -105,10 +105,12 @@ def test_比較表_三個段位_目前標示_翻譯未開啟():
 def test_費用表_摘要歸類與名稱():
     結果 = ce.估算(設定(), "balanced", True)
     列們 = ce.表格列們(結果)
-    assert [列[0] for 列 in 列們] == ["項目", "字幕翻譯", "摘要（小計）", "　話題追蹤（每分鐘檢查）", "　分鐘摘要", "　話題摘要", "合計"]
-    assert float(列們[2][1][1:]) == pytest.approx(sum(float(列[1][1:]) for 列 in 列們[3:6]))
+    assert [列[0] for 列 in 列們] == ["項目", "字幕翻譯", "聊天室翻譯", "摘要（小計）", "　話題追蹤（每分鐘檢查）", "　分鐘摘要",
+                                "　話題摘要", "合計"]
+    assert 列們[2][1] == "未開啟 $0"                       # 聊天室翻譯預設關
+    assert float(列們[3][1][1:]) == pytest.approx(sum(float(列[1][1:]) for 列 in 列們[4:7]))
     assert 列們[-1][1] == f"US${結果['合計']:.2f}"
-    assert ce.估算(設定(check_minutes=2), "balanced", True)["項目們"][1]["名稱"] == "話題追蹤（每 2 分鐘檢查）"
+    assert 項(ce.估算(設定(check_minutes=2), "balanced", True), "判斷")["名稱"] == "話題追蹤（每 2 分鐘檢查）"
 
 
 def test_合計字格式():
@@ -131,3 +133,60 @@ def test_估算與實際紀錄相差不到10趴():
     assert abs(輸入 - 25_014) / 25_014 < 0.10 and abs(輸出 - 4_765) / 4_765 < 0.10
     輸入, 輸出 = _紀錄用量(True)
     assert abs(輸入 - 24_714) / 24_714 < 0.10 and abs(輸出 - 17_641) / 17_641 < 0.15
+
+
+# ---------- 聊天室翻譯 ----------
+def 聊天開(**改):
+    return 設定(chat_translate=True) | 改
+
+
+def test_聊天室翻譯_開啟才計入合計():
+    關 = ce.估算(設定(), "balanced", True, True)                 # 設定關：面板開著也不算
+    開 = ce.估算(聊天開(), "balanced", True, True)
+    聊 = 項(開, "聊天")
+    assert not 項(關, "聊天")["開啟"] and 項(關, "聊天")["每小時"] == 0 and "設定裡關閉" in 項(關, "聊天")["狀態"]
+    assert 聊["開啟"] and 聊["狀態"] == "開啟" and 聊["每小時"] > 0 and not 聊["受段位影響"]
+    assert 開["合計"] == pytest.approx(關["合計"] + 聊["每小時"], abs=1e-9)
+    assert ce.總費用字(開) == f"每小時約 US${開['合計']:.2f}（估算）"
+
+
+@pytest.mark.parametrize("改,面板,原因", [
+    ({}, False, "聊天室面板沒開"),
+    ({"language": "zh"}, True, "中文直播"),
+    ({"chat": False}, True, "沒有抓聊天室"),
+])
+def test_聊天室翻譯_不符條件時未開啟0元(改, 面板, 原因):
+    結果 = ce.估算(聊天開(**改), "balanced", True, 面板)
+    聊 = 項(結果, "聊天")
+    assert not 聊["開啟"] and 聊["每小時"] == 0 and 原因 in 聊["狀態"]
+    assert ce.項目金額字(聊) == "未開啟 $0"
+
+
+def test_聊天室翻譯_中等聊天量約0點21元_不受段位影響():
+    金額們 = {項(ce.估算(聊天開(), c, True, True), "聊天")["每小時"] for c in subtitle_speed.代碼們}
+    assert 金額們 == {0.21}
+
+
+def test_聊天室翻譯_金額跟著單價與上限():
+    原 = 項(ce.估算(聊天開(), "balanced", True, True), "聊天")["每小時"]
+    倍 = 項(ce.估算(聊天開(price_input=2.0, price_output=10.0), "balanced", True, True), "聊天")["每小時"]
+    assert 倍 == pytest.approx(原 * 2, abs=0.011)
+    低 = 項(ce.估算(聊天開(chat_translate_max_per_min=5), "balanced", True, True), "聊天")["每小時"]
+    assert 低 < 原                                              # 上限低於中等量（每分鐘 16.6 則）就變便宜
+
+
+def test_聊天備註_熱門台封頂約0點30元():
+    assert ce.聊天備註(聊天開()) == "聊天室翻譯以中等聊天量估算；熱門台有每分鐘上限封頂，約 $0.30／小時（估算）"
+
+
+def test_比較表_聊天室翻譯開啟時每列多一項_合計跟著變():
+    關 = ce.比較表列們(設定(), "balanced", True, True)
+    開 = ce.比較表列們(聊天開(), "balanced", True, True)
+    assert all(x["聊天"] is None for x in 關)
+    assert all(x["聊天"] == "$0.21" for x in 開)
+    for a, b in zip(關, 開, strict=True):
+        assert float(b["合計"][3:]) == pytest.approx(float(a["合計"][3:]) + 0.21, abs=1e-9)
+
+
+def test_舊呼叫方式不傳聊天面板_等於聊天室翻譯未開啟():
+    assert ce.估算(聊天開(), "balanced", True) == ce.估算(聊天開(), "balanced", True, False)

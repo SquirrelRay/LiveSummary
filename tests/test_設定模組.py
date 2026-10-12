@@ -89,7 +89,7 @@ def qapp():
 def test_設定框還原預設值_跑過一場後仍是出廠預設(qapp, tmp_path, monkeypatch, 設定檔, 保留全域值):
     跑一場假的(tmp_path, monkeypatch, config.出廠預設() | 上一場)
     設定檔.write_text(json.dumps(config.出廠預設() | 上一場, ensure_ascii=False), encoding="utf-8")
-    主 = SimpleNamespace(面板=SimpleNamespace(翻譯將啟用=lambda: True), 設方向=lambda 置頂: None, 執行中=lambda: False)
+    主 = SimpleNamespace(面板=SimpleNamespace(翻譯將啟用=lambda: True, 聊天將開啟=lambda: False), 設方向=lambda 置頂: None, 執行中=lambda: False)
     頁 = settings_page.設定頁(主)
     頁.載入()
     assert 頁.欄["model"].text() == "上一場的模型" and 頁.欄["minute_sentences"].value() == 3     # 表單是 config.json 的值
