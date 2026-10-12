@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
 
 import cost_estimate
 import events
-import live_topics
+import config
 import subtitle_speed
 from launch_state import 啟動狀態
 
-語言選項 = [("自動偵測", "auto"), ("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko")]
+語言選項 = config.語言選項(自動在前=True)      # 自動偵測、中文、日文、英文、韓文
 寬 = 480
 VOD提示 = "目前只支援直播網址，直播檔（VOD）之後才會支援"
 
@@ -130,7 +130,7 @@ class 啟動面板(QWidget):
         self.語言選 = QComboBox()
         for 名, 值 in 語言選項:
             self.語言選.addItem(名, 值)
-        預設 = live_topics.載入設定({})[0]
+        預設 = config.目前設定()
         self.語言選.setCurrentIndex(max(0, self.語言選.findData(預設["language"])))     # config.json 的語言（預設「自動」）
         self.開始鈕 = QPushButton("開始")
         self.開始鈕.setObjectName("開始")
@@ -290,7 +290,7 @@ class 啟動面板(QWidget):
             self._回基本高()
 
     def _費用設定(self):
-        return dict(live_topics.載入設定({})[0], language=self.語言選.currentData(), subtitle_speed=self.段位())
+        return dict(config.目前設定(), language=self.語言選.currentData(), subtitle_speed=self.段位())
 
     # ---------- 資訊圖示：三個段位的比較表 ----------
     def _填比較表(self):
@@ -327,7 +327,7 @@ class 啟動面板(QWidget):
             return
         if not self.等待中:
             if not self.isVisible():    # 重新打開時，字幕速度回到設定框記住的值
-                self.設段位(live_topics.載入設定({})[0]["subtitle_speed"])
+                self.設段位(config.目前設定()["subtitle_speed"])
             self._套用狀態()            # 待命：清掉提示（上一次失敗的錯誤文字會保留）
             self.結束鈕.setEnabled(True)
         if not self.isVisible():

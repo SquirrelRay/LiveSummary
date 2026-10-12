@@ -18,17 +18,17 @@ from PySide6.QtWidgets import QApplication, QMenu
 
 import app
 import capsule
+import config
 import cost_estimate
 import events
 import live_topics
 import llm
 import panel
-import settings_page
 import startup_timeline
 import subtitle
 import ui_state
 
-專案設定 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+範例設定 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.example.json")
 
 
 # ---------- 假模型 ----------
@@ -67,14 +67,11 @@ def qapp():
 
 
 @pytest.fixture
-def 環境(qapp, tmp_path, monkeypatch, capfd):
+def 環境(qapp, tmp_path, monkeypatch, capfd, request):
     設定檔 = tmp_path / "config.json"
-    if os.path.exists(專案設定):
-        shutil.copy2(專案設定, 設定檔)            # 用現有的 config.json（含舊的 overlay 區塊）
-    else:
-        設定檔.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(live_topics, "設定檔路徑", str(設定檔))
-    monkeypatch.setattr(settings_page, "備份檔", str(tmp_path / "config.backup.json"))
+    if getattr(request, "param", None) != "沒有設定檔":
+        shutil.copy2(範例設定, 設定檔)            # 用 git 裡的範例設定（不讀本機的 config.json）；備份檔也會寫在 tmp_path
+    monkeypatch.setattr(config, "設定檔路徑", str(設定檔))
     monkeypatch.setattr(ui_state, "網址紀錄檔", str(tmp_path / "網址紀錄.json"))
     monkeypatch.setattr(ui_state, "介面設定檔", str(tmp_path / "介面設定.json"))
     monkeypatch.setattr(panel, "版面檔", str(tmp_path / "版面配置.json"))
@@ -304,8 +301,23 @@ def test_設定框儲存_保留舊區塊並備份(環境):
     assert 之後["hotkey_compact"] == "Ctrl+Shift+M"
     assert 之後["minute_sentences"] == 3
     assert (環境["暫存"] / "config.backup.json").read_text(encoding="utf-8") == 寫前
-    assert live_topics.載入設定({})[2] == []
+    assert config.載入設定({})[2] == []
     assert "已儲存" in 頁.狀態字.text()
+
+
+# ---------- 6b. 沒有 config.json（剛 clone、只有範例檔）：用出廠預設啟動，不自動建立 config.json ----------
+@pytest.mark.parametrize("環境", ["沒有設定檔"], indirect=True)
+def test_沒有config_json_也能啟動_用出廠預設(環境):
+    台, 設定檔 = 環境["台"], 環境["設定檔"]
+    assert not 設定檔.exists()
+    assert 台.啟動面板.isVisible() and 台.啟動面板.語言選.currentData() == config.出廠預設()["language"]
+    assert not (hasattr(台.膠囊, "提示泡") and 台.膠囊.提示泡.isVisible())     # 沒有設定警告
+    台.開設定框()
+    頁 = 台.設定框.頁
+    assert 頁.讀全部() == {k: config.出廠預設()[k] for k in 頁.讀全部()}
+    assert not 設定檔.exists()                                       # 只是打開設定框，不會建立 config.json
+    頁.儲存()                                                        # 按「儲存」才建立
+    assert json.loads(設定檔.read_text(encoding="utf-8")) == 頁.讀全部()
 
 
 # ---------- 7. 字幕速度段位：啟動面板三段選擇（只影響這一場、啟動中與直播中不能改）、設定框說明與儲存 ----------
@@ -397,8 +409,9 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     原本 = _拿掉段位欄位(設定檔)
     原本["overlay"] = {"click_through": True, "summary_box": {"font_size": 17}}
     原本["hotkey_compact"] = "Ctrl+Shift+M"
+    原本["language"] = "auto"                                         # 外語（自動偵測）：字幕翻譯列要有金額（範例設定是中文）
     設定檔.write_text(json.dumps(原本, ensure_ascii=False, indent=2), encoding="utf-8")
-    assert live_topics.載入設定({})[2] == []                          # 舊設定：沒有 subtitle_speed、有 translate_batch_*，不警告
+    assert config.載入設定({})[2] == []                          # 舊設定：沒有 subtitle_speed、有 translate_batch_*，不警告
 
     台.開設定框()
     頁 = 台.設定框.頁
@@ -422,7 +435,7 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     之後 = json.loads(設定檔.read_text(encoding="utf-8"))
     assert 之後["subtitle_speed"] == "accurate"
     assert {k: 之後[k] for k in 原本} == 原本                          # 原有欄位（含已停用的 translate_batch_*、overlay）一個不少、值不變
-    設定, _, 警告們 = live_topics.載入設定({})
+    設定, _, 警告們 = config.載入設定({})
     assert 警告們 == [] and 設定["subtitle_speed"] == "accurate"
 
     assert 頁.段位下次標.isHidden()

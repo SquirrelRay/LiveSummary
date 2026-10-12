@@ -9,7 +9,6 @@
 #         膠囊旁跳出約 8 秒的提示泡；重新偵測成功或這一場結束就消失。
 #   錯誤提示：直播中途的錯誤、config.json 的警告，也用同一個提示泡顯示在膠囊旁（主控台常收著看不到）。
 # 膠囊不另外跑引擎，也不改主控台的行為：停止、結束都直接呼叫主控台原本的停止與關閉流程。
-import json
 
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QObject, QPropertyAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap, QIcon, QCursor, QGuiApplication
@@ -18,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QLabel, QMenu, QMessageBox,
 import overlay          # 置頂規則（Windows 原生）
 import panel            # 面板選單（直接重用 建立面板選單）
 import ui_state         # 膠囊位置
-import live_topics
+import config
 
 灰, 綠, 黃, 紅 = "#8a91a5", "#3ecf8e", "#f5b84a", "#ff5c7a"
 狀態們 = {    # 狀態 → (燈色, 文字)
@@ -47,17 +46,9 @@ def 確認(父, 標題, 文字):
 
 
 def 寫設定(鍵, 值):
-    """只改 config.json 的一個欄位，其他欄位原樣保留。"""
-    路徑 = live_topics.設定檔路徑
+    """只改 config.json 的一個欄位，其他欄位原樣保留（備份、原子寫入都由 config.寫入設定 負責）。成功回傳 True。"""
     try:
-        with open(路徑, encoding="utf-8-sig") as f:
-            內容 = json.load(f)
-        if not isinstance(內容, dict):
-            return False
-        內容[鍵] = 值
-        with open(路徑, "w", encoding="utf-8") as f:
-            json.dump(內容, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        config.寫入設定({鍵: 值})
         return True
     except Exception:
         return False
@@ -374,7 +365,7 @@ class 膠囊管理(QObject):
         self._匣狀態 = None          # 系統匣上次畫的 (狀態, 語言字, 語言警示)，變了才重畫
         self.選單開著 = False
         self._執行中 = False
-        self.顯示用量 = bool(live_topics.載入設定({})[0]["capsule_show_usage"])
+        self.顯示用量 = bool(config.目前設定()["capsule_show_usage"])
         self.膠囊 = 膠囊(self)
         self.選單 = QMenu()
         self.選單.setStyleSheet(panel.選單樣式)

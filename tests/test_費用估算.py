@@ -1,14 +1,14 @@
 """每小時費用估算（cost_estimate）：純計算，不開視窗、不連網、不花 API。"""
 import pytest
 
+import config
 import cost_estimate as ce
-import live_topics
 import subtitle_speed
 
 
 def 設定(**改):
     """外語直播、聊天室開、分鐘摘要開、思考關（和專案目前的 config.json 相近），單價 1／5。"""
-    基本 = dict(live_topics.內建預設(), language="ja", chat=True, minute_summary=True, summary_thinking=False,
+    基本 = dict(config.出廠預設(), language="ja", chat=True, minute_summary=True, summary_thinking=False,
               price_input=1.0, price_output=5.0)
     return 基本 | 改
 

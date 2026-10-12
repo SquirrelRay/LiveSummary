@@ -30,8 +30,9 @@ import launcher      # 啟動面板（開程式時出現，取代主控台當作
 import startup_timeline  # 啟動時間里程碑紀錄
 import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
 import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
+import config            # 設定檔 config.json 的讀取、語言清單
 
-語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
+語言選項 = config.語言選項()          # 中文、日文、英文、韓文、自動偵測
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
 
 # ---- 顏色（深色主題）----
@@ -1085,7 +1086,7 @@ class 主控台(QMainWindow):
         self.語言選 = QComboBox()
         for 名, 值 in 語言選項:
             self.語言選.addItem(名, 值)
-        設定, _, _ = live_topics.載入設定({})       # 預設選 config.json 的語言
+        設定 = config.目前設定()       # 預設選 config.json 的語言
         self.語言選.setCurrentIndex(max(0, [v for _, v in 語言選項].index(設定["language"])))
         self.開始鈕 = QPushButton("開始")
         self.開始鈕.setObjectName("開始")
@@ -1184,7 +1185,7 @@ class 主控台(QMainWindow):
         欄數, 欄頁們 = ui_state.讀介面設定(self.分頁名)
         self.計數 = dict.fromkeys(self.分頁名, 0)
         self.並排 = 並排區(self.分頁名, 頁們, 欄數, 欄頁們, 改了=ui_state.存介面設定)
-        self.設方向(live_topics.載入設定({})[0]["newest_on_top"])
+        self.設方向(config.目前設定()["newest_on_top"])
         return self.並排
 
     def _切換來源(self):
@@ -1265,7 +1266,7 @@ class 主控台(QMainWindow):
         覆蓋 = {"language": self.語言選.currentData()}
         if self.本次段位:
             覆蓋["subtitle_speed"], self.本次段位 = self.本次段位, None
-        設定, _, 警告們 = live_topics.載入設定(覆蓋)
+        設定, _, 警告們 = config.載入設定(覆蓋)
         段位 = subtitle_speed.取得(設定["subtitle_speed"])
         llm.套用設定(設定)
 
@@ -1471,7 +1472,7 @@ class 主控台(QMainWindow):
             self._更新翻譯註()
             self.語言狀態.收偵測(內容["語言"], 內容.get("狀態", "ok"), 內容.get("重新偵測", False))
             self.更新語言顯示()
-            名 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}.get(內容["語言"], 內容["語言"])
+            名 = config.語言名稱.get(內容["語言"], 內容["語言"])
             if 內容.get("狀態", "ok") != "ok":           # 低信心或失敗：明確告訴使用者，不要悄悄退回
                 self._訊息("警告：" + self.語言狀態.文字())
                 self.膠囊.語言警告提示()                  # 主控台常收著：膠囊旁也顯示

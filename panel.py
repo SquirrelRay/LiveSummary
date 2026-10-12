@@ -22,7 +22,8 @@ from PySide6.QtGui import QActionGroup
 
 import overlay          # 最上層、滑鼠穿透（Windows 原生）
 import subtitle
-import live_topics
+import live_topics   # 只用 時間標記（摘要開頭的 [mm:ss]）
+import config
 import startup_timeline
 
 版面檔 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "版面配置.json")
@@ -513,7 +514,7 @@ class 面板管理(QObject):
         super().__init__(台)
         self.台 = 台                     # 主控台
         self.面板們 = {}                 # 種類 → 面板
-        設定 = live_topics.載入設定({})[0]
+        設定 = config.目前設定()
         self.置頂 = bool(設定["newest_on_top"])
         self.紀錄們 = {k: 紀錄(設定[上限鍵[k]]) for k in 種類們}
         台.橋.收到.connect(self.收事件)      # 和主控台同一條事件

@@ -7,7 +7,9 @@ import os
 import sys
 import tempfile
 
-GPU_MODEL = "large-v3-turbo"  # 用顯示卡時的模型（比 medium 更快、更省記憶體）
+import config
+
+GPU_MODEL = config.出廠預設()["whisper_model"]  # 用顯示卡時的模型（比 medium 更快、更省記憶體）；live_topics.執行() 依設定改寫
 CPU_MODEL = "small"   # 用 CPU 時換小一點，不然太慢
 
 
@@ -77,8 +79,8 @@ def main():
         i = 參數.index("--lang")
         語言 = 參數[i + 1] if i + 1 < len(參數) else ""
         參數 = 參數[:i] + 參數[i + 2:]
-    if len(參數) != 1 or 語言 not in ("zh", "ja", "en", "ko", "auto"):
-        print("用法：python transcribe.py 檔案路徑或網址 [--lang zh|ja|en|ko|auto]")
+    if len(參數) != 1 or 語言 not in config.語言代碼們:
+        print("用法：python transcribe.py 檔案路徑或網址 [--lang " + "|".join(config.語言代碼們) + "]")
         sys.exit(1)
     來源 = 參數[0]
     sys.stdout.reconfigure(encoding="utf-8")

@@ -5,8 +5,9 @@ import sys
 import argparse
 
 import llm  # 呼叫語言模型都在這裡
+import config  # 設定檔 config.json（出廠預設、讀取）
 
-MODEL = "claude-haiku-5-5"  # 模型名稱只在這裡定義
+MODEL = config.出廠預設()["model"]  # 目前使用的模型；live_topics.執行() 依設定改寫，起始值 = 出廠預設
 CHUNK_CHARS = 12000         # 每段最多幾個字，超過就切段
 
 
@@ -91,15 +92,14 @@ def main():
 
     # 和 live_topics.py 讀同一份 config.json（provider、model、base_url、api_key_env）
     global MODEL
-    import live_topics
     sys.stdout.reconfigure(encoding="utf-8")
-    設定, 來源, 警告們 = live_topics.載入設定({})
+    設定, 來源, 警告們 = config.載入設定()
     for w in 警告們:
         print("警告：" + w)
     llm.套用設定(設定)
     MODEL = 設定["model"]
     if args.show_config:
-        live_topics.印設定(設定, 來源)
+        config.印設定(設定, 來源, llm.金鑰狀態())
         return
     if not args.檔案:
         print("用法：python summarize.py 文字稿.txt --type game")

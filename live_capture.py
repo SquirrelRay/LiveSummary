@@ -17,6 +17,7 @@ import numpy as np
 
 import transcribe  # 沿用 GPU 優先的作法與時間格式
 import events      # 提示訊息改成送出事件
+import config      # 語言清單（單一來源）
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
 
 段秒數 = 20          # 每次開始時由字幕速度段位覆蓋（設定分段），一場直播中固定不變
@@ -59,7 +60,6 @@ def 是幻聽(文字):
     return any(詞 in 文字 for 詞 in 幻聽詞) or 提示詞外洩(文字)
 
 
-語言名稱 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}
 偵測句數 = 1          # auto 模式：累積幾段「有人聲」的音訊再判斷語言（原本是 3，改成 1 讓第一句字幕早約 40 秒出現）
 最低信心 = 0.4        # 偵測出來的語言平均信心低於這個值，就當作失敗
 
@@ -150,12 +150,12 @@ def 偵測語言(model, 音訊們, 保持=None):
         信心 = 總分[最佳] / 次數
         if 信心 < 最低信心:
             raise 信心太低("信心太低")
-        events.送出("info", 印出=f"偵測到語言：{語言名稱.get(最佳, 最佳)}（已鎖定）")
+        events.送出("info", 印出=f"偵測到語言：{config.語言名稱.get(最佳, 最佳)}（已鎖定）")
         events.送出("language_detected", 語言=最佳, 信心=信心, 狀態="ok", 重新偵測=重新)   # 介面的逐句字幕跟著切換原文／翻譯
         return 最佳
     except Exception as e:
         退回 = 保持 or "zh"
-        events.送出("info", 印出=f"警告：語言偵測失敗（{e}），" + (f"維持{語言名稱.get(退回, 退回)}。" if 重新 else "改用中文。"))
+        events.送出("info", 印出=f"警告：語言偵測失敗（{e}），" + (f"維持{config.語言名稱.get(退回, 退回)}。" if 重新 else "改用中文。"))
         events.送出("language_detected", 語言=退回, 信心=信心, 狀態="低信心" if isinstance(e, 信心太低) else "失敗", 重新偵測=重新)
         return 退回
 

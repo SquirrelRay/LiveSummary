@@ -5,10 +5,12 @@
 import os
 import sys
 
-# 這幾個值由 live_topics.py 依 config.json 填入；沒填就是下面的預設（= 原本只用 Claude 的行為）
-PROVIDER = "anthropic"
-BASE_URL = ""                     # 空字串 = 用該家的預設網址
-API_KEY_ENV = "ANTHROPIC_API_KEY"  # 金鑰放在哪個環境變數；空字串 = 不需要金鑰（例如 Ollama）
+import config
+
+# 這幾個值由 套用設定() 依 config.json 填入；沒填就是 config.py 的出廠預設（= 原本只用 Claude 的行為）
+PROVIDER = config.出廠預設()["provider"]
+BASE_URL = config.出廠預設()["base_url"]           # 空字串 = 用該家的預設網址
+API_KEY_ENV = config.出廠預設()["api_key_env"]     # 金鑰放在哪個環境變數；空字串 = 不需要金鑰（例如 Ollama）
 MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避免文字被截斷
 翻譯_MAX_TOKENS = 600             # 逐句翻譯：關掉思考後只剩譯文，一批 4 到 8 句這樣就夠用
 
@@ -17,7 +19,7 @@ MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避�
 用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
 # 逐句字幕翻譯另外算（app.py 的字幕疊加層才會用到），不和摘要的用量混在一起
 翻譯用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
-摘要_思考 = True      # False = 摘要相關呼叫關閉延伸思考（config.json 的 summary_thinking）
+摘要_思考 = config.出廠預設()["summary_thinking"]      # False = 摘要相關呼叫關閉延伸思考（config.json 的 summary_thinking）
 最後停止原因 = ""     # 最近一次回答的停止原因（max_tokens = 被截斷），翻譯失敗時寫進紀錄
 
 
@@ -34,13 +36,13 @@ class 連線錯誤(模型錯誤):
 
 
 def 套用設定(設定):
-    """設定：live_topics.py 讀好的設定（dict）。"""
+    """設定：config.載入設定() 讀好的設定（dict）。"""
     global PROVIDER, BASE_URL, API_KEY_ENV
     PROVIDER = 設定["provider"]
     BASE_URL = 設定["base_url"].strip()
     API_KEY_ENV = 設定["api_key_env"].strip()
     global 摘要_思考
-    摘要_思考 = 設定.get("summary_thinking", True)
+    摘要_思考 = 設定.get("summary_thinking", config.出廠預設()["summary_thinking"])
 
 
 def 金鑰狀態():

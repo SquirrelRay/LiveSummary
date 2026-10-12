@@ -11,6 +11,7 @@ import pytest
 from conftest import 秒數
 from test_first_subtitle_latency import 字幕器, 等, 給句子  # noqa: F401  字幕器是 fixture
 
+import config
 import live_capture as lc
 import live_topics
 import llm
@@ -104,7 +105,7 @@ def test_執行時依段位設定分段長度(monkeypatch, 代碼, 分段):
         看到.append((lc.段秒數, lc.每段位元組))
         raise lc.直播錯誤("假的，不連網")
     monkeypatch.setattr(lc, "live_session", 假直播)
-    設定 = live_topics.內建預設() | {"subtitle_speed": 代碼}
+    設定 = config.出廠預設() | {"subtitle_speed": 代碼}
     assert live_topics.執行(設定, 網址="https://www.twitch.tv/假頻道") is False
     assert 看到 == [(分段, 分段 * 16000 * 2)]
 
@@ -159,12 +160,12 @@ def test_準度_等滿8秒才送_一樣整批(字幕器, monkeypatch):  # noqa: 
 def _寫設定(tmp_path, monkeypatch, 內容):
     路徑 = tmp_path / "config.json"
     路徑.write_text(json.dumps(內容, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(live_topics, "設定檔路徑", str(路徑))
+    monkeypatch.setattr(config, "設定檔路徑", str(路徑))
 
 
 def test_舊config沒有subtitle_speed_視為平衡_不警告(tmp_path, monkeypatch):
     _寫設定(tmp_path, monkeypatch, {"chat": False, "translate_batch_seconds": 8, "translate_batch_lines": 4})
-    設定, 來源, 警告們 = live_topics.載入設定({})
+    設定, 來源, 警告們 = config.載入設定({})
     assert 警告們 == []
     assert 設定["subtitle_speed"] == "balanced" and 來源["subtitle_speed"] == "內建預設"
     assert "translate_batch_seconds" not in 設定 and "translate_batch_lines" not in 設定   # 已停用：被段位取代
@@ -172,27 +173,27 @@ def test_舊config沒有subtitle_speed_視為平衡_不警告(tmp_path, monkeypa
 
 def test_舊的translate_batch值是壞的也不警告(tmp_path, monkeypatch):
     _寫設定(tmp_path, monkeypatch, {"translate_batch_seconds": "很多", "translate_batch_lines": 99})
-    assert live_topics.載入設定({})[2] == []
+    assert config.載入設定({})[2] == []
 
 
 @pytest.mark.parametrize("代碼", ["fast", "balanced", "accurate"])
 def test_讀得到三個段位(tmp_path, monkeypatch, 代碼):
     _寫設定(tmp_path, monkeypatch, {"subtitle_speed": 代碼})
-    設定, 來源, 警告們 = live_topics.載入設定({})
+    設定, 來源, 警告們 = config.載入設定({})
     assert 警告們 == [] and 設定["subtitle_speed"] == 代碼 and 來源["subtitle_speed"] == "config.json"
 
 
 @pytest.mark.parametrize("壞值", ["平衡", "turbo", 12, ["fast"], None])
 def test_subtitle_speed壞值_警告並用平衡_不崩潰(tmp_path, monkeypatch, 壞值):
     _寫設定(tmp_path, monkeypatch, {"subtitle_speed": 壞值})
-    設定, _, 警告們 = live_topics.載入設定({})
+    設定, _, 警告們 = config.載入設定({})
     assert 設定["subtitle_speed"] == "balanced"
     assert len(警告們) == 1 and "subtitle_speed" in 警告們[0]
 
 
 def test_這一場的段位可以覆蓋config(tmp_path, monkeypatch):
     _寫設定(tmp_path, monkeypatch, {"subtitle_speed": "accurate"})
-    assert live_topics.載入設定({"subtitle_speed": "fast"})[0]["subtitle_speed"] == "fast"
+    assert config.載入設定({"subtitle_speed": "fast"})[0]["subtitle_speed"] == "fast"
 
 
 # ---------------- 幻聽過濾（幻聽例句來自 2026-10-12 量測時的實際轉錄結果；正常句子是自編的） ----------------

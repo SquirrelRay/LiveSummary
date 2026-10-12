@@ -3,8 +3,6 @@
 # config.json 裡已停用的舊欄位（overlay、hotkey_compact、translate_batch_seconds／translate_batch_lines）原樣保留。
 # 金鑰不會出現在這裡，只顯示「已設定／未設定」。
 import os
-import json
-import shutil
 
 from PySide6.QtCore import Qt, QObject, QEvent
 from PySide6.QtWidgets import (
@@ -12,11 +10,9 @@ from PySide6.QtWidgets import (
     QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
 )
 
+import config
 import cost_estimate
-import live_topics
 import subtitle_speed
-
-備份檔 = os.path.join(os.path.dirname(live_topics.設定檔路徑), "config.backup.json")
 
 
 def 小標(字):
@@ -137,7 +133,7 @@ class 設定頁(QScrollArea):
         self.段位說明 = QLabel()
         self.段位說明.setObjectName("小標")
         self.段位說明.setWordWrap(True)
-        self._單價 = (1.0, 5.0)        # 估算費用用的單價，載入時從 config.json 讀
+        self._單價 = (config.出廠預設()["price_input"], config.出廠預設()["price_output"])   # 估算費用用的單價，載入時從 config.json 讀
         e["provider"] = QComboBox()
         e["provider"].addItem("Claude（anthropic）", "anthropic")
         e["provider"].addItem("OpenAI 相容（openai_compatible）", "openai_compatible")
@@ -211,12 +207,12 @@ class 設定頁(QScrollArea):
         return 框
 
     def 打開資料夾(self):
-        os.startfile(os.path.dirname(live_topics.設定檔路徑))
+        os.startfile(os.path.dirname(config.設定檔路徑))
 
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):
-        """把設定（live_topics.載入設定 的格式）放進表單。不給就讀 config.json。"""
-        現行 = live_topics.載入設定({})[0]
+        """把設定（config.載入設定 的格式）放進表單。不給就讀 config.json。"""
+        現行 = config.目前設定()
         if 設定 is None:
             設定 = 現行
         self._單價 = (現行["price_input"], 現行["price_output"])     # 單價不在表單上：估算費用一律用 config.json 的單價（還原預設也一樣）
@@ -249,7 +245,7 @@ class 設定頁(QScrollArea):
     def _表單設定(self):
         """目前表單上的值（含還沒按儲存的）合成一份設定，費用表用它估算；語言不在表單上，取 config.json 的。"""
         e = self.欄
-        return dict(live_topics.載入設定({})[0],
+        return dict(config.目前設定(),
                     subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
                     minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
                     minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1])
@@ -273,7 +269,7 @@ class 設定頁(QScrollArea):
         self.費用表 = 列們
 
     def 更新金鑰(self):
-        環境變數 = live_topics.載入設定({})[0]["api_key_env"].strip()
+        環境變數 = config.目前設定()["api_key_env"].strip()
         if not 環境變數:
             self.金鑰字.setText("不需要（api_key_env 留空）")
         else:
@@ -313,19 +309,8 @@ class 設定頁(QScrollArea):
         一般 = self.讀全部()
         if not 一般["model"]:
             return self._提示("模型名稱不能空白。", 錯=True)
-        路徑 = live_topics.設定檔路徑
         try:
-            原本 = {}
-            if os.path.exists(路徑):
-                shutil.copy2(路徑, 備份檔)          # 寫之前先備份
-                with open(路徑, encoding="utf-8-sig") as f:
-                    原本 = json.load(f)
-                if not isinstance(原本, dict):
-                    原本 = {}
-            原本.update(一般)              # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留
-            with open(路徑, "w", encoding="utf-8") as f:
-                json.dump(原本, f, ensure_ascii=False, indent=2)
-                f.write("\n")
+            config.寫入設定(一般)        # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留；寫之前先備份
         except Exception as e:
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
         字 = "已儲存到 config.json（舊的設定備份在 config.backup.json）。"
@@ -334,7 +319,7 @@ class 設定頁(QScrollArea):
         self._提示(字)
 
     def 還原預設(self):
-        self.載入(live_topics.內建預設())
+        self.載入(config.出廠預設())          # 一律用出廠預設，不受上一場改寫的全域值影響
         self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
         self._提示("已還原成預設值。按「儲存」才會寫入 config.json。")
 

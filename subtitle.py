@@ -14,6 +14,7 @@ import threading
 import events
 import startup_timeline as 里程碑
 import llm
+import config      # 語言清單（單一來源）
 
 批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由字幕速度段位覆蓋）
 批次句數 = 4      # 累積幾句就翻（開始時由字幕速度段位覆蓋）
@@ -40,7 +41,7 @@ def 要翻譯(模式, 語言, 文字):
         return True
     if 語言 == "zh":
         return False
-    if 語言 in ("ja", "en", "ko"):
+    if 語言 in config.外語們:
         return True
     # 語言是 auto（自動偵測）：看這句字來判斷——有假名或韓文、或完全沒有中文字，就翻譯
     if re.search(r"[぀-ヿ가-힯]", 文字):
