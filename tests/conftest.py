@@ -24,7 +24,7 @@ class 假時鐘:
 
 
 class 假管線:
-    """p1／p2 共用：stdout.read 每次吐出一段，並讓假時鐘前進 20 秒（模擬真的要等 20 秒才收滿一段）。
+    """p1／p2 共用：stdout.read 每次吐出一段，並讓假時鐘前進一段的秒數（lc.段秒數，預設 20；模擬真的要等這麼久才收滿一段）。
     讀聲音的執行緒會搶先讀完，所以要等程式處理完上一段（送出 status 事件）才吐下一段，時鐘才對得上。"""
 
     def __init__(self, 段們, 時鐘):
@@ -35,7 +35,7 @@ class 假管線:
 
     def read(self, n):
         self.可讀.acquire(timeout=5)
-        self.時鐘.t += 20
+        self.時鐘.t += lc.段秒數
         return self.段們.pop(0) if self.段們 else b""
 
     def close(self):
@@ -77,7 +77,7 @@ def 流程(monkeypatch, tmp_path):
         s.稿路徑, s.存稿, s.音訊資料夾, s.聊天 = str(tmp_path / "稿.txt"), False, None, None
         s.存了段數 = s.存了位元組 = 0
         s._警告過 = False
-        list(s)
+        s.吐出 = list(s)              # [(直播秒數, "[mm:ss] 文字"), ...]
         return 紀, 偵測到, s
 
     return 跑

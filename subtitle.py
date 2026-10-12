@@ -1,6 +1,6 @@
 # 逐句字幕（只有介面會用，命令列不會用到）
 # 原文模式：收到 transcript_line 就直接送出 subtitle 事件，不花 API。
-# 翻譯模式：每累積約 8 秒或 4 句（config.json 的 translate_batch_seconds／translate_batch_lines 可調），批次翻成台灣慣用繁體中文再送出；翻譯失敗就送原文。
+# 翻譯模式：每累積幾秒或幾句（由 config.json 的字幕速度段位 subtitle_speed 決定，見 subtitle_speed.py），批次翻成台灣慣用繁體中文再送出；翻譯失敗就送原文。
 # 翻譯的呼叫次數與 token 另外記在 llm.翻譯用量，不和摘要混在一起。
 # 翻譯模式的每一句（原文、譯文）另外送出 translation_line 事件給「逐句翻譯」分頁，並即時存成「原檔名_逐句翻譯.txt」：
 # 檔案在第一句寫入時才建立、已有同名舊檔就改用加了時間的新檔名（不覆蓋）；翻譯失敗或逾時沒翻的句子存原文並標「未翻譯」。
@@ -15,8 +15,8 @@ import events
 import startup_timeline as 里程碑
 import llm
 
-批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由 config.json 覆蓋）
-批次句數 = 4      # 累積幾句就翻（開始時由 config.json 覆蓋）
+批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由字幕速度段位覆蓋）
+批次句數 = 4      # 累積幾句就翻（開始時由字幕速度段位覆蓋）
 每批上限 = 8      # 一次最多翻幾句（翻譯慢、句子塞車時用）
 
 翻譯規則 = (

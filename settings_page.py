@@ -1,5 +1,6 @@
-# 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」）：功能開關、顯示上限、翻譯批次、模型、存檔
-# 按「儲存」才寫回 config.json（寫之前先備份成 config.backup.json）；config.json 裡已停用的舊欄位（overlay、hotkey_compact）原樣保留。
+# 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」）：功能開關、顯示上限、字幕速度段位、模型、存檔
+# 按「儲存」才寫回 config.json（寫之前先備份成 config.backup.json）；
+# config.json 裡已停用的舊欄位（overlay、hotkey_compact、translate_batch_seconds／translate_batch_lines）原樣保留。
 # 金鑰不會出現在這裡，只顯示「已設定／未設定」。
 import os
 import json
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 import live_topics
+import subtitle_speed
 
 備份檔 = os.path.join(os.path.dirname(live_topics.設定檔路徑), "config.backup.json")
 
@@ -122,12 +124,14 @@ class 設定頁(QScrollArea):
         e["minute_sentences"] = QSpinBox()
         e["minute_sentences"].setRange(1, 3)
         e["minute_sentences"].setSuffix(" 句")
-        e["translate_batch_seconds"] = QSpinBox()
-        e["translate_batch_seconds"].setRange(1, 60)
-        e["translate_batch_seconds"].setSuffix(" 秒")
-        e["translate_batch_lines"] = QSpinBox()
-        e["translate_batch_lines"].setRange(1, 8)
-        e["translate_batch_lines"].setSuffix(" 句")
+        e["subtitle_speed"] = QComboBox()
+        for 代碼 in subtitle_speed.代碼們:
+            e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
+        e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
+        self.段位說明 = QLabel()
+        self.段位說明.setObjectName("小標")
+        self.段位說明.setWordWrap(True)
+        self._單價 = (1.0, 5.0)        # 估算費用用的單價，載入時從 config.json 讀
         e["provider"] = QComboBox()
         e["provider"].addItem("Claude（anthropic）", "anthropic")
         e["provider"].addItem("OpenAI 相容（openai_compatible）", "openai_compatible")
@@ -153,15 +157,17 @@ class 設定頁(QScrollArea):
         加("聊天室分頁最多顯示", e["ui_max_chat"], True)
         加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
         加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
-        加("翻譯批次：最多等", e["translate_batch_seconds"], True)
-        加("翻譯批次：累積", e["translate_batch_lines"], True)
+        加("字幕速度（預設）", e["subtitle_speed"], True)
+        self.段位下次標 = self.下次標們[-1]
+        格.addWidget(self.段位說明, 列, 1, 1, 3)
+        列 += 1
         加("模型服務", e["provider"], True)
         加("模型名稱", e["model"], True)
         加("API 金鑰", self.金鑰字)
         return 框
 
     存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
-              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每 20 秒一段 wav，檔案較大）"))
+              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每段一個 wav，段長依字幕速度 8～20 秒，檔案較大）"))
 
     def _做存檔區(self):
         """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
@@ -186,8 +192,10 @@ class 設定頁(QScrollArea):
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):
         """把設定（live_topics.載入設定 的格式）放進表單。不給就讀 config.json。"""
+        現行 = live_topics.載入設定({})[0]
         if 設定 is None:
-            設定, _, _ = live_topics.載入設定({})
+            設定 = 現行
+        self._單價 = (現行["price_input"], 現行["price_output"])     # 單價不在表單上：估算費用一律用 config.json 的單價（還原預設也一樣）
         self._載入中 = True
         try:
             e = self.欄
@@ -203,7 +211,12 @@ class 設定頁(QScrollArea):
                     w.setText(str(v))
         finally:
             self._載入中 = False
+        self._更新段位說明()
         self.更新金鑰()
+
+    def _更新段位說明(self, *_):
+        """字幕速度下方：這個段位實際的分段秒數、批次設定、估算的第一句時間與每小時翻譯費用。"""
+        self.段位說明.setText(subtitle_speed.詳細說明(self.欄["subtitle_speed"].currentData(), *self._單價))
 
     def 更新金鑰(self):
         環境變數 = live_topics.載入設定({})[0]["api_key_env"].strip()
@@ -225,8 +238,7 @@ class 設定頁(QScrollArea):
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
             "ui_max_translation": e["ui_max_translation"].value(), "newest_on_top": bool(e["newest_on_top"].currentData()),
             "ui_max_summary": e["ui_max_summary"].value(),
-            "translate_batch_seconds": e["translate_batch_seconds"].value(),
-            "translate_batch_lines": e["translate_batch_lines"].value(),
+            "subtitle_speed": e["subtitle_speed"].currentData(),
             "provider": e["provider"].currentData(), "model": e["model"].text().strip(),
         }
         return 一般

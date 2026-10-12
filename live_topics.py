@@ -12,6 +12,7 @@ import argparse
 import summarize  # 重用 call_llm、summarize_chunk，不改動它原本的功能
 import llm        # 呼叫語言模型、錯誤種類、token 用量都在這裡
 import events     # 結果不直接 print，改成送出事件（終端機和介面都是接收者）
+import subtitle_speed   # 字幕速度段位：分段秒數與翻譯批次
 
 # ---- 可以調整的設定 ----
 MIN_TOPIC_MIN = 3     # 話題未滿幾分鐘，忽略「換話題」的判斷
@@ -523,12 +524,12 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "price_input": "輸入單價（每百萬 token 美元，未查證）",
     "price_output": "輸出單價（每百萬 token 美元，未查證）",
     "subtitle_mode": "逐句字幕（介面才有）：original 原文、translate 翻譯、auto 中文用原文其他翻譯",
-    "translate_batch_seconds": "逐句翻譯：第一句進來後最多等幾秒就翻（介面才有）",
-    "translate_batch_lines": "逐句翻譯：累積幾句就翻（介面才有）",
+    "subtitle_speed": "字幕速度段位：fast 速度、balanced 平衡（預設）、accurate 準度；決定分段秒數與翻譯批次，下次開始生效",
 }
 
-# 已停用的舊欄位（舊的摘要框／字幕框 overlay、精簡模式快捷鍵 hotkey_compact）：舊的 config.json 裡還有也不警告、直接忽略，也不會被刪掉
-已停用欄位 = {"overlay", "hotkey_compact"}
+# 已停用的舊欄位（舊的摘要框／字幕框 overlay、精簡模式快捷鍵 hotkey_compact、
+# 改由 subtitle_speed 段位決定的翻譯批次 translate_batch_seconds／translate_batch_lines）：舊的 config.json 裡還有也不警告、直接忽略，也不會被刪掉
+已停用欄位 = {"overlay", "hotkey_compact", "translate_batch_seconds", "translate_batch_lines"}
 
 
 def 內建預設():
@@ -543,7 +544,7 @@ def 內建預設():
         "minute_sentences": 2,
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
         "price_input": 1.0, "price_output": 5.0,
-        "subtitle_mode": "auto", "translate_batch_seconds": 8, "translate_batch_lines": 4,
+        "subtitle_mode": "auto", "subtitle_speed": subtitle_speed.預設,
         "capsule_show_usage": False,
     }
 
@@ -580,10 +581,6 @@ def _字幕模式(v):
     return v in ("original", "translate", "auto")
 
 
-def _句數上限(v):
-    return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 8
-
-
 def _顯示上限(v):
     return isinstance(v, int) and not isinstance(v, bool) and 10 <= v <= 100000
 
@@ -600,7 +597,7 @@ def _句數(v):
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
     "provider": _服務, "base_url": _文字, "api_key_env": _文字,
     "price_input": _非負, "price_output": _非負,
-    "subtitle_mode": _字幕模式, "translate_batch_seconds": _正數, "translate_batch_lines": _句數上限,
+    "subtitle_mode": _字幕模式, "subtitle_speed": subtitle_speed.合法,
     "capsule_show_usage": _布林,
 }
 
@@ -725,6 +722,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
 
     if 網址:
         import live_capture
+        live_capture.設定分段(subtitle_speed.取得(設定["subtitle_speed"])["分段秒"])
         try:
             行來源 = live_capture.live_session(網址, 設定["language"], 用聊天室=設定["chat"],
                                                  存音訊=設定["save_audio"], 存稿=設定["save_transcript"],

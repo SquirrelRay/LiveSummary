@@ -29,6 +29,7 @@ import panel         # 可自由擺放的面板與版面配置（新介面第一
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
 import startup_timeline  # 啟動時間里程碑紀錄
+import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
 import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
@@ -978,6 +979,7 @@ class 主控台(QMainWindow):
         self.要關閉 = False
         self.要結束 = False        # True = 真的結束程式（膠囊或系統匣的「結束程式」）；False = 關主控台只是收起來
         self.結束中 = False
+        self.本次段位 = None       # 啟動面板選的字幕速度段位（只用在下一次開始；None = 用 config.json）
         self.語言狀態 = language_state.語言狀態()
         self._待記網址 = None
         self.本場設定 = None
@@ -1260,7 +1262,12 @@ class 主控台(QMainWindow):
             return self._錯誤框("找不到這個文字稿檔案，請重新選擇。")
 
         # 每次開始都重新讀 config.json；介面上的語言只覆蓋這一場，不寫回 config.json
-        設定, _, 警告們 = live_topics.載入設定({"language": self.語言選.currentData()})
+        # 啟動面板選的字幕速度段位也只覆蓋這一場（記住的預設在設定框）
+        覆蓋 = {"language": self.語言選.currentData()}
+        if self.本次段位:
+            覆蓋["subtitle_speed"], self.本次段位 = self.本次段位, None
+        設定, _, 警告們 = live_topics.載入設定(覆蓋)
+        段位 = subtitle_speed.取得(設定["subtitle_speed"])
         llm.套用設定(設定)
 
         for 頁, 鍵 in ((self.分鐘頁, "ui_max_summary"), (self.話題頁, "ui_max_summary"),
@@ -1287,13 +1294,12 @@ class 主控台(QMainWindow):
         self.更新語言顯示()
         self.字幕器.開始(設定["subtitle_mode"], 設定["language"], 設定["model"],
                       設定["price_input"], 設定["price_output"],
-                      設定["translate_batch_seconds"], 設定["translate_batch_lines"])
+                      段位["批次秒"], 段位["批次句"])
         self.字幕器.啟用 = self.面板.要翻譯()     # 只有逐句翻譯面板開著才翻譯（省費用）
-        import live_capture
         startup_timeline.開始({
             "來源": "直播網址" if 直播 else "文字稿重播", "語言設定": 設定["language"], "字幕模式": 設定["subtitle_mode"],
             "摘要模型": 設定["model"], "轉錄模型": 設定["whisper_model"],
-            "分段長度設定(秒)": live_capture.段秒數, "翻譯批次秒數": subtitle.批次秒數, "翻譯批次句數": subtitle.批次句數,
+            **subtitle_speed.里程碑說明(設定["subtitle_speed"]),
         }, 起點=按下時間)
         self.面板.開始(設定, 直播)
         self.本場設定, self.本場檔案 = 設定, []

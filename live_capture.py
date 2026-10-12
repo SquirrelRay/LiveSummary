@@ -1,5 +1,5 @@
 # Twitch 直播即時轉錄：把直播聲音一段一段轉成文字，一句一句吐給 live_topics.py
-# 流程：streamlink（抓音訊）→ ffmpeg（轉 16kHz 單聲道）→ 每 20 秒一段 → faster-whisper
+# 流程：streamlink（抓音訊）→ ffmpeg（轉 16kHz 單聲道）→ 每段 8～20 秒（依字幕速度段位）→ faster-whisper
 import os
 import re
 import sys
@@ -19,20 +19,45 @@ import transcribe  # 沿用 GPU 優先的作法與時間格式
 import events      # 提示訊息改成送出事件
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
 
-段秒數 = 20
+段秒數 = 20          # 每次開始時由字幕速度段位覆蓋（設定分段），一場直播中固定不變
 取樣率 = 16000
 每段位元組 = 段秒數 * 取樣率 * 2  # 16-bit 單聲道
+
+
+def 設定分段(秒):
+    """開始擷取前設定分段長度（整數秒；音訊檔名與時間戳都假設每段一樣長，所以直播中不能改）。"""
+    global 段秒數, 每段位元組
+    段秒數 = int(秒)
+    每段位元組 = 段秒數 * 取樣率 * 2
 
 
 # Whisper 在沒人講話時常「幻聽」出來的句子，看到就丟掉（可自行增加）
 幻聽詞 = ["訂閱轉發打賞", "明鏡與點點", "字幕志願者", "謝謝觀看", "感謝觀看", "感谢观看", "Amara.org",
         "字幕志愿者", "李宗盛",
         # 日文
-        "ご視聴ありがとうございました", "ご視聴ありがとうございます", "最後までご視聴いただきありがとうございました",
+        "視聴ありがとうございました", "視聴ありがとうございます", "ご視聴いただきありがとうございました",   # 含缺「ご」的變體（例如「字幕視聴ありがとうございました」）
         # 英文
         "Thank you for watching", "Thanks for watching",
         # 韓文
         "시청해 주셔서 감사합니다", "시청해주셔서 감사합니다"]
+
+中文提示 = "以下是繁體中文的直播逐字稿。"   # 中文轉錄的 initial_prompt
+外洩詞 = ("繁體中文", "逐字稿")
+
+
+def 提示詞外洩(文字):
+    """Whisper 在沒人講話時會把 initial_prompt 改寫後吐出來（例如「我實在是繁體中文的」）。
+    判斷：含「繁體中文」或「逐字稿」，而且這句的字有六成以上出現在提示詞裡。
+    正常講到繁體中文的句子（例如「這個遊戲有繁體中文嗎」）提示詞以外的字比較多，不會被擋。"""
+    if not any(詞 in 文字 for 詞 in 外洩詞):
+        return False
+    字們 = [c for c in 文字 if c.strip() and c not in "，。、！？,.!? "]
+    return bool(字們) and sum(c in 中文提示 for c in 字們) / len(字們) >= 0.6
+
+
+def 是幻聽(文字):
+    return any(詞 in 文字 for 詞 in 幻聽詞) or 提示詞外洩(文字)
+
 
 語言名稱 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}
 偵測句數 = 1          # auto 模式：累積幾段「有人聲」的音訊再判斷語言（原本是 3，改成 1 讓第一句字幕早約 40 秒出現）
@@ -142,12 +167,12 @@ def 轉錄一段(model, 音訊, 語言):
     段們, _ = model.transcribe(
         音訊, language=語言, vad_filter=True,
         condition_on_previous_text=False,   # 避免前面的字影響後面，造成重複
-        initial_prompt="以下是繁體中文的直播逐字稿。" if 語言 == "zh" else None,
+        initial_prompt=中文提示 if 語言 == "zh" else None,
     )
     結果 = []
     for s in 段們:
         文字 = s.text.strip()
-        if any(詞 in 文字 for 詞 in 幻聽詞):
+        if 是幻聽(文字):
             continue
         # 「沒人講話」的機率常常誤判，所以要同時信心很低才丟；重複度太高（亂猜迴圈）也丟
         if not 文字 or (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0) or s.compression_ratio > 2.4:
@@ -199,7 +224,7 @@ class live_session:
         時間字 = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.稿路徑 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_直播稿.txt")
         self.存稿 = 存稿          # False：直播稿只送到介面、不寫檔（稿路徑仍用來決定其他檔名）
-        # 每段 20 秒音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
+        # 每段音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
         self.音訊資料夾 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_音訊") if 存音訊 else None
         self.存了段數 = 0
         self.存了位元組 = 0

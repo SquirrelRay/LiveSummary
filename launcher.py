@@ -1,5 +1,6 @@
 # 啟動面板（新介面第二階段第二步）：開程式時出現的小視窗，取代主控台當作入口。
-#   內容：網址欄（重用主控台的網址紀錄下拉清單：最近、釘選、刪除）、語言選單、開始按鈕、右上角齒輪（打開設定框）、✕（收起）。
+#   內容：網址欄（重用主控台的網址紀錄下拉清單：最近、釘選、刪除）、語言選單、字幕速度（速度／平衡／準度）、開始按鈕、右上角齒輪（打開設定框）、✕（收起）。
+#   字幕速度：預設是設定框記住的值（config.json 的 subtitle_speed），在這裡選只影響這一場；啟動中停用並標示「下次開始生效」。
 #   深色、圓角、無邊框，開在膠囊所在螢幕的中間；拖曳空白處可以移動。
 #   按「開始」：和主控台的「開始」完全相同（直接把網址、語言填進主控台再呼叫主控台的 開始）。
 #     成功開始擷取（收到 files 事件）→ 啟動面板收起，並套用上次使用的版面（沒有就套用預設版面），讓面板出現。
@@ -7,15 +8,26 @@
 # 啟動面板不另外跑引擎，也不改主控台的行為。
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar
+from PySide6.QtWidgets import (
+    QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
+)
 
 import events
 import live_topics
+import subtitle_speed
 from launch_state import 啟動狀態
 
 語言選項 = [("自動偵測", "auto"), ("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko")]
 寬 = 480
 VOD提示 = "目前只支援直播網址，直播檔（VOD）之後才會支援"
+
+
+def 段位樣式(圓角):
+    """三段選擇的一顆按鈕：只有最左、最右兩顆有圓角，看起來連成一條。"""
+    return ("QPushButton { background: #232733; color: #c9cede; border: 1px solid #343a4a; padding: 4px 12px;"
+            f" border-radius: 0px; {圓角} }}"
+            "QPushButton:checked { background: #5b8cff; color: #ffffff; border-color: #5b8cff; }"
+            "QPushButton:disabled { color: #6b7185; } QPushButton:checked:disabled { background: #3a4a72; color: #b8c2dc; }")
 
 
 class 啟動面板(QWidget):
@@ -62,8 +74,8 @@ class 啟動面板(QWidget):
         self.語言選 = QComboBox()
         for 名, 值 in 語言選項:
             self.語言選.addItem(名, 值)
-        預設語言 = live_topics.載入設定({})[0]["language"]        # config.json 的語言（預設「自動」）
-        self.語言選.setCurrentIndex(max(0, self.語言選.findData(預設語言)))
+        預設 = live_topics.載入設定({})[0]
+        self.語言選.setCurrentIndex(max(0, self.語言選.findData(預設["language"])))     # config.json 的語言（預設「自動」）
         self.開始鈕 = QPushButton("開始")
         self.開始鈕.setObjectName("開始")
         self.開始鈕.setCursor(Qt.PointingHandCursor)
@@ -76,10 +88,40 @@ class 啟動面板(QWidget):
         self.結束鈕.clicked.connect(self.結束)
         列.addWidget(語言標)
         列.addWidget(self.語言選)
+        列.addSpacing(10)
+        段位標 = QLabel("字幕")
+        段位標.setObjectName("淡")
+        段位標.setToolTip("字幕速度：越快第一句越早出現，越準轉錄越穩、翻譯越省（估算）")
+        列.addWidget(段位標)
+        self.段位鈕們 = {}
+        self.段位組 = QButtonGroup(self)
+        self.段位組.setExclusive(True)
+        for i, 代碼 in enumerate(subtitle_speed.代碼們):
+            鈕 = QPushButton(subtitle_speed.取得(代碼)["名稱"])
+            鈕.setCheckable(True)
+            鈕.setCursor(Qt.PointingHandCursor)
+            鈕.setFocusPolicy(Qt.NoFocus)
+            圓角 = ("border-top-left-radius: 6px; border-bottom-left-radius: 6px;" if i == 0 else
+                  "border-top-right-radius: 6px; border-bottom-right-radius: 6px;" if i == len(subtitle_speed.代碼們) - 1 else "")
+            鈕.setStyleSheet(段位樣式(圓角))
+            self.段位組.addButton(鈕)
+            self.段位鈕們[代碼] = 鈕
+            列.addWidget(鈕)
+        列.setSpacing(8)
         列.addStretch(1)
-        列.addWidget(self.結束鈕)
-        列.addWidget(self.開始鈕)
         版.addLayout(列)
+        self.段位組.buttonClicked.connect(lambda _: self._更新段位註())
+
+        列2 = QHBoxLayout()
+        列2.setSpacing(8)
+        self.段位註 = QLabel("")
+        self.段位註.setObjectName("淡")
+        self.段位註.setStyleSheet("font-size: 12px;")
+        列2.addWidget(self.段位註, 1)
+        列2.addWidget(self.結束鈕)
+        列2.addWidget(self.開始鈕)
+        版.addLayout(列2)
+        self.設段位(預設["subtitle_speed"])
 
         self.進度條 = QProgressBar()         # 啟動中的動態指示（跑動的條，表示沒有當掉）
         self.進度條.setRange(0, 0)
@@ -139,8 +181,35 @@ class 啟動面板(QWidget):
     def 等待中(self):
         return self.狀態.啟動中
 
+    # ---------- 字幕速度段位 ----------
+    def 段位(self):
+        for 代碼, 鈕 in self.段位鈕們.items():
+            if 鈕.isChecked():
+                return 代碼
+        return subtitle_speed.預設
+
+    def 設段位(self, 代碼):
+        self.段位鈕們[代碼 if subtitle_speed.合法(代碼) else subtitle_speed.預設].setChecked(True)
+        self._更新段位註()
+
+    def 段位可改(self):
+        """啟動中、直播中不能改段位（分段長度在一場直播中固定）。"""
+        return not self.等待中 and not self.台.執行中()
+
+    def _更新段位註(self):
+        可改 = self.段位可改()
+        for 代碼, 鈕 in self.段位鈕們.items():
+            鈕.setEnabled(可改)
+            鈕.setToolTip(subtitle_speed.簡短說明(代碼) + ("" if 可改 else "\n（直播進行中不能切換，下次開始生效）"))
+        if 可改:
+            原, 譯 = subtitle_speed.估算第一句(self.段位())
+            self.段位註.setText(f"估算第一句約 {原}～{譯} 秒")
+        else:
+            self.段位註.setText("字幕速度：下次開始生效")
+
     def _套用狀態(self):
-        """依啟動狀態更新：開始鈕、進度條、提示文字。"""
+        """依啟動狀態更新：開始鈕、進度條、提示文字、字幕速度能不能改。"""
+        self._更新段位註()
         self.開始鈕.setEnabled(self.狀態.開始鈕可用())
         self.進度條.setVisible(self.狀態.顯示進度條())
         self.設狀態(self.狀態.文字(), 錯誤=self.狀態.是錯誤())
@@ -151,6 +220,8 @@ class 啟動面板(QWidget):
         if self.台.執行中() or self.台.結束中:
             return
         if not self.等待中:
+            if not self.isVisible():    # 重新打開時，字幕速度回到設定框記住的值
+                self.設段位(live_topics.載入設定({})[0]["subtitle_speed"])
             self._套用狀態()            # 待命：清掉提示（上一次失敗的錯誤文字會保留）
             self.結束鈕.setEnabled(True)
         if not self.isVisible():
@@ -190,10 +261,12 @@ class 啟動面板(QWidget):
             台.網址框.setText(網址)
         台._切換來源()
         台.語言選.setCurrentIndex(max(0, 台.語言選.findData(self.語言選.currentData())))
+        台.本次段位 = self.段位()      # 只用在這一場，不寫回 config.json
         self.狀態.開始("檢查直播" if not self.測試檔案 else "開始重播文字稿")
         self._套用狀態()
         台.開始()
         if not 台.執行中():           # 主控台在開始前就擋下來（例如找不到檔案）
+            台.本次段位 = None
             self.狀態.失敗("無法開始，請確認網址後再試一次。")
             self._套用狀態()
 

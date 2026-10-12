@@ -9,6 +9,7 @@ import shutil
 import sys
 import threading
 import time
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,6 +24,7 @@ import llm
 import panel
 import settings_page
 import startup_timeline
+import subtitle
 import ui_state
 
 專案設定 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
@@ -300,3 +302,114 @@ def test_設定框儲存_保留舊區塊並備份(環境):
     assert (環境["暫存"] / "config.backup.json").read_text(encoding="utf-8") == 寫前
     assert live_topics.載入設定({})[2] == []
     assert "已儲存" in 頁.狀態字.text()
+
+
+# ---------- 7. 字幕速度段位：啟動面板三段選擇（只影響這一場、啟動中與直播中不能改）、設定框說明與儲存 ----------
+class 慢引擎(假引擎):
+    """送出 files 之前先等 放行（模擬「啟動中」），並記下這一場拿到的段位。"""
+
+    def __init__(self):
+        super().__init__()
+        self.放行 = threading.Event()
+        self.段位 = None
+
+    def __call__(self, 設定, **k):
+        self.段位 = 設定["subtitle_speed"]
+        events.送出("stage", 階段="檢查直播")
+        self.放行.wait(10)
+        return super().__call__(設定, **k)
+
+
+def _拿掉段位欄位(設定檔):
+    內容 = json.loads(設定檔.read_text(encoding="utf-8-sig"))
+    內容.pop("subtitle_speed", None)
+    內容["translate_batch_seconds"], 內容["translate_batch_lines"] = 8, 4      # 舊版的翻譯批次欄位
+    設定檔.write_text(json.dumps(內容, ensure_ascii=False, indent=2), encoding="utf-8")
+    return 內容
+
+
+def test_啟動面板_字幕速度_選了只影響這一場_啟動中與直播中不能改(環境, monkeypatch):
+    台, 設定檔 = 環境["台"], 環境["設定檔"]
+    _拿掉段位欄位(設定檔)
+    寫前 = 設定檔.read_text(encoding="utf-8")
+    啟 = 台.啟動面板
+    啟.hide()
+    啟.顯示()                                                        # 重新打開：回到 config.json 的值（沒有欄位 = 平衡）
+    assert 啟.段位() == "balanced"
+    assert all(b.isEnabled() for b in 啟.段位鈕們.values()) and "估算第一句" in 啟.段位註.text()
+
+    啟.段位鈕們["fast"].click()
+    assert 啟.段位() == "fast" and "約 17～21 秒" in 啟.段位註.text()
+
+    引擎 = 慢引擎()
+    monkeypatch.setattr(live_topics, "執行", 引擎)
+    啟.網址框.setText("https://www.twitch.tv/假頻道")
+    啟.開始()
+    assert 啟.等待中                                                  # 啟動中：段位鈕停用、標示下次開始生效
+    assert not any(b.isEnabled() for b in 啟.段位鈕們.values())
+    assert 啟.段位註.text() == "字幕速度：下次開始生效"
+    啟.段位鈕們["accurate"].click()                                   # 停用的按鈕點了也沒用
+    assert 啟.段位() == "fast"
+    引擎.放行.set()
+    assert 等(lambda: not 啟.isVisible() and 台.面板.面板們)
+
+    assert 引擎.段位 == "fast"
+    assert (subtitle.批次秒數, subtitle.批次句數) == (1, 8)           # 翻譯批次照速度段位
+    開頭 = Path(startup_timeline.紀錄.路徑).read_text(encoding="utf-8").split("[+")[0]
+    assert "字幕速度段位 = 速度（fast）" in 開頭 and "分段長度設定(秒) = 8" in 開頭
+    assert "翻譯批次秒數 = 1" in 開頭 and "翻譯批次句數 = 8" in 開頭
+    assert 設定檔.read_text(encoding="utf-8") == 寫前                  # 啟動面板選的不寫回 config.json
+
+    assert 台.執行中() and not 啟.段位可改()                           # 直播中：啟動面板打不開、段位鈕維持停用
+    啟.顯示()
+    assert not 啟.isVisible() and not any(b.isEnabled() for b in 啟.段位鈕們.values())
+
+    停止並等完(台)
+    啟.顯示()                                                        # 結束後：可以再改，並回到記住的預設（平衡）
+    assert 啟.isVisible() and all(b.isEnabled() for b in 啟.段位鈕們.values()) and 啟.段位() == "balanced"
+
+
+def test_從主控台開始_沒經過啟動面板_用config的段位(環境, monkeypatch):
+    台, 設定檔 = 環境["台"], 環境["設定檔"]
+    內容 = _拿掉段位欄位(設定檔)
+    內容["subtitle_speed"] = "accurate"
+    設定檔.write_text(json.dumps(內容, ensure_ascii=False), encoding="utf-8")
+    引擎 = 慢引擎()
+    引擎.放行.set()
+    monkeypatch.setattr(live_topics, "執行", 引擎)
+    台.直播鈕.setChecked(True)
+    台.網址框.setText("https://www.twitch.tv/假頻道")
+    台._切換來源()
+    台.開始()
+    assert 等(lambda: 引擎.段位 is not None)
+    assert 引擎.段位 == "accurate" and (subtitle.批次秒數, subtitle.批次句數) == (8, 8)
+    停止並等完(台)
+
+
+def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
+    台, 設定檔 = 環境["台"], 環境["設定檔"]
+    原本 = _拿掉段位欄位(設定檔)
+    原本["overlay"] = {"click_through": True, "summary_box": {"font_size": 17}}
+    原本["hotkey_compact"] = "Ctrl+Shift+M"
+    設定檔.write_text(json.dumps(原本, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert live_topics.載入設定({})[2] == []                          # 舊設定：沒有 subtitle_speed、有 translate_batch_*，不警告
+
+    台.開設定框()
+    頁 = 台.設定框.頁
+    assert 頁.欄["subtitle_speed"].currentData() == "balanced"
+    說明 = 頁.段位說明.text()
+    assert "分段 12 秒" in 說明 and "最多等 1 秒或累積 8 句" in 說明
+    assert "估算第一句出現" in 說明 and "估算每小時翻譯費用" in 說明 and "$" in 說明
+    頁.欄["subtitle_speed"].setCurrentIndex(頁.欄["subtitle_speed"].findData("accurate"))
+    assert "分段 20 秒" in 頁.段位說明.text() and "最多等 8 秒或累積 8 句" in 頁.段位說明.text()
+
+    頁.儲存()
+    之後 = json.loads(設定檔.read_text(encoding="utf-8"))
+    assert 之後["subtitle_speed"] == "accurate"
+    assert {k: 之後[k] for k in 原本} == 原本                          # 原有欄位（含已停用的 translate_batch_*、overlay）一個不少、值不變
+    設定, _, 警告們 = live_topics.載入設定({})
+    assert 警告們 == [] and 設定["subtitle_speed"] == "accurate"
+
+    assert 頁.段位下次標.isHidden()
+    頁.設執行中(True)                                                 # 直播中打開設定框：段位旁標示「下次開始生效」
+    assert not 頁.段位下次標.isHidden() and 頁.段位下次標.text() == "下次開始生效"
