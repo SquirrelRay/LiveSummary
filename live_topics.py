@@ -14,6 +14,7 @@ import llm        # 呼叫語言模型、錯誤種類、token 用量都在這裡
 import events     # 結果不直接 print，改成送出事件（終端機和介面都是接收者）
 import subtitle_speed   # 字幕速度段位：分段秒數與翻譯批次
 import config           # 設定檔 config.json 的預設、檢查、讀取都在這裡
+import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 
 # ---- 可以調整的設定 ----
 # 下面三個由 執行() 依設定改寫，起始值 = config.py 的出廠預設
@@ -32,20 +33,16 @@ MAX_SIDE_PER_TOPIC = 5   # 每個話題最多保留幾條支線（超過就保�
     "每次最多回報 2 條，沒有就回空陣列。"
 )
 
-時間標記 = re.compile(r"^\[(?:(\d+):)?(\d+):(\d+)\]")
+時間標記 = timefmt.時間標記     # 行首的 [mm:ss]／[h:mm:ss]／[+mm:ss]
 
 
 def 轉秒(行):
-    m = 時間標記.match(行)
-    if not m:
-        return None
-    h, mi, s = m.groups()
-    return int(h or 0) * 3600 + int(mi) * 60 + int(s)
+    return timefmt.轉秒(行)
 
 
 def 秒轉字(秒):
-    秒 = int(秒)
-    return f"{秒 // 60:02d}:{秒 % 60:02d}"
+    """格式統一由 timefmt 決定。"""
+    return timefmt.秒轉字(秒)
 
 
 def stream_lines(來源, speed=0):
@@ -85,18 +82,14 @@ def 代表留言(留言們):
     for 組 in 分組.values():
         人數 = len({人 for _, 人, _ in 組})
         if 人數 >= CHAT_REPEAT_MIN:
-            重複.append((組[0][0], f"[{轉字(組[0][0])}] （{人數} 人重複）{組[0][2]}"))
+            重複.append((組[0][0], f"[{秒轉字(組[0][0])}] （{人數} 人重複）{組[0][2]}"))
         else:
-            其他.extend((秒, f"[{轉字(秒)}] {人}: {內容}") for 秒, 人, 內容 in 組)
+            其他.extend((秒, f"[{秒轉字(秒)}] {人}: {內容}") for 秒, 人, 內容 in 組)
     其他.sort()
     剩 = max(MAX_CHAT_PER_CHECK - len(重複), 0)
     if len(其他) > 剩:    # 太多就平均挑，不要只看開頭
         其他 = [其他[i * len(其他) // 剩] for i in range(剩)] if 剩 else []
     return sorted(重複[:MAX_CHAT_PER_CHECK] + 其他)
-
-
-def 轉字(秒):
-    return 秒轉字(秒)
 
 
 # ---- 聊天室參考詞（幫摘要修正語音轉錄的專有名詞寫法，不改原始直播稿）----
@@ -148,7 +141,7 @@ class 聊天重播:
     def __init__(self, 路徑):
         self.訊息們 = []
         for 行 in open(路徑, encoding="utf-8"):
-            m = re.match(r"^\[(?:(\d+):)?(\d+):(\d+)\] ([^:]+): (.*)$", 行.rstrip("\n"))
+            m = re.match(r"^\[\+?(?:(\d+):)?(\d+):(\d+)\] ([^:]+): (.*)$", 行.rstrip("\n"))
             if m:
                 h, mi, s, 人, 內容 = m.groups()
                 self.訊息們.append((int(h or 0) * 3600 + int(mi) * 60 + int(s), 人, 內容))

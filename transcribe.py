@@ -8,15 +8,15 @@ import sys
 import tempfile
 
 import config
+import timefmt
 
 GPU_MODEL = config.出廠預設()["whisper_model"]  # 用顯示卡時的模型（比 medium 更快、更省記憶體）；live_topics.執行() 依設定改寫
 CPU_MODEL = "small"   # 用 CPU 時換小一點，不然太慢
 
 
 def 時間(秒):
-    秒 = int(秒)
-    h, m, s = 秒 // 3600, (秒 % 3600) // 60, 秒 % 60
-    return f"[{h}:{m:02d}:{s:02d}]" if h else f"[{m:02d}:{s:02d}]"
+    """[mm:ss]／[h:mm:ss]：格式統一由 timefmt 決定。"""
+    return timefmt.標記(秒)
 
 
 def 下載音訊(網址, 資料夾):
