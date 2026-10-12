@@ -1,9 +1,10 @@
-"""聊天室翻譯的介面（offscreen）：原文先出現、譯文補在同一則下面；顯示上限截掉舊行時不補錯行；最新在上／在下；
+"""聊天室翻譯的介面（offscreen）：翻譯開著時原文與譯文一起出現、照原本順序；失敗／429／超時以原文出現；最新在上／在下；
 只看譯文；面板與語言與設定的開關條件；膠囊選單切換；狀態列、膠囊提示、結束統計；啟動面板與設定框的費用。
 用假模型（聊天翻譯器.呼叫 換掉）、假引擎、假聊天資料，不花 API、不連網。"""
 import json
 import os
 import re
+import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -28,9 +29,9 @@ def 讀json(路徑):
         return json.load(f)
 
 
-# ---------- 文字清單：原文先出現，譯文補在同一則下面 ----------
-def 留言(編號, 內容, 使用者="u"):
-    return {"編號": 編號, "時間字": f"00:{編號:02d}", "使用者": f"{使用者}{編號}", "內容": 內容, "譯文": None}
+# ---------- 文字清單：有譯文的留言原文與譯文一起出現 ----------
+def 留言(編號, 內容, 譯文=None, 使用者="u"):
+    return {"編號": 編號, "時間字": f"00:{編號:02d}", "使用者": f"{使用者}{編號}", "內容": 內容, "譯文": 譯文}
 
 
 def 做清單(上限=100, 置頂=False):
@@ -41,85 +42,63 @@ def 做清單(上限=100, 置頂=False):
 
 
 @pytest.mark.parametrize("置頂", [False, True])
-def test_原文先出現_譯文後補在同一則下面(qapp, 置頂):
+def test_有譯文的留言_原文與譯文同一則一起出現(qapp, 置頂):
     頁 = 做清單(置頂=置頂)
-    for i, t in enumerate(["まだ言ってない", "保留やめて", "なっが"], 1):
-        頁.加留言(留言(i, t))
-    原本 = 頁.行文字()
-    assert len(原本) == 3 and all("↳" not in x for x in 原本)
-    assert 頁.補譯文(2, "還沒說") is True
+    頁.加留言(留言(1, "まだ言ってない", "還沒說"))
+    頁.加留言(留言(2, "草"))
     行們 = 頁.行文字()
-    assert len(行們) == 3                                    # 譯文在同一則裡，沒有多出一行
-    第二則 = 行們[1]                                          # 三則的中間那則，兩種方向都在中間
-    assert "保留やめて" in 第二則 and "↳ 還沒說" in 第二則 and 第二則.index("保留やめて") < 第二則.index("還沒說")
-    assert [x for k, x in enumerate(行們) if k != 1] == [x for k, x in enumerate(原本) if k != 1]   # 其他則不變
+    assert len(行們) == 2                                    # 譯文在同一則裡，沒有多出一行
+    有譯 = 行們[1 if 置頂 else 0]
+    assert "まだ言ってない" in 有譯 and "↳ 還沒說" in 有譯 and 有譯.index("まだ言ってない") < 有譯.index("還沒說")
+    assert 行們[0 if 置頂 else 1].endswith("草") and "↳" not in 行們[0 if 置頂 else 1]
 
 
 @pytest.mark.parametrize("置頂", [False, True])
-def test_顯示上限截掉舊行時不會補錯行(qapp, 置頂):
+def test_顯示上限與切換方向_譯文跟著那一則(qapp, 置頂):
     頁 = 做清單(上限=3, 置頂=置頂)
-    for i in range(1, 6):                                    # 5 則、上限 3：第 1、2 則被移除
-        頁.加留言(留言(i, f"コメント{i}"))
-    之前 = 頁.行文字()
-    assert len(之前) == 3
-    assert 頁.補譯文(1, "第一則的譯文") is False             # 已被移除：什麼都不做
-    assert 頁.行文字() == 之前
-    assert 頁.補譯文(4, "第四則的譯文") is True
+    for i in range(1, 6):
+        頁.加留言(留言(i, f"コメント{i}", f"譯{i}" if i % 2 else None))
     行們 = 頁.行文字()
-    對 = [x for x in 行們 if "第四則的譯文" in x]
-    assert len(對) == 1 and "コメント4" in 對[0]
     順序 = [re.search(r"コメント(\d)", x).group(1) for x in 行們]
     assert 順序 == (["5", "4", "3"] if 置頂 else ["3", "4", "5"])
-    頁.加留言(留言(6, "コメント6"))                          # 再加一則（第 3 則被移除），第 4 則的譯文還在正確位置
-    assert 頁.補譯文(3, "第三則") is False
-    assert next(x for x in 頁.行文字() if "第四則的譯文" in x).count("コメント4") == 1
-
-
-def test_切換方向後譯文保留(qapp):
-    頁 = 做清單()
-    頁.加留言(留言(1, "一つ目"))
-    頁.加留言(留言(2, "二つ目"))
-    頁.補譯文(1, "第一個")
-    頁.設方向(True)
-    行們 = 頁.行文字()
-    assert "二つ目" in 行們[0] and "↳ 第一個" in 行們[1]
-    頁.補譯文(2, "第二個")                                   # 最新在上時補譯文也找對行
-    assert "↳ 第二個" in 頁.行文字()[0]
+    for x in 行們:
+        號 = int(re.search(r"コメント(\d)", x).group(1))
+        assert (f"↳ 譯{號}" in x) == bool(號 % 2)
+    頁.設方向(not 置頂)
+    assert [re.search(r"コメント(\d)", x).group(1) for x in 頁.行文字()] == 順序[::-1]
+    assert all(("↳" in x) == (int(re.search(r"コメント(\d)", x).group(1)) % 2 == 1) for x in 頁.行文字())
 
 
 def test_只看譯文切換(qapp):
     頁 = 做清單()
-    頁.加留言(留言(1, "まだ言ってない"))
+    頁.加留言(留言(1, "まだ言ってない", "還沒說"))
     頁.加留言(留言(2, "保留やめて"))
-    頁.補譯文(1, "還沒說")
     頁.設只看譯文(True)
     行們 = 頁.行文字()
     assert "還沒說" in 行們[0] and "まだ言ってない" not in 行們[0] and "↳" not in 行們[0]
     assert "保留やめて" in 行們[1]                           # 沒譯文的照樣顯示原文
-    頁.補譯文(2, "別保留")
-    assert "別保留" in 頁.行文字()[1] and "保留やめて" not in 頁.行文字()[1]
+    頁.加留言(留言(3, "なっが", "好長"))
+    assert "好長" in 頁.行文字()[2] and "なっが" not in 頁.行文字()[2]
     頁.設只看譯文(False)
     assert "まだ言ってない" in 頁.行文字()[0] and "↳ 還沒說" in 頁.行文字()[0]
 
 
-def test_一般行與留言混在一起_補譯文仍找對行(qapp):
-    頁 = 做清單()
-    頁.加一行("一般的一行")
-    頁.加留言(留言(7, "コメント"))
-    頁.補譯文(7, "留言")
-    assert 頁.行文字()[0] == "一般的一行" and "↳ 留言" in 頁.行文字()[1]
-    頁.clear()
-    assert 頁.補譯文(7, "x") is False
-
-
 # ---------- 主控台與面板一起跑 ----------
 class 假聊天模型:
+    """放行：None = 馬上回答；Event = 等它被設起來才回答（用來確認譯文回來前留言不會出現）。例外：要丟的例外。"""
+
     def __init__(self):
         self.批們 = []
+        self.放行 = None
+        self.例外 = None
 
     def __call__(self, 提示詞):
         留言們 = re.findall(r"^\d+\. (.*)$", 提示詞.split("留言：", 1)[1], re.MULTILINE)
         self.批們.append(留言們)
+        if self.放行 is not None:
+            self.放行.wait(10)
+        if self.例外:
+            raise self.例外
         llm._記用量(100, 20, "聊天翻譯")
         return json.dumps([f"譯:{t}" for t in 留言們], ensure_ascii=False)
 
@@ -127,10 +106,13 @@ class 假聊天模型:
 @pytest.fixture
 def 聊天(環境, monkeypatch):
     monkeypatch.setattr(chat_translate, "批次秒數", 0)        # 不等 8 秒（批次規則另外用假時鐘測過）
+    monkeypatch.setattr(llm, "預先載入", lambda: None)
     台 = 環境["台"]
     模型 = 假聊天模型()
     台.聊天翻譯器.呼叫 = 模型
-    return 台, 模型
+    yield 台, 模型
+    if 模型.放行 is not None:
+        模型.放行.set()
 
 
 _號 = iter(range(10_000, 99_999))
@@ -152,33 +134,68 @@ def 開始外語直播(台, monkeypatch, 聊天翻譯=True):
     台.聊天翻譯器.語言 = "ja"
 
 
-def test_面板開著且外語直播_譯文補在面板與主控台同一則下面(聊天, monkeypatch):
+def 留言們(頁):
+    """畫面上由舊到新的留言內容（最新在上時倒回來）。"""
+    行們 = 頁.行文字()
+    return 行們[::-1] if 頁.置頂 else 行們
+
+
+@pytest.mark.parametrize("置頂", [False, True])
+def test_翻譯開啟_譯文回來前不顯示_回來後原文與譯文照順序一起出現(聊天, monkeypatch, 置頂):
     台, 模型 = 聊天
     開始外語直播(台, monkeypatch)
+    台.設方向(置頂)
     台.面板.開關("聊天室", True)
-    assert 台.聊天翻譯器.面板開著
-    號 = 送留言(["まだ言ってない", "草", "保留やめて"])[0]
     面 = 台.面板.面板們["聊天室"]
-    assert 等(lambda: any("↳ 譯:まだ言ってない" in x for x in 面.清單頁.行文字()), 10), 面.清單頁.行文字()
-    assert 等(lambda: [t for 批 in 模型.批們 for t in 批] == ["まだ言ってない", "保留やめて"])   # 「草」被跳過，不送翻
-    行們 = 面.清單頁.行文字()
-    assert any(x.endswith("草") for x in 行們)                         # 被跳過的只顯示原文
-    assert 等(lambda: any("↳ 譯:保留やめて" in x for x in 台.聊天頁.行文字()))    # 主控台的聊天室分頁也補上
-    資料 = next(參數[0] for 方法, 參數, _ in 台.面板.紀錄們["聊天室"].項目們 if 參數[0]["編號"] == 號)
-    assert 資料["譯文"] == "譯:まだ言ってない"                         # 共用紀錄也帶著譯文（重建面板不會不見）
+    模型.放行 = threading.Event()
+    送留言(["まだ言ってない", "草", "hitomi32Hahaha", "保留やめて"])
+    assert 等(lambda: 模型.批們, 10)                                  # 已經送去翻譯，模型還沒回答
+    等(lambda: False, 0.6)
+    assert 面.清單頁.行文字() == [] and 台.聊天頁.行文字() == []          # 跳過的「草」也不能先跑出來
+    模型.放行.set()
+    assert 等(lambda: len(面.清單頁.行文字()) == 4, 10), 面.清單頁.行文字()
+    行們 = 留言們(面.清單頁)
+    assert "まだ言ってない" in 行們[0] and "↳ 譯:まだ言ってない" in 行們[0]
+    assert 行們[1].endswith("草") and 行們[2].endswith("hitomi32Hahaha") and "↳" not in 行們[1] + 行們[2]   # 跳過的照原文
+    assert "↳ 譯:保留やめて" in 行們[3]
+    assert [t for 批 in 模型.批們 for t in 批] == ["まだ言ってない", "保留やめて"]   # 跳過的不送翻（批次 0 秒時可能分兩批）
+    assert 等(lambda: len(台.聊天頁.行文字()) == 4)                    # 主控台的聊天室分頁也一樣
+    assert [x.split(" ↳")[0] for x in 留言們(台.聊天頁)] == [x.split(" ↳")[0] for x in 行們]
     面.改字級(+2)                                                       # 換字級會重建清單：譯文還在
-    assert any("↳ 譯:まだ言ってない" in x for x in 台.面板.面板們["聊天室"].清單頁.行文字())
-    次數 = llm.聊天翻譯用量["次數"]                                    # 兩則可能同一批或分兩批送
-    assert 次數 in (1, 2)
+    assert "↳ 譯:まだ言ってない" in 留言們(台.面板.面板們["聊天室"].清單頁)[0]
+    次數 = len(模型.批們)
     assert 等(lambda: 台.聊天翻譯藥丸.text().startswith(f"聊天翻譯 {次數} 次 · $"))
-    assert not 台.聊天翻譯藥丸.isHidden()
-    assert f"聊天翻譯 {次數} 次" in 台.膠囊.提示文字()
+    assert not 台.聊天翻譯藥丸.isHidden() and f"聊天翻譯 {次數} 次" in 台.膠囊.提示文字()
     assert 台.膠囊.聊天翻譯費用 > 0 and 台.膠囊.總費用() >= 台.膠囊.聊天翻譯費用
     停止並等完(台)
 
 
-@pytest.mark.parametrize("情境", ["面板關", "中文直播", "設定關"])
-def test_不符條件時翻譯呼叫為0(聊天, monkeypatch, 情境):
+@pytest.mark.parametrize("情境", ["失敗", "429", "超時"])
+def test_翻譯失敗_429_超時_以原文出現不卡住(聊天, monkeypatch, 情境):
+    台, 模型 = 聊天
+    if 情境 == "失敗":
+        模型.例外 = RuntimeError("伺服器錯誤")
+    elif 情境 == "429":
+        模型.例外 = llm.限速錯誤("429")
+    else:                                                               # API 一直沒回來：最久顯示秒 到了就以原文出現
+        monkeypatch.setattr(chat_translate, "最久顯示秒", 0.8)
+        模型.放行 = threading.Event()
+    開始外語直播(台, monkeypatch)
+    台.面板.開關("聊天室", True)
+    面 = 台.面板.面板們["聊天室"]
+    送留言(["まだ言ってない", "草"])
+    assert 等(lambda: len(面.清單頁.行文字()) == 2, 10), 面.清單頁.行文字()
+    行們 = 面.清單頁.行文字()
+    assert "まだ言ってない" in 行們[0] and 行們[1].endswith("草") and all("↳" not in x for x in 行們)
+    if 情境 == "超時":
+        模型.放行.set()                                                 # 晚到的譯文不再補上
+        等(lambda: False, 0.6)
+        assert all("↳" not in x for x in 面.清單頁.行文字())
+    停止並等完(台)
+
+
+@pytest.mark.parametrize("情境", ["設定關", "面板關", "中文直播"])
+def test_翻譯關閉時原文立刻顯示_翻譯呼叫為0(聊天, monkeypatch, 情境):
     台, 模型 = 聊天
     開始外語直播(台, monkeypatch, 聊天翻譯=情境 != "設定關")
     if 情境 != "面板關":
@@ -186,9 +203,23 @@ def test_不符條件時翻譯呼叫為0(聊天, monkeypatch, 情境):
     if 情境 == "中文直播":
         台.聊天翻譯器.語言 = "zh"
     送留言(["まだ言ってない", "保留やめて", "なっが"])
-    等(lambda: False, 1.2)                                              # 給翻譯執行緒時間：確認真的沒翻
+    assert 等(lambda: len(台.聊天頁.行文字()) == 3, 0.5)                # 不等翻譯：立刻出現
+    if 情境 != "面板關":
+        assert len(台.面板.面板們["聊天室"].清單頁.行文字()) == 3
+    等(lambda: False, 1.0)                                              # 給翻譯執行緒時間：確認真的沒翻
     assert 模型.批們 == [] and llm.聊天翻譯用量["次數"] == 0
     停止並等完(台)
+
+
+def test_結束時排隊中的留言全部出現(聊天, monkeypatch):
+    台, 模型 = 聊天
+    開始外語直播(台, monkeypatch)
+    台.面板.開關("聊天室", True)
+    模型.放行 = threading.Event()
+    送留言(["まだ言ってない"])
+    assert 等(lambda: 模型.批們, 10)
+    停止並等完(台)
+    assert 等(lambda: len(台.聊天頁.行文字()) == 1), 台.聊天頁.行文字()
 
 
 def test_關掉聊天室面板_當場停止翻譯(聊天, monkeypatch):

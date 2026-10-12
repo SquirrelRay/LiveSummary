@@ -60,6 +60,17 @@ def 套用設定(設定):
     摘要_思考 = 設定.get("summary_thinking", config.出廠預設()["summary_thinking"])
 
 
+def 預先載入():
+    """先 import 模型服務的套件（anthropic 約 2.5 秒），讓第一次呼叫不用等。失敗不丟例外（真的呼叫時才報錯）。"""
+    try:
+        if PROVIDER == "openai_compatible":
+            import openai  # noqa: F401
+        else:
+            import anthropic  # noqa: F401
+    except ImportError:
+        pass
+
+
 def 金鑰狀態():
     """給 --show-config 用，不顯示金鑰內容。"""
     if not API_KEY_ENV:

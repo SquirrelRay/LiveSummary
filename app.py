@@ -230,8 +230,9 @@ class 分頁基底(QWidget):
 
 
 def 留言資料(內容):
-    """chat_line 事件 → 聊天室一則留言的資料（加留言、補譯文用）。"""
-    return {"編號": 內容.get("編號"), "時間字": 內容["時間字"], "使用者": 內容["使用者"], "內容": 內容["內容"], "譯文": None}
+    """chat_line／chat_show 事件 → 聊天室一則留言的資料（chat_line 沒有譯文）。"""
+    return {"編號": 內容.get("編號"), "時間字": 內容["時間字"], "使用者": 內容["使用者"], "內容": 內容["內容"],
+            "譯文": 內容.get("譯文")}
 
 
 def 留言html(資料, 只看譯文=False):
@@ -251,7 +252,7 @@ def 留言html(資料, 只看譯文=False):
 
 class 文字清單(分頁基底):
     """直播稿、聊天室用：一行一行加，只留最近的 上限 行。最新在下 = 加在底部；最新在上 = 加在頂部。
-    聊天室留言用 加留言：原文立刻顯示；譯文到了用 補譯文 補在同一則下面（每則留言是文件裡的一個段落，用編號找回）。"""
+    聊天室留言用 加留言：資料裡有譯文就原文（淡色）與譯文一起顯示；只看譯文時有譯文的只顯示譯文。"""
 
     def __init__(self, 提示):
         self.瀏覽 = QTextBrowser()
@@ -276,7 +277,7 @@ class 文字清單(分頁基底):
         self._加(內容html, None)
 
     def 加留言(self, 資料):
-        """聊天室留言（原文立刻顯示）。資料是 dict，補譯文時會直接改它（面板的共用紀錄也就跟著有譯文）。"""
+        """聊天室留言。資料：{編號, 時間字, 使用者, 內容, 譯文}（譯文 None = 只有原文）。"""
         self._加(留言html(資料, self.只看譯文), 資料)
 
     def _加(self, 內容html, 資料):
@@ -295,37 +296,6 @@ class 文字清單(分頁基底):
         self.總數 += 1
         self._超過了()
 
-    def 補譯文(self, 編號, 譯文):
-        """把譯文補在編號那一則下面。那一則已經因為顯示上限被移除了就什麼都不做，回傳 False。"""
-        位置 = next((i for i, d in enumerate(self.條資料) if d is not None and d["編號"] == 編號), None)
-        if 位置 is None:
-            return False
-        資料 = self.條資料[位置]
-        資料["譯文"] = 譯文
-        self._重畫(位置)
-        return True
-
-    def _重畫(self, 位置):
-        """重畫 條們[位置] 那一行（聊天室留言）。最新在下：第 位置 段；最新在上：倒過來數。"""
-        html_ = 留言html(self.條資料[位置], self.只看譯文)
-        self.條們[位置] = html_
-        段 = 位置 if not self.置頂 else len(self.條們) - 1 - 位置
-        文件 = self.瀏覽.document()
-        塊 = 文件.findBlockByNumber(段)
-        if not 塊.isValid():
-            return
-        捲軸 = self.瀏覽.verticalScrollBar()
-        黏, 舊值 = self.跟隨.黏, 捲軸.value()
-        c = QTextCursor(塊)
-        c.beginEditBlock()
-        c.movePosition(QTextCursor.StartOfBlock)
-        c.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-        c.removeSelectedText()
-        c.insertHtml(html_)
-        c.endEditBlock()
-        if not 黏:                    # 使用者往上捲在看舊的：不要被補譯文拉走
-            捲軸.setValue(舊值)
-
     def 設只看譯文(self, 開):
         """聊天室：有譯文的留言只顯示譯文（沒譯文的照樣顯示原文）。整份重畫。"""
         self.只看譯文 = bool(開)
@@ -334,6 +304,8 @@ class 文字清單(分頁基底):
 
     def 行文字(self):
         """測試用：畫面上由上到下每一行的純文字（同一則的換行用 / 表示，連續空白與不換行空白都併成一個空白）。"""
+        if not self.條們:                    # 空文件也有一個空段落
+            return []
         文件 = self.瀏覽.document()
         b, 結果 = 文件.begin(), []
         while b.isValid():
@@ -1590,11 +1562,11 @@ class 主控台(QMainWindow):
             if 內容.get("檔案"):
                 self.翻譯頁.設檔案(內容["檔案"])
             self._加計數("逐句翻譯")
-        elif 種類 == "chat_line":
+        elif 種類 in ("chat_line", "chat_show"):
+            if 內容.get("暫留"):            # 聊天室翻譯開著：等 chat_show 時原文與譯文一起出現
+                return
             self.聊天頁.加留言(留言資料(內容))
             self._加計數("聊天室")
-        elif 種類 == "chat_translation":
-            self.聊天頁.補譯文(內容["編號"], 內容["譯文"])
         elif 種類 == "minute_summary":
             self.分鐘頁.加卡片(self._分鐘html(內容))
             self._加計數("分鐘摘要")
