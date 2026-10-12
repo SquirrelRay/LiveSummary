@@ -1,0 +1,14 @@
+# 只放開發工具設定（Ruff、pytest），不影響程式執行與打包
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# 預設規則（E4、E7、E9、F）之外加開 S（安全）與 B
+extend-select = ["S", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest 的測試本來就用 assert
+"tests/*" = ["S101"]
