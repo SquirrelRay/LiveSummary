@@ -1,11 +1,11 @@
 {
   "chat": true,
   "minute_summary": true,
-  "save_audio": false,
-  "save_summary": false,
-  "save_transcript": false,
-  "save_chat": false,
-  "save_translation": false,
+  "save_audio": true,
+  "save_summary": true,
+  "save_transcript": true,
+  "save_chat": true,
+  "save_translation": true,
   "fix_with_chat": false,
   "summary_thinking": false,
   "ui_max_transcript": 500,
@@ -42,9 +42,9 @@
       "bg_opacity": 0.6,
       "text_effect": "outline",
       "fade_seconds": 0,
-      "position": "free",
-      "screen": 1,
-      "width": 842,
+      "position": "top",
+      "screen": 0,
+      "width": 760,
       "show_minute": true,
       "show_topic": false,
       "show_side": true,
@@ -61,12 +61,12 @@
       "text_effect": "outline",
       "fade_seconds": 0,
       "position": "bottom",
-      "screen": 1,
-      "width": 808,
+      "screen": 0,
+      "width": 760,
       "lines": 2
     }
   },
   "translate_batch_seconds": 8,
   "translate_batch_lines": 4,
-  "capsule_show_usage": false
+  "capsule_show_usage": true
 }
