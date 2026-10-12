@@ -469,6 +469,13 @@ class 膠囊管理(QObject):
             子.setTitle("面板")
             self.面板子選單[id(選單)] = 子
         選單.addMenu(子)
+        if 台.語言狀態.顯示中():
+            a = 選單.addAction(台.語言狀態.文字())       # 目前語言（只是顯示）
+            a.setEnabled(False)
+            if 台.語言狀態.顯示按鈕():
+                a = 選單.addAction("重新偵測語言")
+                a.setEnabled(台.語言狀態.可重新偵測())
+                a.triggered.connect(台.重新偵測語言)
         a = 選單.addAction("顯示用量")
         a.setCheckable(True)
         a.setChecked(self.顯示用量)

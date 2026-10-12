@@ -106,23 +106,33 @@ def 載入模型(語言):
         return WhisperModel(transcribe.CPU_MODEL, device="cpu", compute_type="int8")
 
 
-def 偵測語言(model, 音訊們):
-    """用前幾段有人聲的音訊判斷語言，回傳語言代碼；失敗就印警告並退回 zh。"""
+class 信心太低(ValueError):
+    pass
+
+
+def 偵測語言(model, 音訊們, 保持=None):
+    """用前幾段有人聲的音訊判斷語言，回傳語言代碼；失敗就印警告並退回 zh。
+    保持：重新偵測時傳入目前的語言，信心太低或失敗就維持它，不退回 zh。
+    結果一律用 language_detected 事件送出（含信心與狀態 ok／低信心／失敗），介面才能清楚告訴使用者。"""
+    重新 = 保持 is not None
+    信心 = None
     try:
         總分, 次數 = {}, len(音訊們)
         for 音訊 in 音訊們:
             語, 信心, _ = model.detect_language(音訊, vad_filter=True)
             總分[語] = 總分.get(語, 0) + 信心
         最佳 = max(總分, key=總分.get)
-        if 總分[最佳] / 次數 < 最低信心:
-            raise ValueError("信心太低")
+        信心 = 總分[最佳] / 次數
+        if 信心 < 最低信心:
+            raise 信心太低("信心太低")
         events.送出("info", 印出=f"偵測到語言：{語言名稱.get(最佳, 最佳)}（已鎖定）")
-        events.送出("language_detected", 語言=最佳)   # 介面的逐句字幕跟著切換原文／翻譯
+        events.送出("language_detected", 語言=最佳, 信心=信心, 狀態="ok", 重新偵測=重新)   # 介面的逐句字幕跟著切換原文／翻譯
         return 最佳
     except Exception as e:
-        events.送出("info", 印出=f"警告：語言偵測失敗（{e}），改用中文。")
-        events.送出("language_detected", 語言="zh")
-        return "zh"
+        退回 = 保持 or "zh"
+        events.送出("info", 印出=f"警告：語言偵測失敗（{e}），" + (f"維持{語言名稱.get(退回, 退回)}。" if 重新 else "改用中文。"))
+        events.送出("language_detected", 語言=退回, 信心=信心, 狀態="低信心" if isinstance(e, 信心太低) else "失敗", 重新偵測=重新)
+        return 退回
 
 
 def 轉錄一段(model, 音訊, 語言):
@@ -260,6 +270,8 @@ class live_session:
         events.送出("info", 印出="開始擷取直播（Ctrl+C 結束）。" + (f"直播稿即時存到：{self.稿路徑}" if self.存稿 else "直播稿不存檔。"))
 
         第幾段, 上一句, 緩存 = 0, "", 偵測緩存()
+        自動 = self.語言 == "auto"      # 一開始就是自動：才允許「重新偵測」
+        重新前的語言 = None
         try:
             with open(self.稿路徑 if self.存稿 else os.devnull, "w", encoding="utf-8") as 稿:
                 while True:
@@ -279,11 +291,16 @@ class live_session:
                     self._存音訊(資料, 第幾段 + 1, 第幾段 * 段秒數)
                     音訊 = np.frombuffer(資料, dtype=np.int16).astype(np.float32) / 32768.0
                     待轉 = [(第幾段, 音訊)]
+                    if 自動 and events.重新偵測.is_set():     # 按了「重新偵測」：清掉結果，這一段起重新湊有人聲的音訊（串流不中斷）
+                        events.重新偵測.clear()
+                        if self.語言 != "auto":
+                            重新前的語言, self.語言, 緩存 = self.語言, "auto", 偵測緩存()
                     if self.語言 == "auto":      # 還沒鎖定：有人聲的段先存著，湊夠了再一起判斷
                         待轉 = []
                         湊好 = 緩存.加入(第幾段, 音訊)
                         if 湊好:
-                            self.語言 = 偵測語言(model, [a for _, a in 湊好])
+                            self.語言 = 偵測語言(model, [a for _, a in 湊好], **({"保持": 重新前的語言} if 重新前的語言 else {}))
+                            重新前的語言 = None
                             里程碑.標記(里程碑.語言偵測完成, 語言=self.語言)
                             待轉 = 湊好
                     for 段號, 音訊 in 待轉:

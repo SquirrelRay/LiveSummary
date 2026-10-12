@@ -33,6 +33,7 @@ import panel         # 可自由擺放的面板與版面配置（新介面第一
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
 import startup_timeline  # 啟動時間里程碑紀錄
+import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -913,9 +914,10 @@ class 狀態列(QWidget):
 
     def _排(self, 寬):
         間 = self.間距
+        標籤們 = [w for w in self.標籤們 if not w.isHidden()]       # 隱藏的標籤（語言藥丸、重新偵測鈕）不佔位置
         燈寬 = self.燈.sizeHint().width()
-        列高 = max(self.話題.sizeHint().height(), self.燈.sizeHint().height(), *(w.sizeHint().height() for w in self.標籤們))
-        標籤寬 = [w.sizeHint().width() for w in self.標籤們]
+        列高 = max(self.話題.sizeHint().height(), self.燈.sizeHint().height(), *(w.sizeHint().height() for w in 標籤們))
+        標籤寬 = [w.sizeHint().width() for w in 標籤們]
         總標籤 = sum(標籤寬) + 間 * (len(標籤寬) - 1)
         話題最小 = 180
 
@@ -926,7 +928,7 @@ class 狀態列(QWidget):
             放(self.燈, 0, 0)
             x = 寬 - 總標籤
             放(self.話題, 燈寬 + 間, 0, x - 間 - 燈寬 - 間)
-            for w, 寬度 in zip(self.標籤們, 標籤寬):
+            for w, 寬度 in zip(標籤們, 標籤寬):
                 放(w, x, 0)
                 x += 寬度 + 間
             列數 = 1
@@ -934,7 +936,7 @@ class 狀態列(QWidget):
             放(self.燈, 0, 0)
             放(self.話題, 燈寬 + 間, 0, max(10, 寬 - 燈寬 - 間))
             x, 列 = 0, 1
-            for w, 寬度 in zip(self.標籤們, 標籤寬):
+            for w, 寬度 in zip(標籤們, 標籤寬):
                 if x > 0 and x + 寬度 > 寬:
                     x, 列 = 0, 列 + 1
                 放(w, x, 列 * (列高 + 4))
@@ -1034,6 +1036,7 @@ class 主控台(QMainWindow):
         self.要關閉 = False
         self.要結束 = False        # True = 真的結束程式（膠囊或系統匣的「結束程式」）；False = 關主控台只是收起來
         self.結束中 = False
+        self.語言狀態 = language_state.語言狀態()
         self._待記網址 = None
         self.本場設定 = None
         self.本場檔案 = []
@@ -1208,9 +1211,18 @@ class 主控台(QMainWindow):
         self.費用藥丸.setToolTip("費用用 config.json 的單價估算，單價未查證，僅供參考")
         self.翻譯藥丸 = QLabel("翻譯 0 次 · $0.000")
         self.翻譯藥丸.setToolTip("逐句字幕翻譯的呼叫次數與估算費用（和摘要分開算，單價未查證）")
-        藥丸們 = (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸)
-        for w in 藥丸們:
+        self.語言藥丸 = QLabel("")            # 目前語言；放在狀態列，一眼看得到
+        self.語言藥丸.setToolTip("目前使用的語言。自動偵測可能判錯，按「重新偵測」或在設定裡手動選語言。")
+        self.重偵鈕 = QPushButton("重新偵測")
+        self.重偵鈕.setToolTip("不中斷直播，用下一段有人聲的音訊重新判斷語言（只有語言設為自動時可用）")
+        self.重偵鈕.setCursor(Qt.PointingHandCursor)
+        self.重偵鈕.setFocusPolicy(Qt.NoFocus)
+        self.重偵鈕.clicked.connect(self.重新偵測語言)
+        藥丸們 = (self.時間藥丸, self.轉錄藥丸, self.費用藥丸, self.翻譯藥丸, self.語言藥丸, self.重偵鈕)
+        for w in 藥丸們[:5]:
             w.setObjectName("藥丸")
+        self.語言藥丸.hide()
+        self.重偵鈕.hide()
         self.狀態列 = 狀態列(self.燈, self.話題字, 藥丸們)
         版.addWidget(self.狀態列)
         self.狀態框 = 框
@@ -1219,6 +1231,24 @@ class 主控台(QMainWindow):
     def _設藥丸(self, 標, 字):
         標.setText(字)
         self.狀態列.重排()
+
+    def 更新語言顯示(self):
+        """依語言狀態更新狀態列的語言藥丸與重新偵測鈕（有警示時藥丸變黃色）。"""
+        s = self.語言狀態
+        self.語言藥丸.setText(s.文字())
+        self.語言藥丸.setStyleSheet(f"color: {黃};" if s.有警示() else "")
+        self.語言藥丸.setVisible(s.顯示中())
+        self.重偵鈕.setVisible(s.顯示按鈕())
+        self.重偵鈕.setEnabled(s.可重新偵測())
+        self.狀態列.重排()
+
+    def 重新偵測語言(self):
+        """不停止串流：通知引擎下一段有人聲的音訊重新判斷語言。"""
+        if not self.執行中() or not self.語言狀態.要求重新偵測():
+            return
+        events.重新偵測.set()
+        self.更新語言顯示()
+        self._訊息("重新偵測語言：下一段有人聲的音訊會重新判斷。")
 
     def _做分頁(self):
         self.分鐘頁 = 卡片清單("分鐘摘要會在這裡出現（每檢查一次一則，最新在最下面）")
@@ -1373,6 +1403,9 @@ class 主控台(QMainWindow):
         self._設藥丸(self.費用藥丸, "呼叫 0 次 · 估算 $0.000")
         self._設藥丸(self.翻譯藥丸, "翻譯 0 次 · $0.000")
         self.結束中 = False
+        self.語言狀態.開始(設定["language"], 直播)
+        events.重新偵測.clear()
+        self.更新語言顯示()
         self.摘要框.清空()
         self.字幕框.清空()
         self.字幕器.開始(設定["subtitle_mode"], 設定["language"], 設定["model"],
@@ -1450,6 +1483,8 @@ class 主控台(QMainWindow):
     def 跑完了(self):
         self.執行緒 = None
         self.結束中 = False
+        self.語言狀態.結束()
+        self.更新語言顯示()
         if getattr(self, "_收尾計時", None):
             self._收尾計時.stop()
         self.字幕器.結束()
@@ -1647,8 +1682,12 @@ class 主控台(QMainWindow):
             self.字幕框.加字幕(內容["文字"], 內容.get("已翻譯", False))
         elif 種類 == "language_detected":
             self._更新翻譯註()
+            self.語言狀態.收偵測(內容["語言"], 內容.get("狀態", "ok"), 內容.get("重新偵測", False))
+            self.更新語言顯示()
             名 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}.get(內容["語言"], 內容["語言"])
-            if subtitle.要翻譯(self.字幕器.模式, 內容["語言"], ""):
+            if 內容.get("狀態", "ok") != "ok":           # 低信心或失敗：明確告訴使用者，不要悄悄退回
+                self._訊息("警告：" + self.語言狀態.文字())
+            elif subtitle.要翻譯(self.字幕器.模式, 內容["語言"], ""):
                 self._訊息(f"偵測到{名}，逐句字幕自動切成翻譯。")
             else:
                 self._訊息(f"偵測到{名}，逐句字幕顯示原文。")
