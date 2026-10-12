@@ -13,6 +13,7 @@ import threading
 
 import events
 import startup_timeline as 里程碑
+import stream_clock     # 存檔開頭的說明（直播主、標題、開播時間）
 import llm
 import config      # 語言清單（單一來源）
 
@@ -137,13 +138,16 @@ class 字幕器:
         if not self.存檔基底:
             return None
         try:
+            頭 = ""
             if self.存檔路徑 is None:       # 第一句才建立；舊檔已存在就換新檔名，絕不覆蓋
                 後綴, 號 = "", 1
                 while os.path.exists(self.存檔基底 + "_逐句翻譯" + 後綴 + ".txt"):
                     後綴 = "_" + time.strftime("%Y%m%d-%H%M") + ("" if 號 == 1 else f"_{號}")
                     號 += 1
                 self.存檔路徑 = os.path.abspath(self.存檔基底 + "_逐句翻譯" + 後綴 + ".txt")
+                頭 = stream_clock.檔頭()
             with open(self.存檔路徑, "a", encoding="utf-8") as f:
+                f.write(頭)
                 f.write(f"[{時間字}] {原文}" + chr(10) + "　　→ " + (譯 if 譯 else "【未翻譯】") + chr(10))
         except Exception:
             return None

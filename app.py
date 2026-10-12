@@ -32,6 +32,8 @@ import startup_timeline  # 啟動時間里程碑紀錄
 import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
 import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
 import config            # 設定檔 config.json 的讀取、語言清單
+import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
+import timefmt           # 時間格式與「幾分鐘前」
 
 語言選項 = config.語言選項()          # 中文、日文、英文、韓文、自動偵測
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -397,11 +399,14 @@ class 卡片清單(分頁基底):
         self.捲.setUpdatesEnabled(True)
 
     def 加卡片(self, 內容html):
+        """內容html：html 字串，或一個會產生 html 的函式（摘要卡片的時間會隨「直播時間／幾分鐘前」重畫）。"""
+        產生 = 內容html if callable(內容html) else None
         卡 = QFrame()
         卡.setObjectName("卡片")
         版 = QVBoxLayout(卡)
         版.setContentsMargins(16, 12, 16, 12)
-        字 = QLabel(內容html)
+        字 = QLabel(產生() if 產生 else 內容html)
+        卡.產生, 卡.字 = 產生, 字
         字.setWordWrap(True)
         字.setTextFormat(Qt.RichText)
         字.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -460,6 +465,24 @@ class 卡片清單(分頁基底):
         super().設方向(置頂)
         self.跟隨.設方向(置頂)
         self._排()
+
+    def 重畫時間(self):
+        """重新產生每張卡片的 html（時間顯示換了、或「幾分鐘前」過了一分鐘）；只改有變的。
+        看不到時先記著，等出現時（showEvent）才畫。"""
+        if not self.isVisible():
+            self._待重畫 = True
+            return
+        self._待重畫 = False
+        for 卡 in self.卡們:
+            if getattr(卡, "產生", None):
+                新 = 卡.產生()
+                if 卡.字.text() != 新:
+                    卡.字.setText(新)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if getattr(self, "_待重畫", False):
+            self.重畫時間()
 
     def 清空(self):
         self.移除進行中()
@@ -1049,6 +1072,12 @@ class 主控台(QMainWindow):
         self.聊天翻譯器 = chat_translate.聊天翻譯器()
         self.聊天翻譯器.開啟 = bool(config.目前設定()["chat_translate"])
         events.接收者們.append(self.聊天翻譯器.接收)
+        # 摘要卡片的時間：stream 直播時間、ago 幾分鐘前（設定框與膠囊選單都能切，當場生效）
+        self.時間顯示 = config.目前設定()["time_display"]
+        self.直播資訊 = None          # 這一場的 stream_info 事件（開播時間、直播主、標題、分類）；文字稿模式是 None
+        self._時間分 = None
+        self.時間計時 = QTimer(self, interval=5000, timeout=self._檢查分鐘)   # 「幾分鐘前」：分鐘數變了才重畫
+        self.時間計時.start()
 
         self.橋 = 事件橋()
         self.橋.收到.connect(self.處理事件)
@@ -1346,6 +1375,10 @@ class 主控台(QMainWindow):
         for 名 in self.分頁名:
             self.並排.設標題(名, 名)
         self.話題字.setText("準備中…")
+        self.直播資訊 = None
+        self._時間分 = None
+        self.時間藥丸.setStyleSheet("")
+        self.時間藥丸.setToolTip("")
         self._設藥丸(self.時間藥丸, "直播時間 --:--")
         self._設藥丸(self.轉錄藥丸, "轉錄：文字稿模式" if not 直播 else "轉錄：等待中")
         self.轉錄藥丸.setStyleSheet("")
@@ -1552,7 +1585,7 @@ class 主控台(QMainWindow):
                 self._訊息(f"偵測到{名}，逐句字幕顯示原文。")
         elif 種類 == "transcript_line":
             self.稿頁.加一行(f'<span style="color:{淡字};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;{跳脫(內容["內容"])}')
-            self._設藥丸(self.時間藥丸, f"直播時間 {內容['時間字']}")
+            self._設藥丸(self.時間藥丸, self._時間藥丸字(內容["時間字"]))
             self._加計數("直播稿")
             if 內容["內容"] and not subtitle.要翻譯(self.字幕器.模式, self.字幕器.語言, 內容["內容"]):
                 self.翻譯頁.加原文(內容["時間字"], 內容["內容"])        # 原文模式：逐句翻譯分頁顯示原文
@@ -1568,11 +1601,17 @@ class 主控台(QMainWindow):
             self.聊天頁.加留言(留言資料(內容))
             self._加計數("聊天室")
         elif 種類 == "minute_summary":
-            self.分鐘頁.加卡片(self._分鐘html(內容))
+            self.分鐘頁.加卡片(lambda 內容=內容: self._分鐘html(內容))     # 傳函式：時間顯示換了可以重畫
             self._加計數("分鐘摘要")
         elif 種類 == "topic_summary":
-            self.話題頁.加卡片(self._話題html(內容))
+            self.話題頁.加卡片(lambda 內容=內容: self._話題html(內容))
             self._加計數("話題摘要")
+        elif 種類 == "stream_info":
+            self.直播資訊 = dict(內容)
+            self._更新時間藥丸()
+            if not 內容["有開播"]:          # 開始時提示一次：時間改從開始擷取起算
+                self.膠囊.小提示("抓不到開播時間：時間改為從開始擷取起算（前面加 +），\n摘要卡片顯示「幾分鐘前」", 8, 錯誤=None)
+            self.膠囊.更新()
         elif 種類 == "current_topic":
             簡述 = 內容["簡述"] or "（新話題剛開始）"
             self.話題字.setText(f"目前話題（已進行 {內容['進行分鐘']:.0f} 分鐘）：{簡述}")
@@ -1646,13 +1685,74 @@ class 主控台(QMainWindow):
             字 = ""
         self.翻譯頁.設註(字)
 
+    # ---------- 時間顯示：直播時間／幾分鐘前 ----------
+    def 用幾分鐘前(self):
+        """摘要卡片要不要顯示「幾分鐘前」：選了 ago，或這一場抓不到開播時間（自動退回）。"""
+        return self.時間顯示 == "ago" or bool(self.直播資訊 and not self.直播資訊["有開播"])
+
+    def _卡片時間(self, 秒, 絕對字):
+        """摘要卡片上的時間：幾分鐘前模式（且知道現在是直播第幾秒）顯示「3 分鐘前」，否則顯示絕對時間。"""
+        現在 = stream_clock.現在直播秒()
+        if self.用幾分鐘前() and 現在 is not None and 秒 is not None:
+            return timefmt.相對字(現在 - 秒)
+        return 絕對字
+
+    def _時間藥丸字(self, 時間字):
+        if self.直播資訊 and not self.直播資訊["有開播"]:
+            return f"擷取時間 {時間字} · 抓不到開播時間"
+        return f"直播時間 {時間字}"
+
+    def _更新時間藥丸(self):
+        """抓不到開播時間：藥丸標黃並說明；抓到了：滑鼠提示寫開播時間與來源。"""
+        資 = self.直播資訊
+        if 資 is None:
+            return
+        if 資["有開播"]:
+            開播字 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(資["開播"]))
+            來源 = {"GQL": "Twitch 公開資料", "網頁": "Twitch 頻道網頁"}.get(資.get("來源"), "Twitch")
+            self.時間藥丸.setStyleSheet("")
+            self.時間藥丸.setToolTip(f"直播實際進行時間（{開播字} 開播，來源：{來源}；已扣除約 {資['延遲']:.0f} 秒串流延遲）")
+        else:
+            self.時間藥丸.setStyleSheet(f"color: {黃};")
+            self.時間藥丸.setToolTip("抓不到 Twitch 開播時間：時間改為從開始擷取起算（前面加 +），摘要卡片顯示「幾分鐘前」。")
+            self._設藥丸(self.時間藥丸, "擷取時間 --:-- · 抓不到開播時間")
+
+    def 設時間顯示(self, 模式, 寫回=True):
+        """膠囊選單、設定框切換「直播時間／幾分鐘前」：當場重畫摘要卡片（直播稿、逐句翻譯、聊天室不受影響）。"""
+        self.時間顯示 = 模式
+        if 寫回:
+            capsule.寫設定("time_display", 模式)
+        if self.設定框:
+            self.設定框.頁.同步時間顯示(模式)
+        self._時間分 = None
+        self.重畫摘要時間()
+
+    def 重畫摘要時間(self):
+        for 頁 in (self.分鐘頁, self.話題頁):
+            頁.重畫時間()
+        self.面板.重畫時間()
+
+    def _檢查分鐘(self):
+        """「幾分鐘前」模式：直播時間的分鐘數變了才重畫（看不到的頁面等出現時才畫）。"""
+        if not self.用幾分鐘前():
+            return
+        現在 = stream_clock.現在直播秒()
+        if 現在 is None:
+            return
+        分 = int(現在 // 60)
+        if 分 != self._時間分:
+            self._時間分 = 分
+            self.重畫摘要時間()
+
     def _分鐘html(self, 內容):
         摘要 = 內容["摘要"]
         m = live_topics.時間標記.match(摘要)
         if m:
+            秒 = timefmt.組秒(*m.groups())
             時間, 摘要 = 摘要[1:m.end() - 1], 摘要[m.end():].strip()
         else:
-            時間 = live_topics.秒轉字(內容["秒"])
+            秒, 時間 = 內容["秒"], live_topics.秒轉字(內容["秒"])
+        時間 = self._卡片時間(秒, 時間)
         部分 = [f'{時間標(時間)}&nbsp;&nbsp;<span style="font-size:15px; line-height:150%;">{跳脫(摘要)}</span>']
         if 內容["支線"]:
             支線 = "；".join(f"[{live_topics.秒轉字(s)}] {n}" for s, n in 內容["支線"])
@@ -1677,7 +1777,11 @@ class 主控台(QMainWindow):
                           + (f'&nbsp; {跳脫(剩.strip())}' if 剩.strip() else ""))
             else:
                 其他.append(f'<br><span style="color:{淡字};">{跳脫(行)}</span>')
-        頭 = (f'{時間標(內容["開始"] + " – " + 內容["結束"])}&nbsp;&nbsp;'
+        範圍 = 內容["開始"] + " – " + 內容["結束"]
+        if 內容.get("結束秒") is not None:
+            起, 訖 = self._卡片時間(內容.get("開始秒"), 內容["開始"]), self._卡片時間(內容["結束秒"], 內容["結束"])
+            範圍 = 起 + " – " + 訖
+        頭 = (f'{時間標(範圍)}&nbsp;&nbsp;'
              f'<span style="font-size:16px; font-weight:700;">{跳脫(標題 or "話題")}</span>')
         return 頭 + '<span style="line-height:150%;">' + "".join(其他) + "</span>"
 

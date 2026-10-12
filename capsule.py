@@ -466,6 +466,9 @@ class 膠囊管理(QObject):
               "（費用依 config.json 的單價估算，單價未查證）"]
         if self.語言字():
             行們.insert(1, ("⚠ " if self.語言警示() else "") + self.語言字())
+        資 = 台.直播資訊          # 直播主、標題、分類只顯示在這裡（不放狀態列、不送給模型）
+        if 資:
+            行們[1:1] = [f"{名}：{資[鍵]}" for 名, 鍵 in (("直播主", "直播主"), ("標題", "標題"), ("分類", "遊戲")) if 資.get(鍵)]
         return "\n".join(行們)
 
     # ---------- 選單 ----------
@@ -513,6 +516,15 @@ class 膠囊管理(QObject):
         a.setChecked(開)
         a.setToolTip("外語直播時把聊天室留言翻成繁體中文（聊天室面板要開著）；另外計費")
         a.toggled.connect(台.設聊天翻譯)
+        時 = 選單.addMenu("時間顯示")          # 摘要卡片的時間；當場生效，並寫回 config.json
+        for 名, 值 in (("直播時間", "stream"), ("幾分鐘前", "ago")):
+            a = 時.addAction(名)
+            a.setCheckable(True)
+            a.setChecked(台.時間顯示 == 值)
+            a.triggered.connect(lambda _=False, 值=值: 台.設時間顯示(值))
+        if 台.直播資訊 and not 台.直播資訊["有開播"]:
+            a = 時.addAction("（這一場抓不到開播時間，摘要卡片一律顯示幾分鐘前）")
+            a.setEnabled(False)
         a = 選單.addAction("顯示用量")
         a.setCheckable(True)
         a.setChecked(self.顯示用量)

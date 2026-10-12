@@ -273,7 +273,8 @@ class 面板(QWidget):
         for 名 in ("加一行", "加卡片"):          # 換字級：把內容裡寫死的 px 字級等比例放大縮小
             if hasattr(頁, 名):
                 原 = getattr(頁, 名)
-                setattr(頁, 名, lambda h, 原=原: 原(縮放(h)))
+                # 摘要卡片傳的是「產生 html 的函式」（時間顯示換了要重畫），縮放也包進函式裡
+                setattr(頁, 名, lambda h, 原=原: 原((lambda: 縮放(h())) if callable(h) else 縮放(h)))
         紀 = self.紀錄()
         if hasattr(頁, "設只看譯文"):
             頁.只看譯文 = self.設["只看譯文"]
@@ -713,6 +714,12 @@ class 面板管理(QObject):
             面.清單頁.設方向(self.置頂)
 
     # ---------- 事件（和主控台 處理事件 對應）----------
+    def 重畫時間(self):
+        """摘要面板的卡片時間重畫（直播時間／幾分鐘前換了、或過了一分鐘）。"""
+        for 面 in list(self.面板們.values()):
+            if 面.種類 in ("分鐘摘要", "話題摘要") and 面.清單頁 is not None and hasattr(面.清單頁, "重畫時間"):
+                面.清單頁.重畫時間()
+
     def _加(self, 種類, 方法, 參數, 純):
         紀 = self.紀錄們[種類]
         紀.項目們.append((方法, 參數, 純))
@@ -765,13 +772,13 @@ class 面板管理(QObject):
                 self._加("聊天室", "加留言", (資料,), 留言純文字(資料))
         elif 種類 == "minute_summary":
             純 = live_topics.時間標記.sub("", 內容["摘要"], count=1).strip()
-            self._加("分鐘摘要", "加卡片", (台._分鐘html(內容),), 純)
+            self._加("分鐘摘要", "加卡片", (lambda 內容=內容: 台._分鐘html(內容),), 純)     # 傳函式：時間顯示換了可以重畫
         elif 種類 == "topic_summary":
             標題 = next((行.strip()[len("【話題標題】"):].strip() for 行 in 內容["內文"].splitlines()
                        if 行.strip().startswith("【話題標題】")), "話題")
             摘要 = next((行.strip()[len("【摘要】"):].strip() for 行 in 內容["內文"].splitlines()
                        if 行.strip().startswith("【摘要】")), "")
-            self._加("話題摘要", "加卡片", (台._話題html(內容),), f"{標題}：{摘要}" if 摘要 else 標題)
+            self._加("話題摘要", "加卡片", (lambda 內容=內容: 台._話題html(內容),), f"{標題}：{摘要}" if 摘要 else 標題)
         elif 種類 == "current_topic":
             self._設進行中((f"已進行 {內容['進行分鐘']:.0f} 分鐘", 內容["簡述"] or "（新話題剛開始）"))
         elif 種類 in ("error", "finished"):

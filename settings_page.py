@@ -124,6 +124,10 @@ class 設定頁(QScrollArea):
         e["newest_on_top"].addItem("最下面", False)
         e["newest_on_top"].addItem("最上面", True)
         e["newest_on_top"].currentIndexChanged.connect(self._換方向)
+        e["time_display"] = QComboBox()
+        e["time_display"].addItem("直播時間（例如 1:23:45）", "stream")
+        e["time_display"].addItem("幾分鐘前", "ago")
+        e["time_display"].setToolTip("只影響分鐘摘要與話題摘要卡片；直播稿、逐句翻譯、聊天室一律顯示直播時間。抓不到開播時間時自動顯示幾分鐘前")
         e["minute_sentences"] = QSpinBox()
         e["minute_sentences"].setRange(1, 3)
         e["minute_sentences"].setSuffix(" 句")
@@ -163,6 +167,7 @@ class 設定頁(QScrollArea):
         加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
         加("最新內容顯示在", e["newest_on_top"])
+        加("摘要卡片的時間", e["time_display"])        # 按「儲存」當場生效（膠囊選單也可以直接切換）
         加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
         加("聊天室分頁最多顯示", e["ui_max_chat"], True)
         加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
@@ -308,6 +313,7 @@ class 設定頁(QScrollArea):
             "ui_max_translation": e["ui_max_translation"].value(), "newest_on_top": bool(e["newest_on_top"].currentData()),
             "ui_max_summary": e["ui_max_summary"].value(),
             "subtitle_speed": e["subtitle_speed"].currentData(),
+            "time_display": e["time_display"].currentData(),
             "provider": e["provider"].currentData(), "model": e["model"].text().strip(),
         }
         return 一般
@@ -317,6 +323,10 @@ class 設定頁(QScrollArea):
         """選了「最新內容顯示在」就立刻重新排列所有分頁（按「儲存」才寫進 config.json）。"""
         if not self._載入中:
             self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
+
+    def 同步時間顯示(self, 模式):
+        """膠囊選單切換了時間顯示：表單跟著改（已經寫進 config.json 了）。"""
+        self.欄["time_display"].setCurrentIndex(max(0, self.欄["time_display"].findData(模式)))
 
     def 同步聊天翻譯(self, 開):
         """膠囊選單切換了聊天室翻譯：表單上的勾選跟著改（已經寫進 config.json 了）。"""
@@ -338,6 +348,8 @@ class 設定頁(QScrollArea):
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
         self.主.聊天翻譯器.開啟 = 一般["chat_translate"]     # 聊天室翻譯開關當場生效（和膠囊選單一樣）
         self.主._更新聊天藥丸()
+        if 一般["time_display"] != self.主.時間顯示:          # 時間顯示當場生效（和膠囊選單一樣）
+            self.主.設時間顯示(一般["time_display"], 寫回=False)
         字 = "已儲存到 config.json（舊的設定備份在 config.backup.json）。"
         if self.主.執行中():
             字 += "標示「下次開始生效」的項目，要等下次按「開始」才會用新的設定。"
