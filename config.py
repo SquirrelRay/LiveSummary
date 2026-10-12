@@ -40,6 +40,7 @@ _出廠預設 = {
     "price_input": 1.0, "price_output": 5.0,
     "subtitle_mode": "auto", "subtitle_speed": subtitle_speed.預設,
     "capsule_show_usage": False,
+    "chat_translate": False, "chat_translate_max_per_min": 30,
 }
 
 
@@ -77,6 +78,8 @@ def 出廠預設():
     "price_input": "輸入單價（每百萬 token 美元，未查證）",
     "price_output": "輸出單價（每百萬 token 美元，未查證）",
     "subtitle_mode": "逐句字幕（介面才有）：original 原文、translate 翻譯、auto 中文用原文其他翻譯",
+    "chat_translate": "聊天室翻譯（介面才有）：外語直播且聊天室面板開著時，把留言翻成繁體中文，預設關",
+    "chat_translate_max_per_min": "聊天室翻譯每分鐘最多翻幾則（1～600，預設 30；超過就抽樣，沒翻的只顯示原文）",
     "subtitle_speed": "字幕速度段位：fast 速度、balanced 平衡（預設）、accurate 準度；決定分段秒數與翻譯批次，下次開始生效",
 }
 
@@ -122,6 +125,10 @@ def _顯示上限(v):
     return isinstance(v, int) and not isinstance(v, bool) and 10 <= v <= 100000
 
 
+def _每分上限(v):
+    return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 600
+
+
 def _句數(v):
     return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3
 
@@ -136,6 +143,7 @@ def _句數(v):
     "price_input": _非負, "price_output": _非負,
     "subtitle_mode": _字幕模式, "subtitle_speed": subtitle_speed.合法,
     "capsule_show_usage": _布林,
+    "chat_translate": _布林, "chat_translate_max_per_min": _每分上限,
 }
 
 

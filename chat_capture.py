@@ -110,4 +110,5 @@ class 聊天室:
             self.訊息們.append((秒, 使用者, 內容))
         檔.write(f"{transcribe.時間(秒)} {使用者}: {內容}\n")
         檔.flush()
-        events.送出("chat_line", 秒=秒, 時間字=transcribe.時間(秒).strip("[]"), 使用者=使用者, 內容=內容)
+        events.送出("chat_line", 秒=秒, 時間字=transcribe.時間(秒).strip("[]"), 使用者=使用者, 內容=內容,
+                    編號=events.新留言編號())

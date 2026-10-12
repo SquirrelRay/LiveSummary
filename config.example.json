@@ -27,5 +27,7 @@
   "price_output": 5.0,
   "subtitle_mode": "auto",
   "subtitle_speed": "balanced",
-  "capsule_show_usage": false
+  "capsule_show_usage": false,
+  "chat_translate": false,
+  "chat_translate_max_per_min": 30
 }

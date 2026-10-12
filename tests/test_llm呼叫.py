@@ -227,3 +227,55 @@ def test_用量文字():
     assert "共呼叫 2 次" in llm.用量文字(1.0, 5.0) and "6.000 美元" in llm.用量文字(1.0, 5.0)
     llm.用量["缺token"] = 1
     assert "無法計算" in llm.用量文字(1.0, 5.0)
+
+
+# ---------- 聊天室翻譯：用量與停止原因分類別記、不自動重試、429 只對聊天翻譯改寫 ----------
+@pytest.fixture
+def 聊天用量(monkeypatch):
+    monkeypatch.setattr(llm, "聊天翻譯用量", {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0})
+    monkeypatch.setattr(llm, "停止原因們", {})
+
+
+def test_聊天翻譯_用量分開記_關思考_不重試(甲, 聊天用量):
+    甲.回應 = anthropic回應(停止="max_tokens")
+    llm.call_llm("q", "m", "聊天翻譯")
+    assert llm.聊天翻譯用量["次數"] == 1 and llm.翻譯用量["次數"] == 0 and llm.用量["次數"] == 0
+    assert 甲.呼叫參數["thinking"] == {"type": "disabled"}
+    assert 甲.呼叫參數["max_tokens"] == llm.聊天翻譯_MAX_TOKENS
+    assert 甲.建立參數["max_retries"] == 0
+
+
+def test_停止原因依類別分開_聊天翻譯不覆蓋逐句翻譯讀的那一格(甲, 聊天用量):
+    甲.回應 = anthropic回應(停止="end_turn")
+    llm.call_llm("q", "m", "翻譯")
+    甲.回應 = anthropic回應(停止="max_tokens")
+    llm.call_llm("q", "m", "聊天翻譯")
+    assert llm.停止原因們 == {"翻譯": "end_turn", "聊天翻譯": "max_tokens"}
+    assert llm.最後停止原因 == "end_turn"             # 逐句翻譯失敗紀錄讀的值沒有被聊天翻譯蓋掉
+
+
+def test_用量表依類別(聊天用量):
+    assert llm.用量表("摘要") is llm.用量
+    assert llm.用量表("翻譯") is llm.翻譯用量
+    assert llm.用量表("聊天翻譯") is llm.聊天翻譯用量
+
+
+def test_429_聊天翻譯改寫成限速錯誤_其他類別維持原樣(甲, 聊天用量):
+    甲.例外 = 造例外(anthropic.RateLimitError)
+    with pytest.raises(llm.限速錯誤):
+        llm.call_llm("q", "m", "聊天翻譯")
+    for 類別 in ("摘要", "翻譯"):
+        with pytest.raises(anthropic.RateLimitError):
+            llm.call_llm("q", "m", 類別)
+    assert "max_retries" not in 甲.建立參數            # 摘要與逐句翻譯照舊用 SDK 預設的重試
+
+
+def test_openai_聊天翻譯不重試_429改寫(乙, 聊天用量):
+    llm.call_llm("q", "m", "聊天翻譯")
+    assert 乙.建立參數["max_retries"] == 0 and 乙.呼叫參數["max_tokens"] == llm.聊天翻譯_MAX_TOKENS
+    assert llm.聊天翻譯用量["次數"] == 1
+    乙.例外 = 造例外(openai.RateLimitError)
+    with pytest.raises(llm.限速錯誤):
+        llm.call_llm("q", "m", "聊天翻譯")
+    with pytest.raises(openai.RateLimitError):
+        llm.call_llm("q", "m", "翻譯")

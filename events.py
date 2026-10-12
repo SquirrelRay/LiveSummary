@@ -4,7 +4,8 @@
 #
 # 事件種類與內容：
 #   transcript_line  逐句轉錄：秒、時間字、內容（不含時間）、行（含 [mm:ss] 的原始行）
-#   chat_line        聊天室留言：秒、時間字、使用者、內容
+#   chat_line        聊天室留言：秒、時間字、使用者、內容、編號（新留言編號()，給聊天室翻譯補譯文用）
+#   chat_translation 聊天室翻譯：編號（對應 chat_line 的編號）、譯文
 #   minute_summary   分鐘摘要：秒、摘要、支線（[(秒, 文字)]）、觀眾反應、印出
 #   topic_summary    話題摘要：開始、結束（mm:ss）、內文、印出
 #   current_topic    目前話題：秒、簡述、進行分鐘、印出
@@ -14,11 +15,18 @@
 #   stage            啟動階段（給啟動面板顯示「啟動中…」的階段文字）：階段
 #   language_detected 語言偵測結果：語言（失敗時是實際使用的語言）、信心、狀態（ok／低信心／失敗）、重新偵測（True = 重新偵測）
 #   finished         結束：話題數、檔案們、印出
+import itertools
 import threading
 
 接收者們 = []
+_留言編號 = itertools.count(1)
 停止 = threading.Event()   # 介面按「停止」時設起來，效果等同 Ctrl+C
 重新偵測 = threading.Event()   # 介面按「重新偵測」時設起來；引擎在下一段音訊重新判斷語言（不中斷串流）
+
+
+def 新留言編號():
+    """每則聊天室留言一個不重複的編號（整個程式共用，跨場次也不重複）。"""
+    return next(_留言編號)
 
 
 def 送出(種類, **內容):
