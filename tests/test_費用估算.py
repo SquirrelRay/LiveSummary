@@ -1,6 +1,4 @@
 """每小時費用估算（cost_estimate）：純計算，不開視窗、不連網、不花 API。"""
-import re
-
 import pytest
 
 import cost_estimate as ce
@@ -84,19 +82,24 @@ def test_合計等於各項顯示金額相加():
 
 
 # ---------- 文字格式 ----------
-def test_一行說明只有字幕翻譯與摘要兩項_加總等於合計():
-    結果 = ce.估算(設定(), "balanced", True)
-    字 = ce.一行說明(結果)
-    assert re.fullmatch(r"每小時約 US\$\d+\.\d{2}（估算）＝ (字幕翻譯|摘要) \$\d+\.\d{2} ＋ (字幕翻譯|摘要) \$\d+\.\d{2}", 字)
-    總, 甲, 乙 = (float(x) for x in re.findall(r"\$(\d+\.\d{2})", 字))
-    assert 總 == pytest.approx(甲 + 乙) and 甲 >= 乙 and 總 == 結果["合計"]
-    摘要 = sum(項(結果, k)["每小時"] for k in ("判斷", "分鐘", "話題"))
-    assert f"摘要 ${摘要:.2f}" in 字 and "其他" not in 字 and "話題追蹤" not in 字
+def test_總費用字_翻譯未開啟時只算摘要():
+    開 = ce.估算(設定(), "balanced", True)
+    關 = ce.估算(設定(), "balanced", False)
+    assert ce.總費用字(開) == f"每小時約 US${開['合計']:.2f}（估算）"
+    摘要 = sum(項(關, k)["每小時"] for k in ("判斷", "分鐘", "話題"))
+    assert ce.總費用字(關) == f"每小時約 US${摘要:.2f}（估算）"
 
 
-def test_一行說明_翻譯沒開時固定寫未開啟():
-    結果 = ce.估算(設定(), "balanced", False)
-    assert ce.一行說明(結果) == f"每小時約 US${結果['合計']:.2f}（估算）＝ 字幕翻譯 未開啟 $0 ＋ 摘要 ${結果['合計']:.2f}"
+def test_比較表_三個段位_目前標示_翻譯未開啟():
+    列們 = ce.比較表列們(設定(), "accurate", True)
+    assert [x["名稱"] for x in 列們] == ["速度", "平衡", "準度"] and [x["目前"] for x in 列們] == [False, False, True]
+    assert [x["延遲"] for x in 列們] == ["約慢 8 秒", "約慢 11 秒", "約慢 18 秒"]
+    assert [x["準確度"] for x in 列們] == ["偶爾斷句、錯字", "準確度佳（建議）", "最準、最省錢"]
+    for x in 列們:
+        結果 = ce.估算(設定(), x["代碼"], True)
+        assert x["合計"] == ce.合計字(結果) and x["翻譯"].startswith("$")
+    關 = ce.比較表列們(設定(), "fast", False)
+    assert all(x["翻譯"] == "未開啟 $0" for x in 關) and len({x["合計"] for x in 關}) == 1
 
 
 def test_費用表_摘要歸類與名稱():

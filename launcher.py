@@ -7,7 +7,7 @@
 #     網址錯誤、頻道沒開播等錯誤 → 在啟動面板裡用中文顯示，不收起。
 # 啟動面板不另外跑引擎，也不改主控台的行為。
 from PySide6.QtCore import Qt, QEvent
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
 )
@@ -29,6 +29,61 @@ def 段位樣式(圓角):
             f" border-radius: 0px; {圓角} }}"
             "QPushButton:checked { background: #5b8cff; color: #ffffff; border-color: #5b8cff; }"
             "QPushButton:disabled { color: #6b7185; } QPushButton:checked:disabled { background: #3a4a72; color: #b8c2dc; }")
+
+
+class 比較表框(QWidget):
+    """資訊圖示展開的比較表：獨立的小視窗（比啟動面板寬），不搶焦點、不吃滑鼠，所以滑鼠離開圖示就收起。"""
+
+    def __init__(self):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        版 = QVBoxLayout(self)
+        版.setContentsMargins(14, 12, 14, 12)
+        self.表 = QLabel("")
+        self.表.setTextFormat(Qt.RichText)
+        self.表.setStyleSheet("color: #e7e9ef; font-size: 13px;")
+        self.註 = QLabel("")
+        self.註.setWordWrap(True)
+        self.註.setStyleSheet("color: #8a91a5; font-size: 11px;")
+        版.addWidget(self.表)
+        版.addWidget(self.註)
+
+    def 填(self, 列們, 註們):
+        """列們：cost_estimate.比較表列們 的結果；註們：表下方的小字。內容全部來自 subtitle_speed 與 cost_estimate。"""
+        格 = "style='padding: 3px 10px;'"
+        字 = ["<table cellspacing='0'><tr>" + "".join(f"<th align='left' {格}><span style='color:#8a91a5;'>{h}</span></th>"
+                                                   for h in cost_estimate.比較表標題) + "</tr>"]
+        for 列 in 列們:
+            底 = " bgcolor='#2e2752'" if 列["目前"] else ""
+            名 = f"<b>{列['名稱']}</b>" + ("　<span style='color:#c4b5ff;'>◀ 目前</span>" if 列["目前"] else "")
+            每小時 = f"<b>{列['合計']}</b><br><span style='color:#8a91a5;'>摘要 {列['摘要']} ＋ 翻譯 {列['翻譯']}</span>"
+            字.append(f"<tr{底}><td {格}>{名}</td><td {格}>{列['延遲']}</td><td {格}>{列['準確度']}</td><td {格}>{每小時}</td></tr>")
+        字.append("</table>")
+        self.表.setText("".join(字))
+        self.註.setText("　".join(註們))
+        self.adjustSize()
+
+    def 擺在(self, 錨):
+        """放在資訊圖示下方（放不下就放上方），左右不超出所在螢幕。"""
+        self.adjustSize()
+        螢 = 錨.screen().availableGeometry()
+        點 = 錨.mapToGlobal(錨.rect().bottomRight())
+        x = min(max(點.x() - self.width(), 螢.x()), 螢.right() - self.width())
+        y = 點.y() + 6
+        if y + self.height() > 螢.bottom():
+            y = 錨.mapToGlobal(錨.rect().topLeft()).y() - self.height() - 6
+        self.move(x, max(y, 螢.y()))
+        self.show()
+        self.raise_()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QColor("#8b6cff"))
+        p.setBrush(QColor("#161920"))
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
 
 
 class 啟動面板(QWidget):
@@ -108,23 +163,29 @@ class 啟動面板(QWidget):
             self.段位組.addButton(鈕)
             self.段位鈕們[代碼] = 鈕
             列.addWidget(鈕)
+        self.資訊鈕 = QPushButton("ⓘ")          # 滑鼠移上去或點一下：三個段位的比較表
+        self.資訊鈕.setObjectName("圖鈕")
+        self.資訊鈕.setCursor(Qt.PointingHandCursor)
+        self.資訊鈕.setFocusPolicy(Qt.NoFocus)
+        self.資訊鈕.setStyleSheet("font-size: 15px;")
+        self.資訊鈕.installEventFilter(self)
+        self.資訊鈕.clicked.connect(self._點資訊)
+        列.addWidget(self.資訊鈕)
         列.setSpacing(8)
         列.addStretch(1)
         版.addLayout(列)
+        self.比較框 = 比較表框()
+        self.比較固定 = False
         self.段位組.buttonClicked.connect(lambda _: self._更新段位註())
 
-        self.段位註 = QLabel("")             # 第一行：延遲與準確度
-        self.費用註 = QLabel("")             # 第二行：每小時費用與拆分
-        for 註 in (self.段位註, self.費用註):
-            註.setObjectName("淡")
-            註.setStyleSheet("font-size: 12px;")
-            註.setWordWrap(True)
-            版.addWidget(註)
         self.語言選.currentIndexChanged.connect(lambda _: self._更新段位註())
 
         列2 = QHBoxLayout()
         列2.setSpacing(8)
-        列2.addStretch(1)
+        self.總費用 = QLabel("")             # 按鈕列左邊：目前段位的每小時總費用
+        self.總費用.setObjectName("淡")
+        self.總費用.setStyleSheet("font-size: 12px;")
+        列2.addWidget(self.總費用, 1)
         列2.addWidget(self.結束鈕)
         列2.addWidget(self.開始鈕)
         版.addLayout(列2)
@@ -170,9 +231,18 @@ class 啟動面板(QWidget):
         self.setFixedHeight(self._基本高())
 
     def eventFilter(self, 物, e):
-        if 物 is self.網址清單 and e.type() == QEvent.Hide:
+        if 物 is self.資訊鈕:
+            if e.type() == QEvent.Enter:
+                self.顯示比較()
+            elif e.type() == QEvent.Leave and not self.比較固定:
+                self.比較框.hide()
+        elif 物 is getattr(self, "網址清單", None) and e.type() == QEvent.Hide:
             self._回基本高()
         return False
+
+    def hideEvent(self, e):
+        self.收起比較()
+        super().hideEvent(e)
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -182,6 +252,7 @@ class 啟動面板(QWidget):
         p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 16, 16)
 
     def mousePressEvent(self, e):
+        self.收起比較()                  # 點面板其他地方就收起比較表
         if e.button() == Qt.LeftButton and self.windowHandle():     # 拖曳空白處移動
             self.windowHandle().startSystemMove()
 
@@ -206,15 +277,41 @@ class 啟動面板(QWidget):
 
     def _更新段位註(self):
         可改 = self.段位可改()
-        for 代碼, 鈕 in self.段位鈕們.items():
+        for 鈕 in self.段位鈕們.values():
             鈕.setEnabled(可改)
-            鈕.setToolTip(subtitle_speed.簡短說明(代碼) + ("" if 可改 else "\n（直播進行中不能切換，下次開始生效）"))
-        字 = subtitle_speed.延遲準確度字(self.段位())
-        self.段位註.setText(字 if 可改 else 字 + "（下次開始生效）")
-        設定 = dict(live_topics.載入設定({})[0], language=self.語言選.currentData(), subtitle_speed=self.段位())
-        self.費用註.setText(cost_estimate.一行說明(cost_estimate.估算(設定, self.段位(), self.台.面板.翻譯將啟用())))
+        結果 = cost_estimate.估算(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用())
+        字 = cost_estimate.總費用字(結果)
+        量 = QFontMetrics(self.總費用.font())
+        self.總費用.setMinimumWidth(max(量.horizontalAdvance(字), 量.horizontalAdvance("每小時約 US$99.99（估算）")) + 2)   # 保證放得下、不被截斷
+        self.總費用.setText(字)
+        if self.比較框.isVisible():
+            self._填比較表()
         if hasattr(self, "網址清單") and not self.網址清單.isVisible():     # 建構途中還沒有網址清單
             self._回基本高()
+
+    def _費用設定(self):
+        return dict(live_topics.載入設定({})[0], language=self.語言選.currentData(), subtitle_speed=self.段位())
+
+    # ---------- 資訊圖示：三個段位的比較表 ----------
+    def _填比較表(self):
+        列們 = cost_estimate.比較表列們(self._費用設定(), self.段位(), self.台.面板.翻譯將啟用())
+        註 = [cost_estimate.備註們[1]] + ([] if self.段位可改() else ["直播進行中不能切換字幕速度，下次開始生效"])
+        self.比較框.填(列們, 註)
+
+    def 顯示比較(self):
+        self._填比較表()
+        self.比較框.擺在(self.資訊鈕)
+
+    def 收起比較(self):
+        self.比較固定 = False
+        self.比較框.hide()
+
+    def _點資訊(self):
+        if self.比較固定 and self.比較框.isVisible():
+            self.收起比較()
+        else:
+            self.比較固定 = True
+            self.顯示比較()
 
     def _套用狀態(self):
         """依啟動狀態更新：開始鈕、進度條、提示文字、字幕速度能不能改。"""

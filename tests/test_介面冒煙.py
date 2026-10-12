@@ -337,10 +337,10 @@ def test_啟動面板_字幕速度_選了只影響這一場_啟動中與直播�
     啟.hide()
     啟.顯示()                                                        # 重新打開：回到 config.json 的值（沒有欄位 = 平衡）
     assert 啟.段位() == "balanced"
-    assert all(b.isEnabled() for b in 啟.段位鈕們.values()) and "翻譯字幕約慢 11 秒" in 啟.段位註.text() and "估算" in 啟.費用註.text()
+    assert all(b.isEnabled() for b in 啟.段位鈕們.values()) and "估算" in 啟.總費用.text()
 
     啟.段位鈕們["fast"].click()
-    assert 啟.段位() == "fast" and "約慢 8 秒" in 啟.段位註.text()
+    assert 啟.段位() == "fast"
 
     引擎 = 慢引擎()
     monkeypatch.setattr(live_topics, "執行", 引擎)
@@ -348,7 +348,9 @@ def test_啟動面板_字幕速度_選了只影響這一場_啟動中與直播�
     啟.開始()
     assert 啟.等待中                                                  # 啟動中：段位鈕停用、標示下次開始生效
     assert not any(b.isEnabled() for b in 啟.段位鈕們.values())
-    assert 啟.段位註.text().endswith("（下次開始生效）") and "約慢 8 秒" in 啟.段位註.text()
+    啟.顯示比較()
+    assert "下次開始生效" in 啟.比較框.註.text()                       # 啟動中：比較表註明下次開始生效
+    啟.收起比較()
     啟.段位鈕們["accurate"].click()                                   # 停用的按鈕點了也沒用
     assert 啟.段位() == "fast"
     引擎.放行.set()
@@ -425,26 +427,88 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     assert not 頁.段位下次標.isHidden() and 頁.段位下次標.text() == "下次開始生效"
 
 
-# ---------- 8. 啟動面板切換字幕速度：延遲、準確度、費用拆分依序更新 ----------
-def test_啟動面板切換段位_延遲準確度與費用拆分跟著更新(環境):
+# ---------- 8. 啟動面板：總費用在按鈕列左邊，延遲／準確度／費用拆分收進資訊圖示 ----------
+def _總額(字):
+    m = re.fullmatch(r"每小時約 US\$(\d+\.\d{2})（估算）", 字)
+    assert m, 字
+    return float(m.group(1))
+
+
+def test_啟動面板切換段位_總費用更新_沒有tooltip_比較表標示目前(環境):
     台 = 環境["台"]
     啟 = 台.啟動面板
     啟.hide()
     啟.顯示()
     啟.語言選.setCurrentIndex(啟.語言選.findData("ja"))
     assert 台.面板.翻譯將啟用()                      # 沒有面板紀錄：預測開始後套用預設版面，裡面有逐句翻譯字幕面板
-    看到 = {}
-    for 代碼, 延遲, 準確 in (("fast", "約慢 8 秒", "偶爾斷句、錯字"), ("balanced", "約慢 11 秒", "準確度佳（建議）"),
-                          ("accurate", "約慢 18 秒", "最準、最省錢")):
+    assert not hasattr(啟, "段位註") and not hasattr(啟, "費用註")          # 舊的兩行說明已移除
+    總們 = []
+    for 代碼, 名稱 in (("fast", "速度"), ("balanced", "平衡"), ("accurate", "準度")):
         啟.段位鈕們[代碼].click()
-        assert 延遲 in 啟.段位註.text() and 準確 in 啟.段位註.text()
-        字 = 啟.費用註.text()
-        總, 甲, 乙 = re.findall(r"\$(\d+\.\d{2})", 字)
-        assert re.fullmatch(r"每小時約 US\$[\d.]+（估算）＝ (字幕翻譯|摘要) \$[\d.]+ ＋ (字幕翻譯|摘要) \$[\d.]+", 字), 字
-        assert "字幕翻譯 $" in 字 and "摘要 $" in 字 and "其他" not in 字 and "話題追蹤" not in 字
-        assert abs(float(總) - float(甲) - float(乙)) < 1e-9 and float(甲) >= float(乙)       # 加總等於合計、由大到小
-        看到[代碼] = 字
-    assert len(set(看到.values())) == 3                      # 三個段位的費用字都不同（字幕翻譯金額不同）
-    啟.語言選.setCurrentIndex(啟.語言選.findData("zh"))        # 中文直播：不翻譯
-    assert re.fullmatch(r"每小時約 US\$\d+\.\d{2}（估算）＝ 字幕翻譯 未開啟 \$0 ＋ 摘要 \$\d+\.\d{2}", 啟.費用註.text()), 啟.費用註.text()
-    assert "第一句" not in 啟.段位註.text() + 啟.費用註.text()
+        assert all(b.toolTip() == "" for b in 啟.段位鈕們.values())          # 段位按鈕沒有 tooltip
+        總們.append(_總額(啟.總費用.text()))
+        列 = next(x for x in cost_estimate.比較表列們(啟._費用設定(), 代碼, True) if x["代碼"] == 代碼)
+        assert 列["合計"] == f"US${總們[-1]:.2f}"                          # 按鈕列的總額 = 比較表目前那一列
+        啟.顯示比較()
+        字 = 啟.比較框.表.text()
+        for 段 in ("速度", "平衡", "準度", "約慢 8 秒", "約慢 11 秒", "約慢 18 秒", "偶爾斷句、錯字", "準確度佳（建議）", "最準、最省錢"):
+            assert 段 in 字                                                 # 三個段位的比較表都在
+        assert 字.count("◀ 目前") == 1 and f"<b>{名稱}</b>　<span" in 字      # 只標示目前選中的段位
+        assert "摘要 $" in 字 and "翻譯 $" in 字
+        assert cost_estimate.備註們[1] in 啟.比較框.註.text()
+        啟.收起比較()
+    assert 總們[0] > 總們[1] > 總們[2]                                       # 越準越省
+    assert not 啟.比較框.isVisible()
+
+
+def test_啟動面板_資訊圖示_移上去或點一下顯示(環境):
+    from PySide6.QtCore import QEvent
+    台 = 環境["台"]
+    啟 = 台.啟動面板
+    啟.hide()
+    啟.顯示()
+    QApplication.sendEvent(啟.資訊鈕, QEvent(QEvent.Enter))                  # 滑鼠移上去
+    assert 啟.比較框.isVisible()
+    QApplication.sendEvent(啟.資訊鈕, QEvent(QEvent.Leave))                  # 移開：收起
+    assert not 啟.比較框.isVisible()
+    啟.資訊鈕.click()                                                       # 點一下：固定顯示
+    QApplication.sendEvent(啟.資訊鈕, QEvent(QEvent.Leave))
+    assert 啟.比較框.isVisible()
+    啟.資訊鈕.click()                                                       # 再點一下：收起
+    assert not 啟.比較框.isVisible()
+
+
+def test_啟動面板_翻譯未開啟_總費用只算摘要_比較表翻譯欄未開啟(環境):
+    台 = 環境["台"]
+    啟 = 台.啟動面板
+    啟.hide()
+    啟.顯示()
+    啟.語言選.setCurrentIndex(啟.語言選.findData("zh"))                      # 中文直播：不翻譯
+    設定 = 啟._費用設定()
+    for 代碼 in ("fast", "balanced", "accurate"):
+        啟.段位鈕們[代碼].click()
+        摘要 = cost_estimate.估算(設定, 代碼, True)["合計"]
+        assert _總額(啟.總費用.text()) == 摘要
+        啟.顯示比較()
+        assert 啟.比較框.表.text().count("翻譯 未開啟 $0") == 3
+        啟.收起比較()
+    啟.語言選.setCurrentIndex(啟.語言選.findData("ja"))                      # 外語直播、但沒有逐句翻譯面板
+    啟.台.面板.存檔["目前"] = [{"種類": "分鐘摘要"}]
+    啟.段位鈕們["balanced"].click()
+    assert not 台.面板.翻譯將啟用()
+    啟.顯示比較()
+    assert 啟.比較框.表.text().count("翻譯 未開啟 $0") == 3
+    啟.收起比較()
+
+
+def test_啟動面板_總費用放得下_不被截斷(環境):
+    啟 = 環境["台"].啟動面板
+    啟.hide()
+    啟.顯示()
+    QApplication.processEvents()
+    寬 = 啟.總費用.fontMetrics().horizontalAdvance(啟.總費用.text())
+    assert 啟.width() == 480                                                # 面板寬度沒變
+    assert 啟.總費用.width() >= 寬                                           # 總費用文字放得下
+    右 = 啟.總費用.mapTo(啟, 啟.總費用.rect().topRight()).x()
+    assert 右 <= 啟.結束鈕.mapTo(啟, 啟.結束鈕.rect().topLeft()).x()          # 沒有壓到結束鈕
+    assert 啟.開始鈕.mapTo(啟, 啟.開始鈕.rect().topRight()).x() <= 啟.width()   # 兩顆按鈕都在面板內
