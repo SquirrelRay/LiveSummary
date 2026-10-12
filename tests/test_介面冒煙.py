@@ -246,7 +246,7 @@ def test_直播中途錯誤_膠囊旁顯示中文(環境, monkeypatch):
     引擎 = 假引擎("金鑰無效，請確認 ANTHROPIC_API_KEY。")
     從啟動面板開始(台, monkeypatch, 引擎)
     引擎.送錯誤.set()
-    assert 等(lambda: not 台.執行中(), 10)
+    assert 等(lambda: not 台.執行中() and 台.開始鈕.isEnabled(), 10)     # 跑完了（錯誤事件在它之前已處理）
     assert not 台.isVisible()
     泡 = 台.膠囊.提示泡
     assert 泡.isVisible() and 泡.錯誤 is True
@@ -264,7 +264,7 @@ def test_啟動中的錯誤_由啟動面板顯示_膠囊不重複(環境, monkey
     monkeypatch.setattr(live_topics, "執行", 開不了)
     台.啟動面板.網址框.setText("https://www.twitch.tv/假頻道")
     台.啟動面板.開始()
-    assert 等(lambda: not 台.執行中(), 10)
+    assert 等(lambda: not 台.執行中() and 台.開始鈕.isEnabled(), 10)
     assert "沒有開播" in 台.啟動面板.狀態字.text()
     assert not (hasattr(台.膠囊, "提示泡") and 台.膠囊.提示泡.isVisible())
 
