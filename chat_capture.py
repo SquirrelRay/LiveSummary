@@ -8,8 +8,9 @@ import socket
 import random
 import threading
 
-import transcribe  # 沿用 [mm:ss] 的時間格式
 import events      # 每則留言送出 chat_line 事件
+import stream_clock  # 存檔開頭的說明
+import timefmt     # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 
 機器人 = {"nightbot", "moobot", "streamelements", "streamlabs", "fossabot", "wizebot", "sery_bot", "soundalerts",
        "commanderroot", "anotherttvviewer", "streamstickers", "pretzelrocks", "lurxx"}
@@ -41,11 +42,21 @@ class 聊天室:
         self._鎖 = threading.Lock()
         self._停 = threading.Event()
         self._起點 = None
+        self._時軸 = None       # 有時軸：留言時間 = 直播秒（收到時刻 − 開播時間 − 串流延遲），和直播稿同一套
 
-    def 開始(self, 起點):
-        """起點：和直播稿同一個起算時間（time.time() 的值）。"""
+    def 開始(self, 起點, 時軸=None):
+        """起點：沒有時軸時的起算時刻（time.time() 的值）。時軸：live_capture 這一場的 stream_clock.時軸。"""
         self._起點 = 起點
+        self._時軸 = 時軸
         threading.Thread(target=self._跑, daemon=True).start()
+
+    def _秒與字(self):
+        """現在收到的留言 → (秒, 時間字)。"""
+        if self._時軸 is not None:
+            秒 = self._時軸.時刻轉直播秒()
+            return 秒, self._時軸.字(秒)
+        秒 = time.time() - self._起點
+        return 秒, timefmt.秒轉字(秒)
 
     def 關閉(self):
         self._停.set()
@@ -57,6 +68,7 @@ class 聊天室:
     def _跑(self):
         失敗 = 0
         with open(self.存檔路徑 or os.devnull, "w", encoding="utf-8") as 檔:      # 存檔路徑 None = 不存聊天室
+            檔.write(stream_clock.檔頭())
             while not self._停.is_set():
                 try:
                     self._連線並讀取(檔)
@@ -105,10 +117,10 @@ class 聊天室:
         if 是機器人(使用者) or 內容.startswith("!") or 是洗版(內容):
             self.過濾 += 1
             return
-        秒 = time.time() - self._起點
+        秒, 時間字 = self._秒與字()
         with self._鎖:
             self.訊息們.append((秒, 使用者, 內容))
-        檔.write(f"{transcribe.時間(秒)} {使用者}: {內容}\n")
+        檔.write(f"[{時間字}] {使用者}: {內容}\n")
         檔.flush()
-        events.送出("chat_line", 秒=秒, 時間字=transcribe.時間(秒).strip("[]"), 使用者=使用者, 內容=內容,
+        events.送出("chat_line", 秒=秒, 時間字=時間字, 使用者=使用者, 內容=內容,
                     編號=events.新留言編號())

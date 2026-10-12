@@ -15,10 +15,12 @@ from datetime import datetime
 
 import numpy as np
 
-import transcribe  # 沿用 GPU 優先的作法與時間格式
+import transcribe  # 沿用 GPU 優先的作法
 import events      # 提示訊息改成送出事件
 import config      # 語言清單（單一來源）
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
+import stream_info   # 開播時間、標題、分類、直播主（不需要金鑰）
+import stream_clock  # 音訊秒數、收到時刻 → 直播實際進行時間
 
 段秒數 = 20          # 每次開始時由字幕速度段位覆蓋（設定分段），一場直播中固定不變
 取樣率 = 16000
@@ -209,15 +211,33 @@ class 偵測緩存:
         return None
 
 
+def 取得時軸(查詢):
+    """等背景查詢的結果，建立這一場的時軸並送出 stream_info 事件。按了「結束」就丟出 直播錯誤。"""
+    資訊 = 查詢.等()
+    if events.停止.is_set():
+        raise 直播錯誤("已取消啟動。")
+    軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None)
+    stream_clock.設定目前(軸, 資訊)
+    資訊 = 資訊 or {}
+    events.送出("stream_info", 有開播=軸.有開播, 開播=軸.開播, 延遲=軸.延遲, 來源=資訊.get("來源"),
+                直播主=資訊.get("直播主", ""), 標題=資訊.get("標題", ""), 遊戲=資訊.get("遊戲", ""),
+                印出=None if 軸.有開播 else "抓不到開播時間，時間改為從開始擷取起算（前面加 +）。")
+    return 軸
+
+
 class live_session:
     """用法：s = live_session(網址)；s.稿路徑 是直播稿檔；for 秒, 行 in s: 一句一句吐出
-    (直播秒數, "[mm:ss] 文字")，同時即時存成直播稿。"""
+    (直播秒數, "[h:mm:ss] 文字")，同時即時存成直播稿。秒數是直播實際進行時間（抓不到開播時間就從開始擷取起算，行首加 +）。"""
+
+    時軸 = None      # 這一場的 stream_clock.時軸（__init__ 建立；測試可以直接指定）
 
     def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
         self.網址 = 網址
         self.語言 = 語言
+        查詢 = stream_info.背景查詢(頻道名稱(網址))     # 和 streamlink 的開播檢查並行
         串流名 = 檢查直播(網址)
         里程碑.標記(里程碑.直播檢查完成)
+        self.時軸 = 取得時軸(查詢)
         events.送出("stage", 階段="尋找 ffmpeg")
         self.ffmpeg = 找ffmpeg()
         self.串流名 = 串流名
@@ -278,18 +298,24 @@ class live_session:
             stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
         里程碑.標記(里程碑.擷取已啟動)
+        if self.時軸 is None:
+            self.時軸 = stream_clock.時軸()
+        軸 = self.時軸
         if self.聊天:
-            self.聊天.開始(time.time())   # 聊天室的時間和直播稿從同一個起點開始算
+            self.聊天.開始(軸.時鐘(), 軸)   # 聊天室和直播稿用同一個時軸（同一套直播秒）
 
         佇列 = queue.Queue()
 
         def 讀聲音():                      # 另開一條線一直讀，轉錄慢的時候聲音也不會漏掉
+            if hasattr(p2.stdout, "peek"):
+                p2.stdout.peek(1)          # 等到第一個位元組出現（不取走），這個時刻當作音訊第 0 秒
+            軸.開始()
             while True:
                 資料 = p2.stdout.read(每段位元組)
                 if not 資料:
                     佇列.put(None)
                     return
-                佇列.put(資料)
+                佇列.put((資料, 軸.時鐘()))     # 一起記下收滿的時刻，給漂移校正用
 
         threading.Thread(target=讀聲音, daemon=True).start()
         events.送出("info", 印出="開始擷取直播（Ctrl+C 結束）。" + (f"直播稿即時存到：{self.稿路徑}" if self.存稿 else "直播稿不存檔。"))
@@ -299,6 +325,7 @@ class live_session:
         重新前的語言 = None
         try:
             with open(self.稿路徑 if self.存稿 else os.devnull, "w", encoding="utf-8") as 稿:
+                稿.write(stream_clock.檔頭())
                 while True:
                     try:
                         資料 = 佇列.get(timeout=1)
@@ -311,6 +338,10 @@ class live_session:
                     if 資料 is None:
                         events.送出("info", 印出="\n直播串流已結束。")
                         return
+                    資料, 收滿時刻 = 資料
+                    補 = 軸.段收滿((第幾段 + 1) * 段秒數, 收滿時刻)
+                    if 補:
+                        events.送出("info", 印出=f"\n直播音訊中斷約 {補:.0f} 秒（可能是廣告或斷線），時間已往前校正。")
                     開始 = time.time()
                     里程碑.標記(里程碑.第一段收滿, 分段設定秒=段秒數, 實際秒=round(len(資料) / 2 / 取樣率, 2))
                     self._存音訊(資料, 第幾段 + 1, 第幾段 * 段秒數)
@@ -336,8 +367,8 @@ class live_session:
                             if 文字 == 上一句:   # 跟上一句一模一樣，多半是亂猜
                                 continue
                             上一句 = 文字
-                            秒 = 段號 * 段秒數 + 段內秒
-                            行 = f"{transcribe.時間(秒)} {文字}"
+                            秒 = 軸.音訊秒轉直播秒(段號 * 段秒數 + 段內秒)
+                            行 = f"{軸.標記(秒)} {文字}"
                             稿.write(行 + "\n")
                             稿.flush()
                             里程碑.標記(里程碑.第一句文字稿)

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import events
 import live_capture as lc
 import startup_timeline as st
+import stream_clock
 
 小段 = 4            # 測試用的假分段位元組數（只在測試裡縮小，正式程式的 20 秒分段不變）
 
@@ -32,6 +33,9 @@ class 假管線:
         self.stdout = self
         self.可讀 = threading.Semaphore(1)
         events.接收者們.append(lambda 種類, 內容: self.可讀.release() if 種類 == "status" else None)
+
+    def peek(self, n=1):          # 等第一個位元組：假管線馬上就有資料，時鐘不動（音訊第 0 秒 = 時刻 0）
+        return b"x"
 
     def read(self, n):
         self.可讀.acquire(timeout=5)
@@ -77,6 +81,7 @@ def 流程(monkeypatch, tmp_path):
         s.稿路徑, s.存稿, s.音訊資料夾, s.聊天 = str(tmp_path / "稿.txt"), False, None, None
         s.存了段數 = s.存了位元組 = 0
         s._警告過 = False
+        s.時軸 = stream_clock.時軸(開播=0.0, 時鐘=時鐘, 延遲=0.0)   # 假開播時間 = 時刻 0、沒有延遲：直播秒 = 音訊秒
         s.吐出 = list(s)              # [(直播秒數, "[mm:ss] 文字"), ...]
         return 紀, 偵測到, s
 
