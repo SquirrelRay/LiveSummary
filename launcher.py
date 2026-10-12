@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
 )
 
+import cost_estimate
 import events
 import live_topics
 import subtitle_speed
@@ -112,12 +113,18 @@ class 啟動面板(QWidget):
         版.addLayout(列)
         self.段位組.buttonClicked.connect(lambda _: self._更新段位註())
 
+        self.段位註 = QLabel("")             # 第一行：延遲與準確度
+        self.費用註 = QLabel("")             # 第二行：每小時費用與拆分
+        for 註 in (self.段位註, self.費用註):
+            註.setObjectName("淡")
+            註.setStyleSheet("font-size: 12px;")
+            註.setWordWrap(True)
+            版.addWidget(註)
+        self.語言選.currentIndexChanged.connect(lambda _: self._更新段位註())
+
         列2 = QHBoxLayout()
         列2.setSpacing(8)
-        self.段位註 = QLabel("")
-        self.段位註.setObjectName("淡")
-        self.段位註.setStyleSheet("font-size: 12px;")
-        列2.addWidget(self.段位註, 1)
+        列2.addStretch(1)
         列2.addWidget(self.結束鈕)
         列2.addWidget(self.開始鈕)
         版.addLayout(列2)
@@ -155,8 +162,9 @@ class 啟動面板(QWidget):
 
     # ---------- 外觀 ----------
     def _基本高(self):
-        self.layout().activate()
-        return self.layout().sizeHint().height()
+        版 = self.layout()
+        版.activate()
+        return max(版.sizeHint().height(), 版.totalHeightForWidth(self.width()) if 版.hasHeightForWidth() else 0)
 
     def _回基本高(self):
         self.setFixedHeight(self._基本高())
@@ -201,11 +209,12 @@ class 啟動面板(QWidget):
         for 代碼, 鈕 in self.段位鈕們.items():
             鈕.setEnabled(可改)
             鈕.setToolTip(subtitle_speed.簡短說明(代碼) + ("" if 可改 else "\n（直播進行中不能切換，下次開始生效）"))
-        if 可改:
-            原, 譯 = subtitle_speed.估算第一句(self.段位())
-            self.段位註.setText(f"估算第一句約 {原}～{譯} 秒")
-        else:
-            self.段位註.setText("字幕速度：下次開始生效")
+        字 = subtitle_speed.延遲準確度字(self.段位())
+        self.段位註.setText(字 if 可改 else 字 + "（下次開始生效）")
+        設定 = dict(live_topics.載入設定({})[0], language=self.語言選.currentData(), subtitle_speed=self.段位())
+        self.費用註.setText(cost_estimate.一行說明(cost_estimate.估算(設定, self.段位(), self.台.面板.翻譯將啟用())))
+        if hasattr(self, "網址清單") and not self.網址清單.isVisible():     # 建構途中還沒有網址清單
+            self._回基本高()
 
     def _套用狀態(self):
         """依啟動狀態更新：開始鈕、進度條、提示文字、字幕速度能不能改。"""

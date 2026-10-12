@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QMenu
 
 import app
 import capsule
+import cost_estimate
 import events
 import live_topics
 import llm
@@ -336,10 +337,10 @@ def test_啟動面板_字幕速度_選了只影響這一場_啟動中與直播�
     啟.hide()
     啟.顯示()                                                        # 重新打開：回到 config.json 的值（沒有欄位 = 平衡）
     assert 啟.段位() == "balanced"
-    assert all(b.isEnabled() for b in 啟.段位鈕們.values()) and "估算第一句" in 啟.段位註.text()
+    assert all(b.isEnabled() for b in 啟.段位鈕們.values()) and "翻譯字幕約慢 11 秒" in 啟.段位註.text() and "估算" in 啟.費用註.text()
 
     啟.段位鈕們["fast"].click()
-    assert 啟.段位() == "fast" and "約 17～21 秒" in 啟.段位註.text()
+    assert 啟.段位() == "fast" and "約慢 8 秒" in 啟.段位註.text()
 
     引擎 = 慢引擎()
     monkeypatch.setattr(live_topics, "執行", 引擎)
@@ -347,7 +348,7 @@ def test_啟動面板_字幕速度_選了只影響這一場_啟動中與直播�
     啟.開始()
     assert 啟.等待中                                                  # 啟動中：段位鈕停用、標示下次開始生效
     assert not any(b.isEnabled() for b in 啟.段位鈕們.values())
-    assert 啟.段位註.text() == "字幕速度：下次開始生效"
+    assert 啟.段位註.text().endswith("（下次開始生效）") and "約慢 8 秒" in 啟.段位註.text()
     啟.段位鈕們["accurate"].click()                                   # 停用的按鈕點了也沒用
     assert 啟.段位() == "fast"
     引擎.放行.set()
@@ -399,9 +400,15 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     assert 頁.欄["subtitle_speed"].currentData() == "balanced"
     說明 = 頁.段位說明.text()
     assert "分段 12 秒" in 說明 and "最多等 1 秒或累積 8 句" in 說明
-    assert "估算第一句出現" in 說明 and "估算每小時翻譯費用" in 說明 and "$" in 說明
+    assert "第一句" not in 說明 and "翻譯字幕約慢 11 秒" in 說明
     頁.欄["subtitle_speed"].setCurrentIndex(頁.欄["subtitle_speed"].findData("accurate"))
     assert "分段 20 秒" in 頁.段位說明.text() and "最多等 8 秒或累積 8 句" in 頁.段位說明.text()
+    assert "翻譯字幕約慢 18 秒" in 頁.段位說明.text()
+    表 = 頁.費用表
+    assert 表[0] == ("項目", "每小時（估算）", "受字幕段位影響", "目前狀態")
+    assert [列[0] for 列 in 表[1:]] == ["字幕翻譯", "換話題判斷", "分鐘摘要", "話題摘要", "合計"]
+    assert 表[-1][1].startswith("US$")
+    assert [x.text() for x in 頁.費用註們] == cost_estimate.備註們
 
     頁.儲存()
     之後 = json.loads(設定檔.read_text(encoding="utf-8"))
@@ -413,3 +420,25 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     assert 頁.段位下次標.isHidden()
     頁.設執行中(True)                                                 # 直播中打開設定框：段位旁標示「下次開始生效」
     assert not 頁.段位下次標.isHidden() and 頁.段位下次標.text() == "下次開始生效"
+
+
+# ---------- 8. 啟動面板切換字幕速度：延遲、準確度、費用拆分依序更新 ----------
+def test_啟動面板切換段位_延遲準確度與費用拆分跟著更新(環境):
+    台 = 環境["台"]
+    啟 = 台.啟動面板
+    啟.hide()
+    啟.顯示()
+    啟.語言選.setCurrentIndex(啟.語言選.findData("ja"))
+    assert 台.面板.翻譯將啟用()                      # 沒有面板紀錄：預測開始後套用預設版面，裡面有逐句翻譯字幕面板
+    看到 = {}
+    for 代碼, 延遲, 準確 in (("fast", "約慢 8 秒", "偶爾斷句、錯字"), ("balanced", "約慢 11 秒", "準確度佳（建議）"),
+                          ("accurate", "約慢 18 秒", "最準、最省錢")):
+        啟.段位鈕們[代碼].click()
+        assert 延遲 in 啟.段位註.text() and 準確 in 啟.段位註.text()
+        字 = 啟.費用註.text()
+        assert 字.startswith("每小時約 US$") and "（估算）＝" in 字 and "字幕翻譯 $" in 字 and "第一句" not in 字
+        看到[代碼] = 字
+    assert len(set(看到.values())) == 3                      # 三個段位的費用字都不同（字幕翻譯金額不同）
+    啟.語言選.setCurrentIndex(啟.語言選.findData("zh"))        # 中文直播：不翻譯
+    assert "字幕翻譯 未開啟 $0" in 啟.費用註.text()
+    assert "第一句" not in 啟.段位註.text() + 啟.費用註.text()

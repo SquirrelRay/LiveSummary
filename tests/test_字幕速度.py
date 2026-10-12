@@ -36,13 +36,17 @@ def test_預設是平衡_不認得的代碼也用平衡():
     assert not subtitle_speed.合法(["不能雜湊"]) and not subtitle_speed.合法("平衡")
 
 
-def test_估算越快第一句越早_越準每小時翻譯越省():
-    第一句 = [subtitle_speed.估算第一句(c) for c in subtitle_speed.代碼們]
-    費用 = [subtitle_speed.估算每小時翻譯費用(c, 1.0, 5.0) for c in subtitle_speed.代碼們]
-    assert 第一句 == sorted(第一句) and 費用 == sorted(費用, reverse=True)
-    assert subtitle_speed.估算第一句("accurate") == (29, 33)        # 和 20 秒分段的實測紀錄吻合（29.2／32.2 秒）
-    assert "估算" in subtitle_speed.詳細說明("balanced", 1.0, 5.0)
-    assert subtitle_speed.估算每小時翻譯費用("balanced", 0, 0) == 0     # 本機模型（單價 0）不花錢
+def test_三個段位的延遲與準確度文字():
+    延遲們 = [subtitle_speed.取得(c)["延遲秒"] for c in subtitle_speed.代碼們]
+    assert 延遲們 == [8, 11, 18]
+    assert subtitle_speed.延遲準確度字("fast") == "延遲最短（翻譯字幕約慢 8 秒）・偶爾斷句、錯字"
+    assert subtitle_speed.延遲準確度字("balanced") == "延遲中等（翻譯字幕約慢 11 秒）・準確度佳（建議）"
+    assert subtitle_speed.延遲準確度字("accurate") == "延遲較長（翻譯字幕約慢 18 秒）・最準、最省錢"
+
+
+def test_每小時翻譯用量_越準越省():
+    輸入們 = [subtitle_speed.每小時翻譯用量(c)[0] for c in subtitle_speed.代碼們]
+    assert 輸入們 == sorted(輸入們, reverse=True)
 
 
 # ---------------- 三個段位各跑一次假流程：里程碑開頭、第一段收滿時間、時間戳 ----------------

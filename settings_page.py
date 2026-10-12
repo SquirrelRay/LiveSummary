@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
 )
 
+import cost_estimate
 import live_topics
 import subtitle_speed
 
@@ -70,6 +71,7 @@ class 設定頁(QScrollArea):
         版.addWidget(self.狀態字)
 
         版.addWidget(self._做一般區())
+        版.addWidget(self._做費用區())
         版.addWidget(self._做存檔區())
         版.addStretch(1)
         self.setWidget(內)
@@ -128,6 +130,10 @@ class 設定頁(QScrollArea):
         for 代碼 in subtitle_speed.代碼們:
             e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
         e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
+        e["subtitle_mode"].currentIndexChanged.connect(self._更新段位說明)
+        for k in ("chat", "minute_summary", "summary_thinking"):
+            e[k].toggled.connect(self._更新段位說明)
+        e["minute_sentences"].valueChanged.connect(self._更新段位說明)
         self.段位說明 = QLabel()
         self.段位說明.setObjectName("小標")
         self.段位說明.setWordWrap(True)
@@ -164,6 +170,24 @@ class 設定頁(QScrollArea):
         加("模型服務", e["provider"], True)
         加("模型名稱", e["model"], True)
         加("API 金鑰", self.金鑰字)
+        return 框
+
+    def _做費用區(self):
+        """每小時費用表：項目／每小時（估算）／受字幕段位影響／目前狀態，最後一列是合計。內容由 cost_estimate 算。"""
+        框, 格 = self._面板("每小時費用（估算）")
+        self.費用格 = QGridLayout()
+        self.費用格.setHorizontalSpacing(16)
+        self.費用格.setVerticalSpacing(6)
+        self.費用格.setColumnStretch(3, 1)
+        格.addLayout(self.費用格, 0, 0, 1, 4)
+        self.費用註們 = []
+        for i, 字 in enumerate(cost_estimate.備註們):
+            註 = QLabel(字)
+            註.setObjectName("小標")
+            註.setWordWrap(True)
+            self.費用註們.append(註)
+            格.addWidget(註, 1 + i, 0, 1, 4)
+        self.費用表 = []                 # 目前表格每一列的文字（測試與除錯用）
         return 框
 
     存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
@@ -215,8 +239,40 @@ class 設定頁(QScrollArea):
         self.更新金鑰()
 
     def _更新段位說明(self, *_):
-        """字幕速度下方：這個段位實際的分段秒數、批次設定、估算的第一句時間與每小時翻譯費用。"""
-        self.段位說明.setText(subtitle_speed.詳細說明(self.欄["subtitle_speed"].currentData(), *self._單價))
+        """字幕速度下方：延遲與準確度、分段與批次設定；並重算下方的每小時費用表。"""
+        if "chat" not in self.欄 or "費用格" not in self.__dict__:      # 建構途中，表單還沒建完
+            return
+        代碼 = self.欄["subtitle_speed"].currentData()
+        self.段位說明.setText(subtitle_speed.延遲準確度字(代碼) + chr(10) + subtitle_speed.批次文字(代碼))
+        self._更新費用表()
+
+    def _表單設定(self):
+        """目前表單上的值（含還沒按儲存的）合成一份設定，費用表用它估算；語言不在表單上，取 config.json 的。"""
+        e = self.欄
+        return dict(live_topics.載入設定({})[0],
+                    subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
+                    minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
+                    minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1])
+
+    def _更新費用表(self):
+        代碼 = self.欄["subtitle_speed"].currentData()
+        結果 = cost_estimate.估算(self._表單設定(), 代碼, self.主.面板.翻譯將啟用())
+        格 = self.費用格
+        while 格.count():
+            w = 格.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        列們 = [("項目", "每小時（估算）", "受字幕段位影響", "目前狀態")]
+        列們 += [(x["名稱"], cost_estimate.項目金額字(x), "是" if x["受段位影響"] else "否", x["狀態"]) for x in 結果["項目們"]]
+        列們.append(("合計", cost_estimate.合計字(結果), "", ""))
+        for r, 列 in enumerate(列們):
+            for c, 字 in enumerate(列):
+                w = QLabel(字)
+                w.setObjectName("小標" if r == 0 else "")
+                if r == len(列們) - 1:
+                    w.setStyleSheet("font-weight: 700;")
+                格.addWidget(w, r, c)
+        self.費用表 = 列們
 
     def 更新金鑰(self):
         環境變數 = live_topics.載入設定({})[0]["api_key_env"].strip()

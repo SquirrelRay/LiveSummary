@@ -637,6 +637,13 @@ class 面板管理(QObject):
     def 要翻譯(self):
         return "逐句翻譯" in self.面板們
 
+    def 翻譯將啟用(self):
+        """這一場會不會翻譯（給費用估算用）。面板開著或直播中看實際；閒置時預測「開始」會套用的版面有沒有逐句翻譯面板。"""
+        if self.面板們 or self.台.執行中():
+            return self.要翻譯()
+        版面 = self.存檔["目前"] or 預設版面()
+        return any(isinstance(x, dict) and x.get("種類") == "逐句翻譯" for x in 版面)
+
     def _更新翻譯啟用(self):
         """只有逐句翻譯面板開著才進行翻譯（翻譯邏輯本身不變）；其他面板都不需要翻譯。"""
         台 = self.台
