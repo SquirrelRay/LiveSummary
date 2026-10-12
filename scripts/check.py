@@ -21,7 +21,7 @@ def run(args):
 
 def staged_files():
     r = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"], cwd=ROOT,  # noqa: S607
+        ["git", "-c", "core.quotepath=off", "diff", "--cached", "--name-only"], cwd=ROOT,  # noqa: S607
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         check=False,
     )
