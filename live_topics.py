@@ -506,7 +506,6 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "summary_thinking": "摘要使用延伸思考（true 較準但較貴；false 關閉思考，較省）",
     "ui_max_transcript": "介面：直播稿分頁最多顯示幾行（較舊的從畫面移除，存檔不受影響）",
     "ui_max_chat": "介面：聊天室分頁最多顯示幾則",
-    "hotkey_compact": "介面：切換精簡模式的快捷鍵（只在主控台視窗有焦點時有效）",
     "capsule_show_usage": "介面：浮動膠囊旁顯示簡短用量（估算費用），預設關",
     "newest_on_top": "介面：內容分頁的最新內容放最上面（true）或最下面（false，預設）",
     "ui_max_translation": "介面：逐句翻譯分頁最多顯示幾則（較舊的從畫面移除，存檔不受影響）",
@@ -526,8 +525,10 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     "subtitle_mode": "逐句字幕（介面才有）：original 原文、translate 翻譯、auto 中文用原文其他翻譯",
     "translate_batch_seconds": "逐句翻譯：第一句進來後最多等幾秒就翻（介面才有）",
     "translate_batch_lines": "逐句翻譯：累積幾句就翻（介面才有）",
-    "overlay": "摘要框與字幕框的樣式、位置、快捷鍵（介面才有，缺的欄位用預設，見 README.txt）",
 }
+
+# 已停用的舊欄位（舊的摘要框／字幕框 overlay、精簡模式快捷鍵 hotkey_compact）：舊的 config.json 裡還有也不警告、直接忽略，也不會被刪掉
+已停用欄位 = {"overlay", "hotkey_compact"}
 
 
 def 內建預設():
@@ -537,12 +538,12 @@ def 內建預設():
         "chat": True, "minute_summary": True, "save_audio": False, "fix_with_chat": False,
         "save_summary": False, "save_transcript": False, "save_chat": False, "save_translation": False,
         "summary_thinking": True,
-        "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "newest_on_top": False, "hotkey_compact": "Ctrl+Shift+M", "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
+        "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "newest_on_top": False, "ui_max_summary": 300, "check_minutes": 1, "min_topic_min": MIN_TOPIC_MIN, "max_topic_min": MAX_TOPIC_MIN,
         "model": summarize.MODEL, "whisper_model": transcribe.GPU_MODEL, "language": "zh",
         "minute_sentences": 2,
         "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY",
         "price_input": 1.0, "price_output": 5.0,
-        "subtitle_mode": "auto", "translate_batch_seconds": 8, "translate_batch_lines": 4, "overlay": {},
+        "subtitle_mode": "auto", "translate_batch_seconds": 8, "translate_batch_lines": 4,
         "capsule_show_usage": False,
     }
 
@@ -579,10 +580,6 @@ def _字幕模式(v):
     return v in ("original", "translate", "auto")
 
 
-def _字典(v):
-    return isinstance(v, dict)
-
-
 def _句數上限(v):
     return isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 8
 
@@ -598,13 +595,12 @@ def _句數(v):
 檢查 = {
     "chat": _布林, "minute_summary": _布林, "save_audio": _布林, "fix_with_chat": _布林, "summary_thinking": _布林,
     "save_summary": _布林, "save_transcript": _布林, "save_chat": _布林, "save_translation": _布林,
-    "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_translation": _顯示上限, "newest_on_top": _布林, "hotkey_compact": _字串, "ui_max_summary": _顯示上限,
+    "ui_max_transcript": _顯示上限, "ui_max_chat": _顯示上限, "ui_max_translation": _顯示上限, "newest_on_top": _布林, "ui_max_summary": _顯示上限,
     "check_minutes": _正數, "min_topic_min": _正數, "max_topic_min": _正數,
     "model": _字串, "whisper_model": _字串, "language": _語言, "minute_sentences": _句數,
     "provider": _服務, "base_url": _文字, "api_key_env": _文字,
     "price_input": _非負, "price_output": _非負,
     "subtitle_mode": _字幕模式, "translate_batch_seconds": _正數, "translate_batch_lines": _句數上限,
-    "overlay": _字典,
     "capsule_show_usage": _布林,
 }
 
@@ -627,6 +623,8 @@ def 載入設定(命令列):
             警告們.append(f"設定檔 config.json 讀不懂（{e}），全部改用內建預設。")
             內容 = None
     for k, v in (內容 or {}).items():
+        if k in 已停用欄位:
+            continue
         if k not in 預設:
             警告們.append(f"設定檔裡有不認得的欄位「{k}」，已忽略。")
         elif 檢查[k](v):

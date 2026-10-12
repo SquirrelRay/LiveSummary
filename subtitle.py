@@ -65,7 +65,7 @@ def 讀譯文(回答):
 
 class 字幕器:
     def __init__(self):
-        self.啟用 = False          # 疊加層開著才產生字幕（關著就不翻，省錢）
+        self.啟用 = False          # 逐句翻譯面板開著才產生字幕（關著就不翻，省錢）
         self._執行緒 = None
         self._停 = threading.Event()
         self._停.set()             # 還沒開始

@@ -5,6 +5,9 @@
 #         點一下展開選單；滑鼠停著顯示直播時間、轉錄狀態、呼叫次數、估算費用。
 #   狀態燈：灰＝尚未開始、綠＝擷取中且轉錄跟得上、黃＝轉錄跟不上、紅＝發生錯誤、閃爍＝正在收尾整理。
 #   系統匣：右下角圖示（顏色跟著狀態燈），右鍵選單和膠囊選單相同，另外多「重設膠囊位置」。
+#   語言警告：自動偵測語言不確定或失敗時，膠囊上多一段黃色「⚠ 語言」（燈色不變，燈色只代表擷取狀態），
+#         膠囊旁跳出約 8 秒的提示泡；重新偵測成功或這一場結束就消失。
+#   錯誤提示：直播中途的錯誤、config.json 的警告，也用同一個提示泡顯示在膠囊旁（主控台常收著看不到）。
 # 膠囊不另外跑引擎，也不改主控台的行為：停止、結束都直接呼叫主控台原本的停止與關閉流程。
 import json
 
@@ -88,9 +91,19 @@ class 膠囊(QWidget):
     def 用量字(self):
         return self.管.用量短字() if self.管.顯示用量 else ""
 
+    def 文字段們(self):
+        """燈與三個點右邊的文字：[(文字, 顏色)]。語言警告（黃）在前，用量在後。"""
+        段們 = []
+        if self.管.語言警示():
+            段們.append(("⚠ 語言", 黃))
+        if self.用量字():
+            段們.append((self.用量字(), "#e7e9ef"))
+        return 段們
+
     def 調整大小(self):
-        字 = self.用量字()
-        寬 = 44 + (QFontMetrics(self.font()).horizontalAdvance(字) + 10 if 字 else 0)
+        量 = QFontMetrics(self.font())
+        段們 = self.文字段們()
+        寬 = 44 + sum(量.horizontalAdvance(字) + 10 for 字, _ in 段們)
         if (寬, 高) != (self.width(), self.height()):
             舊右 = self.geometry().right()
             靠右 = self.isVisible() and self._靠右邊()
@@ -115,10 +128,11 @@ class 膠囊(QWidget):
         p.setBrush(QColor(231, 233, 239, 200))       # 三個小點 = 點一下有選單
         for i in range(3):
             p.drawEllipse(QPoint(29 + i * 4, self.height() // 2), 1, 1)
-        字 = self.用量字()
-        if 字:
-            p.setPen(QColor(231, 233, 239))
-            p.drawText(QRect(42, 0, self.width() - 48, self.height()), Qt.AlignVCenter | Qt.AlignLeft, 字)
+        x = 42
+        for 字, 字色 in self.文字段們():
+            p.setPen(QColor(字色))
+            p.drawText(QRect(x, 0, self.width() - x, self.height()), Qt.AlignVCenter | Qt.AlignLeft, 字)
+            x += QFontMetrics(self.font()).horizontalAdvance(字) + 10
 
     # ---------- 半透明 ↔ 清楚 ----------
     def _動到(self, 目標, 毫秒):
@@ -275,17 +289,22 @@ class 提示泡(QLabel):
                            " font-size: 14px; font-weight: 700; }")
         self.計時 = QTimer(self, singleShot=True, timeout=self.hide)
         self.置頂計時 = QTimer(self, interval=150, timeout=self._置頂)
+        self.錯誤 = False
+        self.setMaximumWidth(420)
+        self.setWordWrap(True)
 
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QColor(139, 108, 255))
+        p.setPen(QColor(紅 if self.錯誤 else 黃 if self.錯誤 is None else "#8b6cff"))
         p.setBrush(QColor(29, 32, 41))
         p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 10, 10)
         p.end()
         super().paintEvent(e)
 
-    def 顯示(self, 字, 膠, 秒):
+    def 顯示(self, 字, 膠, 秒, 錯誤=False):
+        """錯誤：False = 一般（紫框）、True = 錯誤（紅框）、None = 警告（黃框）。"""
+        self.錯誤 = 錯誤
         self.setText(字)
         self.adjustSize()
         g, 螢 = 膠.frameGeometry(), 膠._所在螢幕()
@@ -297,6 +316,7 @@ class 提示泡(QLabel):
         self.show()
         self.raise_()
         # 面板、膠囊在前景是全螢幕程式時會每 0.5 秒把自己拉到最上層；提示顯示的這幾秒也一直拉自己到最上層，才不會被蓋住
+        self.update()
         self.置頂計時.start()
         self.計時.start(int(秒 * 1000))
 
@@ -335,7 +355,8 @@ class 系統匣(QSystemTrayIcon):
         p.drawEllipse(QPoint(16, 16), 7, 7)
         p.end()
         self.setIcon(QIcon(圖))
-        self.setToolTip("直播摘要：" + 字)
+        語言 = self.管.語言字()
+        self.setToolTip("直播摘要：" + 字 + (("\n" + ("⚠ " if self.管.語言警示() else "") + 語言) if 語言 else ""))
 
 
 class 膠囊管理(QObject):
@@ -350,6 +371,7 @@ class 膠囊管理(QObject):
         self.費用 = 0.0              # 摘要估算費用（None = 無法計算）
         self.翻譯費用 = 0.0          # 翻譯估算費用（None = 無法計算）
         self.面板子選單 = {}         # 每個選單各自一份「面板」子選單（建立一次，每次顯示前自己重新填）
+        self._匣狀態 = None          # 系統匣上次畫的 (狀態, 語言字, 語言警示)，變了才重畫
         self.選單開著 = False
         self._執行中 = False
         self.顯示用量 = bool(live_topics.載入設定({})[0]["capsule_show_usage"])
@@ -411,17 +433,27 @@ class 膠囊管理(QObject):
         elif 新 != "收尾" and self.閃計時.isActive():
             self.閃計時.stop()
             self.膠囊.燈亮 = True
-        變了 = 新 != self.狀態
         self.狀態 = 新
         self.膠囊.setToolTip(self.提示文字())
         self.膠囊.調整大小()
-        if 變了:
+        匣 = (新, self.語言字(), self.語言警示())
+        if 匣 != self._匣狀態:
+            self._匣狀態 = 匣
             self.系統匣.更新()
 
     def _閃(self):
         self.膠囊.燈亮 = not self.膠囊.燈亮
         self.膠囊.update()
         self.系統匣.更新()
+
+    def 語言警示(self):
+        """這一場進行中、而且自動偵測語言不確定或失敗。停止後（語言狀態回到閒置）一定是 False，不會殘留。"""
+        s = self.台.語言狀態
+        return s.顯示中() and s.有警示()
+
+    def 語言字(self):
+        s = self.台.語言狀態
+        return s.文字() if s.顯示中() else ""
 
     def 總費用(self):
         if self.費用 is None or self.翻譯費用 is None:
@@ -437,6 +469,8 @@ class 膠囊管理(QObject):
         行們 = ["直播摘要：" + 狀態們[self.狀態][1],
               台.時間藥丸.text(), 台.轉錄藥丸.text(), "摘要：" + 台.費用藥丸.text(), 台.翻譯藥丸.text(),
               "（費用依 config.json 的單價估算，單價未查證）"]
+        if self.語言字():
+            行們.insert(1, ("⚠ " if self.語言警示() else "") + self.語言字())
         return "\n".join(行們)
 
     # ---------- 選單 ----------
@@ -463,19 +497,21 @@ class 膠囊管理(QObject):
         a = 選單.addAction("停止")
         a.setEnabled(台.執行中() and not 台.結束中)
         a.triggered.connect(self.問停止)
+        if 台.語言狀態.顯示中():                      # 語言兩項固定放在這裡（開始…／停止下方的第一組）
+            選單.addSeparator()
+            a = 選單.addAction(("⚠ " if self.語言警示() else "") + 台.語言狀態.文字())    # 目前語言（只是顯示）
+            a.setEnabled(False)
+            if 台.語言狀態.顯示按鈕():
+                a = 選單.addAction("重新偵測語言")
+                a.setEnabled(台.語言狀態.可重新偵測())
+                a.triggered.connect(台.重新偵測語言)
+        選單.addSeparator()
         子 = self.面板子選單.get(id(選單))
         if 子 is None:
             子 = panel.建立面板選單(台.面板, None)      # 直接重用主控台的「面板」選單
             子.setTitle("面板")
             self.面板子選單[id(選單)] = 子
         選單.addMenu(子)
-        if 台.語言狀態.顯示中():
-            a = 選單.addAction(台.語言狀態.文字())       # 目前語言（只是顯示）
-            a.setEnabled(False)
-            if 台.語言狀態.顯示按鈕():
-                a = 選單.addAction("重新偵測語言")
-                a.setEnabled(台.語言狀態.可重新偵測())
-                a.triggered.connect(台.重新偵測語言)
         a = 選單.addAction("顯示用量")
         a.setCheckable(True)
         a.setChecked(self.顯示用量)
@@ -518,7 +554,21 @@ class 膠囊管理(QObject):
         台.close()              # 執行中會先乾淨收尾，完成後自動關閉
 
     # ---------- 膠囊旁的小提示（幾秒後自動消失）----------
-    def 小提示(self, 字, 秒=4):
+    def 小提示(self, 字, 秒=4, 錯誤=False):
         if not hasattr(self, "提示泡"):
             self.提示泡 = 提示泡()
-        self.提示泡.顯示(字, self.膠囊, 秒)
+        self.提示泡.顯示(字, self.膠囊, 秒, 錯誤)
+
+    def 錯誤提示(self, 字, 秒=12):
+        """直播中途的錯誤、config.json 的警告：紅框提示泡（主控台的提示層照舊也有）。"""
+        self.小提示(字, 秒, 錯誤=True)
+
+    def 語言警告提示(self):
+        """自動偵測語言不確定或失敗：膠囊旁黃框提示約 8 秒，並立刻更新膠囊上的「⚠ 語言」。"""
+        self.更新()
+        if not self.語言警示():
+            return
+        字 = "⚠ " + self.台.語言狀態.文字()
+        if self.台.語言狀態.顯示按鈕():
+            字 += "\n點膠囊打開選單，可「重新偵測語言」"
+        self.小提示(字, 8, 錯誤=None)

@@ -3,18 +3,15 @@
 # 引擎（live_topics.py）在背景執行緒跑，結果透過 events.py 的事件送過來，介面只負責顯示。
 import os
 import sys
-import json
 import html
-import shutil
 import time
 import threading
-import subprocess
 
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
 from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
-    QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog, QMessageBox,
+    QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog,
     QButtonGroup, QSizePolicy,
 )
 
@@ -25,9 +22,8 @@ sys.path.insert(0, 專案目錄)
 import events
 import llm
 import live_topics
-import overlay       # 字幕疊加層與全域快捷鍵
 import subtitle      # 逐句字幕（原文或翻譯）
-import settings_page # 「設定」分頁
+import settings_page # 設定框
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
@@ -85,7 +81,6 @@ QPushButton#切換 {{ border-radius: 9px; padding: 6px 14px; background: transpa
 QPushButton#切換:checked {{ background: {主色}; color: white; font-weight: 700; }}
 QPushButton#小鈕 {{ padding: 2px 10px; border-radius: 8px; font-size: 12px; color: {淡字}; }}
 QCheckBox {{ spacing: 6px; }}
-QPushButton#字幕:checked {{ background: rgba(139,108,255,0.18); border: 1px solid {主色}; color: #c4b5ff; font-weight: 700; }}
 QFrame#切換框 {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 12px; }}
 QFrame#窗格 {{ border: 1px solid {邊框}; border-radius: 14px; background: {面板}; }}
 QPushButton#並排鈕 {{ padding: 2px 8px; min-width: 10px; border-radius: 8px; border: none; background: transparent; color: {淡字}; font-size: 12px; }}
@@ -93,11 +88,6 @@ QPushButton#並排鈕:checked {{ background: {主色}; color: white; font-weight
 QPushButton#並排鈕[超過="true"] {{ color: #5a6072; }}
 QPushButton#並排鈕[超過="true"]:checked {{ background: #3a3456; color: #8f88aa; }}
 QTabBar QToolButton {{ background: {卡片}; border: 1px solid {邊框}; border-radius: 6px; }}
-QPushButton#迷你鈕, QPushButton#迷你停止 {{ padding: 2px 0px; min-width: 26px; max-width: 26px; border-radius: 8px; border: none; background: transparent; color: {淡字}; font-size: 12px; }}
-QPushButton#迷你鈕:hover, QPushButton#迷你停止:hover {{ background: {邊框}; }}
-QPushButton#迷你鈕:checked {{ background: {主色}; color: white; }}
-QPushButton#迷你停止 {{ color: {紅}; font-weight: 700; }}
-QPushButton#迷你停止:disabled {{ color: #5a6072; }}
 QFrame#網址清單 {{ background: {卡片}; border: 1px solid {主色}; border-radius: 10px; }}
 QFrame#網址列 {{ background: transparent; border: none; border-radius: 8px; }}
 QFrame#網址列:hover {{ background: #262a38; }}
@@ -124,25 +114,6 @@ QToolTip {{ background: {卡片}; color: {文字色}; border: 1px solid {邊框}
 結束中文字 = "正在產生最後一個話題的摘要，約需 10 秒…"
 翻譯收尾文字 = "正在翻譯剩下的句子…"
 翻譯收尾最多秒 = 10     # 收尾翻譯最多等幾秒，超時就放棄
-快捷鍵編號 = {"hotkey_toggle": 1, "hotkey_click_through": 2, "hotkey_summary": 3, "hotkey_subtitle": 4}
-
-
-def 轉換舊設定():
-    """config.json 的 overlay 還是舊格式（一個框）時，自動轉成兩個框的格式並寫回（先備份）。回傳提示文字。"""
-    路徑 = live_topics.設定檔路徑
-    try:
-        with open(路徑, encoding="utf-8-sig") as f:
-            內容 = json.load(f)
-        if not (isinstance(內容, dict) and overlay.是舊版(內容.get("overlay"))):
-            return ""
-        shutil.copy2(路徑, settings_page.備份檔)
-        內容["overlay"] = overlay.讀設定(內容["overlay"])[0]
-        with open(路徑, "w", encoding="utf-8") as f:
-            json.dump(內容, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-        return "已把舊的字幕設定自動轉成「摘要框＋字幕框」兩個框的設定（原本的存在 config.backup.json）。"
-    except Exception:
-        return ""
 
 
 def 跳脫(字):
@@ -480,7 +451,7 @@ class 逐句頁(文字清單):
 
 class 並排區(QWidget):
     """分頁區：1～3 欄，每欄自己一條分頁列，各自選要看哪個分頁。
-    每個分頁（含「設定」）同時只會出現在一欄：在這一欄選到別欄正在看的分頁，兩欄互換。
+    每個分頁同時只會出現在一欄：在這一欄選到別欄正在看的分頁，兩欄互換。
     頁面本身只有一份、不會被搬家或重建，所以每欄的自動捲動、往上捲不被拉回、「較早內容已存檔」都和單欄時一樣。
     視窗窄時自動減欄（窄於 1100 退成 1 欄、窄於 1600 最多 2 欄），寬了就回到使用者選的欄數。"""
     間距 = 12
@@ -534,29 +505,6 @@ class 並排區(QWidget):
             self.欄鈕們.append(鈕)
             版.addWidget(鈕)
         self.欄組.idClicked.connect(self.設欄數)
-        self.精簡鈕 = QPushButton("精簡")
-        self.精簡鈕.setObjectName("並排鈕")
-        self.精簡鈕.setCursor(Qt.PointingHandCursor)
-        self.精簡鈕.setToolTip("精簡模式：隱藏上方標題列與狀態列，只看內容分頁")
-        版.addWidget(self.精簡鈕)
-        # 精簡模式時分頁列右邊只留三個小按鈕（按鈕的動作由主控台接上，行為和原本的按鈕完全相同）
-        self.精簡框 = QFrame(self)
-        self.精簡框.setObjectName("切換框")
-        精版 = QHBoxLayout(self.精簡框)
-        精版.setContentsMargins(4, 2, 4, 2)
-        精版.setSpacing(2)
-        self.迷你停止, self.迷你字幕, self.迷你退出 = QPushButton("■"), QPushButton("字"), QPushButton("⤢")
-        for 鈕, 名, 提示 in ((self.迷你停止, "迷你停止", "停止"), (self.迷你字幕, "迷你鈕", "字幕開關"),
-                           (self.迷你退出, "迷你鈕", "退出精簡模式")):
-            鈕.setObjectName(名)
-            鈕.setToolTip(提示)
-            鈕.setCursor(Qt.PointingHandCursor)
-            鈕.setFocusPolicy(Qt.NoFocus)
-            精版.addWidget(鈕)
-        self.迷你字幕.setCheckable(True)
-        self.迷你停止.setEnabled(False)
-        self.精簡 = False
-        self.精簡框.hide()
         self._同步分頁列()
         self.setMinimumHeight(120)
 
@@ -565,12 +513,6 @@ class 並排區(QWidget):
         寬 = self.window().width()
         上限 = 1 if 寬 < 1100 else 2 if 寬 < 1600 else 3
         return min(self.欄數, 上限)
-
-    def 設精簡(self, 開):
-        self.精簡 = bool(開)
-        self.選擇器.setVisible(not 開)
-        self.精簡框.setVisible(開)
-        self.排()
 
     def 設欄數(self, n):
         self.欄數 = n
@@ -628,7 +570,7 @@ class 並排區(QWidget):
         寬, 高 = self.width(), self.height()
         欄寬 = (寬 - self.間距 * (n - 1)) // n
         頭高 = self.分頁列們[0].sizeHint().height()
-        右框 = self.精簡框 if self.精簡 else self.選擇器
+        右框 = self.選擇器
         選寬 = 右框.sizeHint().width()
         for 鈕, k in zip(self.欄鈕們, (1, 2, 3)):       # 窄到放不下的欄數用淡色表示（仍記著使用者的選擇）
             超過 = "true" if k > n else "false"
@@ -646,7 +588,7 @@ class 並排區(QWidget):
             if not 開:
                 continue
             x = c * (欄寬 + self.間距)
-            樣式 = self.緊湊 if (n > 1 or self.精簡) else ""
+            樣式 = self.緊湊 if n > 1 else ""
             if 列.styleSheet() != 樣式:
                 列.setStyleSheet(樣式)
             列.setGeometry(x, 0, max(60, 欄寬 - ((選寬 + 8) if c == n - 1 else 0)), 頭高)
@@ -1042,15 +984,7 @@ class 主控台(QMainWindow):
         self.本場檔案 = []
         self.設定框 = None
 
-        # 兩個字幕框：跟著引擎的事件更新，不另外跑引擎
-        轉換訊息 = 轉換舊設定()
-        設定, _, _ = live_topics.載入設定({})
-        ov, _ = overlay.讀設定(設定["overlay"])
-        self.ov = ov
-        self.摘要框 = overlay.摘要框(ov["summary_box"])
-        self.字幕框 = overlay.字幕框(ov["subtitle_box"])
-        for 框 in self.框們():
-            框.設穿透(ov["click_through"])
+        # 逐句字幕（翻譯）：只有逐句翻譯面板開著時才產生（見 panel.面板管理.要翻譯）
         self.字幕器 = subtitle.字幕器()
         events.接收者們.append(self.字幕器.接收)
 
@@ -1069,17 +1003,14 @@ class 主控台(QMainWindow):
         總.addWidget(self._做狀態區())
         總.addWidget(self._做分頁(), 1)       # 只有分頁區吃剩下的空間，上面各區高度固定
         self.提示層 = 提示層(根)
-        self._接精簡與全螢幕()
+        self._接全螢幕()
         self.網址紀錄 = ui_state.網址紀錄()
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
-        self.面板鈕.setMenu(panel.建立面板選單(self.面板, self))
         self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和啟動面板一起顯示）
         self.啟動面板 = launcher.啟動面板(self, 網址欄, 網址清單)
         self._切換來源()
-        if 轉換訊息:
-            self._訊息(轉換訊息)
 
     # ---------- 版面 ----------
     def _做控制區(self):
@@ -1165,15 +1096,6 @@ class 主控台(QMainWindow):
             鈕.setMinimumWidth(88)
         self.開始鈕.clicked.connect(self.開始)
         self.停止鈕.clicked.connect(self.停止)
-        self.字幕鈕 = QPushButton("字幕")
-        self.字幕鈕.setObjectName("字幕")
-        self.字幕鈕.setCheckable(True)
-        self.字幕鈕.setCursor(Qt.PointingHandCursor)
-        self.字幕鈕.setToolTip("同時開關摘要框與字幕框（預設 Ctrl+Shift+S，可在「設定」分頁改）")
-        self.字幕鈕.clicked.connect(self.切換字幕)
-        self.面板鈕 = QPushButton("面板")
-        self.面板鈕.setCursor(Qt.PointingHandCursor)
-        self.面板鈕.setToolTip("開關可自由擺放的面板、套用或另存版面")
         self.語言區 = QWidget()
         語言版 = QHBoxLayout(self.語言區)
         語言版.setContentsMargins(0, 0, 0, 0)
@@ -1182,12 +1104,12 @@ class 主控台(QMainWindow):
             語言版.addWidget(w)
         第三列.addWidget(self.語言區)
         第三列.addStretch(1)
-        # 字幕／開始／停止放在一個小容器裡：展開時在最下面一列，收合時搬到標題列同一行
+        # 開始／停止放在一個小容器裡：展開時在最下面一列，收合時搬到標題列同一行
         self.按鈕區 = QWidget()
         按鈕版 = QHBoxLayout(self.按鈕區)
         按鈕版.setContentsMargins(0, 0, 0, 0)
         按鈕版.setSpacing(8)
-        for 鈕 in (self.面板鈕, self.字幕鈕, self.開始鈕, self.停止鈕):
+        for 鈕 in (self.開始鈕, self.停止鈕):
             按鈕版.addWidget(鈕)
         第三列.addWidget(self.按鈕區)
         版.addWidget(self.第三區)
@@ -1256,18 +1178,12 @@ class 主控台(QMainWindow):
         self.稿頁 = 文字清單("逐句轉錄的直播稿會在這裡出現")
         self.翻譯頁 = 逐句頁()
         self.聊天頁 = 文字清單("聊天室留言會在這裡出現（只有直播網址模式會抓聊天室）")
-        self.設定頁 = settings_page.設定頁(self)
-        self.分頁名 = ["分鐘摘要", "話題摘要", "直播稿", "逐句翻譯", "聊天室"]       # 有計數的分頁
-        頁們 = [self.分鐘頁, self.話題頁, self.稿頁, self.翻譯頁, self.聊天頁, self.設定頁]
-        全部名 = self.分頁名 + ["設定"]
-        欄數, 欄頁們 = ui_state.讀介面設定(全部名)
+        self.分頁名 = ["分鐘摘要", "話題摘要", "直播稿", "逐句翻譯", "聊天室"]       # 有計數的分頁（設定在獨立的設定框）
+        頁們 = [self.分鐘頁, self.話題頁, self.稿頁, self.翻譯頁, self.聊天頁]
+        欄數, 欄頁們 = ui_state.讀介面設定(self.分頁名)
         self.計數 = dict.fromkeys(self.分頁名, 0)
-        self.並排 = 並排區(全部名, 頁們, 欄數, 欄頁們, 改了=ui_state.存介面設定,
-                          選到頁=lambda 名: self.設定頁.同步位置() if 名 == "設定" else None)
-        self.設定頁.載入()
+        self.並排 = 並排區(self.分頁名, 頁們, 欄數, 欄頁們, 改了=ui_state.存介面設定)
         self.設方向(live_topics.載入設定({})[0]["newest_on_top"])
-        if "設定" in 欄頁們[:self.並排.有效欄數()]:
-            self.設定頁.同步位置()
         return self.並排
 
     def _切換來源(self):
@@ -1285,48 +1201,11 @@ class 主控台(QMainWindow):
         if 路徑:
             self.檔案框.setText(路徑)
 
-    # ---------- 精簡模式與全螢幕 ----------
-    def _接精簡與全螢幕(self):
-        並 = self.並排
-        並.精簡鈕.clicked.connect(lambda: self.設精簡(True))
-        並.迷你退出.clicked.connect(lambda: self.設精簡(False))
-        並.迷你停止.clicked.connect(self.停止鈕.click)       # 和原本的停止鍵完全相同
-        並.迷你字幕.clicked.connect(self.字幕鈕.click)
-        鍵, _ = live_topics.載入設定({})[0]["hotkey_compact"], None
-        序 = QKeySequence(鍵)
-        if 序.isEmpty():
-            序 = QKeySequence("Ctrl+Shift+M")
-            self._訊息(f"config.json 的 hotkey_compact「{鍵}」看不懂，改用 Ctrl+Shift+M。")
-        self.精簡快捷 = QShortcut(序, self)        # 只在主控台視窗有焦點時有效（不是全域快捷鍵）
-        self.精簡快捷.setContext(Qt.WindowShortcut)
-        self.精簡快捷.activated.connect(lambda: self.設精簡(not self.精簡中))
+    # ---------- 全螢幕 ----------
+    def _接全螢幕(self):
         全 = QShortcut(QKeySequence("F11"), self)
         全.setContext(Qt.WindowShortcut)
         全.activated.connect(self.切換全螢幕)
-        self.精簡中 = False
-        self.同步計時 = QTimer(self)               # 精簡模式時，小按鈕跟著原本的停止／字幕按鈕狀態
-        self.同步計時.timeout.connect(self._同步迷你鈕)
-        self.同步計時.start(150)
-        self.設精簡(ui_state.讀精簡(), 存=False)
-
-    def _同步迷你鈕(self):
-        並 = self.並排
-        if not self.精簡中:
-            return
-        並.迷你停止.setEnabled(self.停止鈕.isEnabled())
-        並.迷你停止.setToolTip(self.停止鈕.text() if self.結束中 else "停止")
-        並.迷你字幕.setChecked(self.字幕鈕.isChecked())
-
-    def 設精簡(self, 開, 存=True):
-        """精簡模式：隱藏上方標題列與狀態列，分頁區佔滿視窗。"""
-        self.精簡中 = bool(開)
-        self.控制框.setVisible(not 開)
-        self.狀態框.setVisible(not 開)
-        self.網址清單.hide() if hasattr(self, "網址清單") else None
-        self.並排.設精簡(開)
-        self._同步迷你鈕()
-        if 存:
-            ui_state.存精簡(self.精簡中)
 
     def 切換全螢幕(self):
         if self.isFullScreen():
@@ -1406,12 +1285,10 @@ class 主控台(QMainWindow):
         self.語言狀態.開始(設定["language"], 直播)
         events.重新偵測.clear()
         self.更新語言顯示()
-        self.摘要框.清空()
-        self.字幕框.清空()
         self.字幕器.開始(設定["subtitle_mode"], 設定["language"], 設定["model"],
                       設定["price_input"], 設定["price_output"],
                       設定["translate_batch_seconds"], 設定["translate_batch_lines"])
-        self.字幕器.啟用 = self.字幕框.開啟 or self.面板.要翻譯()     # 逐句翻譯面板開著也會翻譯
+        self.字幕器.啟用 = self.面板.要翻譯()     # 只有逐句翻譯面板開著才翻譯（省費用）
         import live_capture
         startup_timeline.開始({
             "來源": "直播網址" if 直播 else "文字稿重播", "語言設定": 設定["language"], "字幕模式": 設定["subtitle_mode"],
@@ -1423,6 +1300,8 @@ class 主控台(QMainWindow):
         self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
         self._更新翻譯註()
         self._訊息("　".join("警告：" + w for w in 警告們) or ("正在檢查直播…" if 直播 else "開始重播文字稿…"))
+        if 警告們:                       # config.json 的警告：主控台常收著，膠囊旁也顯示
+            self.膠囊.錯誤提示("config.json 設定有問題：" + "　".join(警告們))
         self._設燈(綠)
 
         events.停止.clear()
@@ -1458,7 +1337,6 @@ class 主控台(QMainWindow):
         if self.字幕器.有待翻():       # 先把還沒翻的句子翻完（最多等 10 秒），再整理最後一個話題
             self.停止鈕.setText(翻譯收尾文字)
             self._訊息(翻譯收尾文字)
-            self.摘要框.設狀態(翻譯收尾文字)
             self.字幕器.收尾()
             self._收尾開始 = time.time()
             self._收尾計時 = QTimer(self)
@@ -1478,7 +1356,6 @@ class 主控台(QMainWindow):
         self.字幕器.結束()          # 超時沒翻完的句子就放棄（不重送）
         self.停止鈕.setText(結束中文字)
         self._訊息(結束中文字 + "（同時關閉音訊擷取與聊天室）")
-        self.摘要框.設狀態(結束中文字)
 
     def 跑完了(self):
         self.執行緒 = None
@@ -1490,8 +1367,6 @@ class 主控台(QMainWindow):
         self.字幕器.結束()
         for 頁 in self.設定頁們():
             頁.設執行中(False)
-        if self.摘要框.狀態提示 in (結束中文字, 翻譯收尾文字):
-            self.摘要框.設狀態("")
         self.開始鈕.setEnabled(True)
         self.停止鈕.setEnabled(False)
         self.停止鈕.setText("停止")
@@ -1522,100 +1397,24 @@ class 主控台(QMainWindow):
         self.啟動面板.close()
         if self.設定框:
             self.設定框.close()
-        for 編號 in 快捷鍵編號.values():
-            overlay.取消快捷鍵(int(self.winId()), 編號)
-        for 框 in self.框們():
-            if 框.開啟:
-                框.記住位置()
-            框.close()
         e.accept()
         QApplication.quit()              # 主控台常常是隱藏的，不靠「最後一個視窗關閉」來結束
 
     # ---------- 設定框（齒輪、膠囊選單「設定」）----------
     def 設定頁們(self):
-        return [self.設定頁] + ([self.設定框.頁] if self.設定框 else [])
+        return [self.設定框.頁] if self.設定框 else []
 
     def 開設定框(self):
-        """獨立的設定視窗：內容是 settings_page 的同一個設定頁（另一份實例），存檔後兩份互相同步。"""
+        """獨立的設定視窗（設定只在這裡；主控台沒有設定分頁）。"""
         if self.設定框 is None:
             self.設定框 = settings_page.設定框(self)
         self.設定框.打開(self.膠囊.膠囊._所在螢幕())
 
-    def 設定已儲存(self, 來源頁):
-        for 頁 in self.設定頁們():
-            if 頁 is not 來源頁:
-                頁.載入()
-
-    # ---------- 兩個字幕框與快捷鍵 ----------
-    def 框們(self):
-        return (self.摘要框, self.字幕框)
-
-    def 框(self, 設定鍵):
-        return self.摘要框 if 設定鍵 == "summary_box" else self.字幕框
-
+    # ---------- 狀態 ----------
     def 執行中(self):
         return bool(self.執行緒 and self.執行緒.is_alive())
 
-    def 開關框(self, 框, 開):
-        框.顯示() if 開 else 框.隱藏()
-        if 框 is self.字幕框:
-            self.字幕器.啟用 = 開 or self.面板.要翻譯()     # 字幕框和逐句翻譯面板都關著就不產生字幕（不翻譯，省錢）
-            self._更新翻譯註()
-        self.字幕鈕.setChecked(any(f.開啟 for f in self.框們()))
-        if 開 and 框.穿透:
-            框.閃提示("穿透：開（按 " + self.ov["hotkey_click_through"] + " 可關閉以拖曳）", 2000)
-
-    def 切換字幕(self):
-        """同時開關兩個框（設定裡「不顯示」的框不會被打開）。"""
-        要開的 = [f for f in self.框們() if f.設定["show"]] or list(self.框們())
-        開 = not any(f.開啟 for f in self.框們())
-        for 框 in (要開的 if 開 else self.框們()):
-            self.開關框(框, 開)
-        self.字幕鈕.setChecked(開)
-
-    def 切換穿透(self):
-        if not any(f.開啟 for f in self.框們()):
-            self._訊息("字幕框沒有開啟，先按「字幕」或 " + self.ov["hotkey_toggle"] + " 開啟。")
-            return
-        穿透 = not self.摘要框.穿透
-        for 框 in self.框們():
-            框.設穿透(穿透)
-            框.閃提示("穿透：開（點擊會穿過字幕）" if 穿透 else "穿透：關（可拖曳移動、拖左右邊緣改寬度）")
-
-    def 註冊快捷鍵(self, ov=None):
-        """重新註冊四個快捷鍵。回傳中文問題清單（沒問題 = 空清單）。"""
-        if ov is not None:
-            self.ov = dict(self.ov, **{k: ov[k] for k in 快捷鍵編號})
-        問題們 = []
-        for 編號 in 快捷鍵編號.values():
-            overlay.取消快捷鍵(int(self.winId()), 編號)
-        for 鍵名, 編號 in 快捷鍵編號.items():
-            問題 = overlay.註冊快捷鍵(int(self.winId()), 編號, self.ov[鍵名])
-            if 問題:
-                問題們.append(問題)
-        if 問題們:
-            self._訊息("　".join(問題們))
-        self.字幕鈕.setToolTip(f"同時開關摘要框與字幕框（{self.ov['hotkey_toggle']}；只開關摘要框 {self.ov['hotkey_summary']}、"
-                             f"只開關字幕框 {self.ov['hotkey_subtitle']}、切換穿透 {self.ov['hotkey_click_through']}）")
-        return 問題們
-
-    def nativeEvent(self, 種類, 訊息):
-        """接收 Windows 全域快捷鍵（WM_HOTKEY）。"""
-        if 種類 == b"windows_generic_MSG" or 種類 == "windows_generic_MSG":
-            m = overlay.wintypes.MSG.from_address(int(訊息))
-            if m.message == overlay.WM_HOTKEY:
-                if m.wParam == 快捷鍵編號["hotkey_toggle"]:
-                    self.切換字幕()
-                elif m.wParam == 快捷鍵編號["hotkey_summary"]:
-                    self.開關框(self.摘要框, not self.摘要框.開啟)
-                elif m.wParam == 快捷鍵編號["hotkey_subtitle"]:
-                    self.開關框(self.字幕框, not self.字幕框.開啟)
-                elif m.wParam == 快捷鍵編號["hotkey_click_through"]:
-                    self.切換穿透()
-                return True, 0
-        return super().nativeEvent(種類, 訊息)
-
-    # ---------- 收合、訊息、完成提示 ----------
+    # ---------- 收合、訊息 ----------
     def 收合設定(self, 收):
         self.已收合 = 收
         self.網址清單.hide()
@@ -1633,7 +1432,7 @@ class 主控台(QMainWindow):
             self.控制版.setContentsMargins(18, 16, 18, 16)
             self.控制版.setSpacing(12)
             self._切換來源()
-        for 鈕 in (self.面板鈕, self.字幕鈕, self.開始鈕, self.停止鈕, self.收合鈕):
+        for 鈕 in (self.開始鈕, self.停止鈕, self.收合鈕):
             鈕.setFixedHeight(30) if 收 else (鈕.setMinimumHeight(0), 鈕.setMaximumHeight(16777215))
         self.收合鈕.setText("▸ 展開網址與語言" if 收 else "▾ 收合網址與語言")
 
@@ -1649,21 +1448,6 @@ class 主控台(QMainWindow):
         設 = self.本場設定 or {}
         return bool(設.get("save_audio") and self.直播鈕.isChecked())
 
-    def _完成提示(self, 檔案們):         # 舊的完成彈窗：已改成膠囊旁的小提示，留著不刪
-        框 = QMessageBox(self)
-        框.setIcon(QMessageBox.Information)
-        框.setWindowTitle("直播摘要")
-        if 檔案們:
-            框.setText("已完成，摘要已存到：\n" + "\n".join(os.path.basename(f) for f in 檔案們))
-            打開 = 框.addButton("打開資料夾", QMessageBox.ActionRole)
-            打開.clicked.connect(lambda: subprocess.Popen(["explorer", "/select,", os.path.abspath(檔案們[0])]))
-        else:
-            框.setText("已完成，這次沒有產生內容，所以沒有建立摘要檔。")
-        框.addButton("知道了", QMessageBox.AcceptRole)
-        框.setModal(False)
-        框.show()           # 不擋住主控台
-        self.完成框 = 框
-
     # ---------- 事件 ----------
     def 處理事件(self, 種類, 內容):
         if 種類 == "files":
@@ -1678,8 +1462,6 @@ class 主控台(QMainWindow):
             if self._待記網址:
                 self.網址紀錄.加入(self._待記網址)
                 self._待記網址 = None
-        elif 種類 == "subtitle":
-            self.字幕框.加字幕(內容["文字"], 內容.get("已翻譯", False))
         elif 種類 == "language_detected":
             self._更新翻譯註()
             self.語言狀態.收偵測(內容["語言"], 內容.get("狀態", "ok"), 內容.get("重新偵測", False))
@@ -1687,6 +1469,7 @@ class 主控台(QMainWindow):
             名 = {"zh": "中文", "ja": "日文", "en": "英文", "ko": "韓文"}.get(內容["語言"], 內容["語言"])
             if 內容.get("狀態", "ok") != "ok":           # 低信心或失敗：明確告訴使用者，不要悄悄退回
                 self._訊息("警告：" + self.語言狀態.文字())
+                self.膠囊.語言警告提示()                  # 主控台常收著：膠囊旁也顯示
             elif subtitle.要翻譯(self.字幕器.模式, 內容["語言"], ""):
                 self._訊息(f"偵測到{名}，逐句字幕自動切成翻譯。")
             else:
@@ -1712,7 +1495,6 @@ class 主控台(QMainWindow):
         elif 種類 == "minute_summary":
             self.分鐘頁.加卡片(self._分鐘html(內容))
             self._加計數("分鐘摘要")
-            self.摘要框.更新摘要(內容)
         elif 種類 == "topic_summary":
             self.話題頁.加卡片(self._話題html(內容))
             self._加計數("話題摘要")
@@ -1720,7 +1502,6 @@ class 主控台(QMainWindow):
             簡述 = 內容["簡述"] or "（新話題剛開始）"
             self.話題字.setText(f"目前話題（已進行 {內容['進行分鐘']:.0f} 分鐘）：{簡述}")
             self.話題頁.設進行中(f"已進行 {內容['進行分鐘']:.0f} 分鐘", 簡述)
-            self.摘要框.更新話題(內容["簡述"])
         elif 種類 == "status":
             if "跟上" in 內容:
                 跟上 = 內容["跟上"]
@@ -1737,12 +1518,13 @@ class 主控台(QMainWindow):
             if not self.結束中:          # 結束中一直顯示「正在產生最後一個話題的摘要…」
                 self._訊息((內容.get("印出") or "").strip())
         elif 種類 == "error":
-            self.摘要框.設狀態("已停止")
             if self.話題字.text() == "準備中…":
                 self.話題字.setText("已停止")
             self.話題頁.移除進行中()
             self._設燈(紅)
             self._錯誤框("已停止：" + 內容["訊息"])
+            if not self.啟動面板.等待中 and not self.要結束:      # 啟動中的錯誤由啟動面板顯示；直播中途的錯誤顯示在膠囊旁
+                self.膠囊.錯誤提示("已停止：" + 內容["訊息"])
         elif 種類 == "finished":
             self.結束中 = False
             if 內容["檔案們"]:
@@ -1751,20 +1533,19 @@ class 主控台(QMainWindow):
                 檔案 = "沒有產生內容，所以沒有建立結果檔。"
             翻譯 = self.字幕器.統計文字()
             self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + ("\n" + 翻譯 if 翻譯 else ""))
-            self.摘要框.設狀態("已結束")
             self.膠囊.小提示("已結束，已存檔" if self._有存檔(內容["檔案們"]) else "已結束")   # 不跳彈窗，膠囊旁幾秒後自動消失
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
             self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
 
     def _更新翻譯註(self):
-        """逐句翻譯分頁頂端的說明：原文模式、字幕框關著不翻譯、語言還在偵測。"""
+        """逐句翻譯分頁頂端的說明：原文模式、逐句翻譯面板沒開所以不翻譯、語言還在偵測。"""
         模式, 語言 = self.字幕器.模式, self.字幕器.語言
         if 模式 == "original" or (模式 == "auto" and 語言 == "zh"):
             字 = "目前為原文模式：這裡顯示原文，不翻譯，也不另外存檔。"
         elif 模式 == "auto" and 語言 == "auto":
             字 = "語言自動偵測中：偵測到外語後才會翻譯。"
         elif not self.字幕器.啟用:
-            字 = "字幕框目前關閉，不會翻譯（省費用）。按「字幕」開啟後，之後的句子才會翻譯。"
+            字 = "逐句翻譯面板沒有開，不會翻譯（省費用）。從膠囊選單「面板」打開「逐句翻譯 面板」後，之後的句子才會翻譯。"
         else:
             字 = ""
         self.翻譯頁.設註(字)
@@ -1830,7 +1611,6 @@ def main():
     app.setStyleSheet(樣式表)
     app.setQuitOnLastWindowClosed(False)      # 主控台、啟動面板都可能收著；只有「結束程式」才結束
     窗 = 主控台()                # 主控台先建好但不顯示（可從膠囊選單「顯示主控台」打開）
-    窗.註冊快捷鍵()
     窗.膠囊.顯示()              # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板
     窗.啟動面板.顯示()          # 面板等按了「開始」才依版面出現
     sys.exit(app.exec())

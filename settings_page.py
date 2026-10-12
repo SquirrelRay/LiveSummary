@@ -1,20 +1,17 @@
-# 主控台的「設定」分頁：調整兩個字幕框的樣式與位置、功能開關、快捷鍵、模型
-# 調整樣式時疊加層會即時預覽；按「儲存」才寫回 config.json（寫之前先備份成 config.backup.json）。
+# 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」）：功能開關、顯示上限、翻譯批次、模型、存檔
+# 按「儲存」才寫回 config.json（寫之前先備份成 config.backup.json）；config.json 裡已停用的舊欄位（overlay、hotkey_compact）原樣保留。
 # 金鑰不會出現在這裡，只顯示「已設定／未設定」。
 import os
 import json
 import shutil
 
 from PySide6.QtCore import Qt, QObject, QEvent
-from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSlider, QSpinBox,
-    QLineEdit, QFontComboBox, QColorDialog, QGridLayout, QHBoxLayout, QVBoxLayout,
+    QApplication, QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSpinBox,
+    QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
 )
 
-import llm
 import live_topics
-import overlay
 
 備份檔 = os.path.join(os.path.dirname(live_topics.設定檔路徑), "config.backup.json")
 
@@ -25,53 +22,8 @@ def 小標(字):
     return w
 
 
-class 滑桿(QWidget):
-    """滑桿 + 右邊顯示數值。"""
-
-    def __init__(self, 最小, 最大, 格式=str):
-        super().__init__()
-        版 = QHBoxLayout(self)
-        版.setContentsMargins(0, 0, 0, 0)
-        self.桿 = QSlider(Qt.Horizontal)
-        self.桿.setRange(最小, 最大)
-        self.字 = QLabel()
-        self.字.setMinimumWidth(56)
-        self.格式 = 格式
-        self.桿.valueChanged.connect(lambda v: self.字.setText(self.格式(v)))
-        版.addWidget(self.桿, 1)
-        版.addWidget(self.字)
-
-    def 值(self):
-        return self.桿.value()
-
-    def 設值(self, v):
-        self.桿.setValue(int(round(v)))
-        self.字.setText(self.格式(self.桿.value()))
-
-
-class 顏色鈕(QPushButton):
-    def __init__(self, 改了):
-        super().__init__()
-        self.色 = "#ffffff"
-        self.改了 = 改了
-        self.setCursor(Qt.PointingHandCursor)
-        self.clicked.connect(self._選)
-
-    def 設值(self, 色):
-        self.色 = 色
-        文字色 = "#000000" if QColor(色).lightness() > 140 else "#ffffff"
-        self.setText(色)
-        self.setStyleSheet(f"background: {色}; color: {文字色}; border: 1px solid #2a2e3a; border-radius: 10px;")
-
-    def _選(self):
-        色 = QColorDialog.getColor(QColor(self.色), self, "選擇顏色")
-        if 色.isValid():
-            self.設值(色.name())
-            self.改了()
-
-
 class 滾輪過濾(QObject):
-    """滑桿、數字欄位、下拉選單：沒有點選（沒有取得焦點）時不吃滑鼠滾輪，改成捲動整個設定頁，避免捲頁面時誤改數值。"""
+    """數字欄位、下拉選單：沒有點選（沒有取得焦點）時不吃滑鼠滾輪，改成捲動整個設定頁，避免捲頁面時誤改數值。"""
 
     def __init__(self, 捲動區):
         super().__init__(捲動區)
@@ -87,7 +39,7 @@ class 滾輪過濾(QObject):
 class 設定頁(QScrollArea):
     def __init__(self, 主):
         super().__init__()
-        self.主 = 主                 # 主控台（拿兩個框、重新註冊快捷鍵）
+        self.主 = 主                 # 主控台（換內容方向、看是否執行中）
         self._載入中 = False
         self.下次標們 = []           # 「下次開始生效」標籤
         self.setWidgetResizable(True)
@@ -98,7 +50,7 @@ class 設定頁(QScrollArea):
         版.setSpacing(12)
 
         上 = QHBoxLayout()
-        說明 = QLabel("調整樣式時字幕框會即時預覽；按「儲存」才會寫回 config.json（會先備份成 config.backup.json）。")
+        說明 = QLabel("按「儲存」才會寫回 config.json（會先備份成 config.backup.json）。")
         說明.setObjectName("小標")
         說明.setWordWrap(True)
         上.addWidget(說明, 1)
@@ -115,15 +67,12 @@ class 設定頁(QScrollArea):
         self.狀態字.setWordWrap(True)
         版.addWidget(self.狀態字)
 
-        self.框欄 = {}
-        版.addWidget(self._做框區("summary_box", "摘要框（預設在螢幕上緣）"))
-        版.addWidget(self._做框區("subtitle_box", "字幕框（預設在螢幕下緣）"))
         版.addWidget(self._做一般區())
         版.addWidget(self._做存檔區())
         版.addStretch(1)
         self.setWidget(內)
         self._滾輪 = 滾輪過濾(self)
-        for w in (w for w in 內.findChildren(QWidget) if isinstance(w, (QSlider, QSpinBox, QComboBox))):
+        for w in (w for w in 內.findChildren(QWidget) if isinstance(w, (QSpinBox, QComboBox))):
             w.setFocusPolicy(Qt.StrongFocus)      # 只有點選過才會有焦點（預設的 Wheel 會讓滾輪也能取得焦點）
             w.installEventFilter(self._滾輪)
 
@@ -144,76 +93,6 @@ class 設定頁(QScrollArea):
         外.addLayout(格)
         return 框, 格
 
-    def _做框區(self, 鍵, 標題):
-        框, 格 = self._面板(標題)
-        欄 = {}
-        預覽 = lambda *_: self._預覽(鍵)
-        欄["show"] = QCheckBox("按 Ctrl+Shift+S 同時開關時，顯示這個框")
-        欄["font"] = QFontComboBox()
-        欄["font_size"] = 滑桿(10, 72, lambda v: f"{v} px")
-        欄["text_color"] = 顏色鈕(預覽)
-        欄["bg_color"] = 顏色鈕(預覽)
-        欄["bg_opacity"] = 滑桿(0, 100, lambda v: f"{v}%")
-        欄["text_effect"] = QComboBox()
-        for 名, 值 in (("陰影", "shadow"), ("描邊", "outline"), ("無", "none")):
-            欄["text_effect"].addItem(名, 值)
-        欄["fade_seconds"] = QSpinBox()
-        欄["fade_seconds"].setRange(0, 600)
-        欄["fade_seconds"].setSpecialValueText("不淡出")
-        欄["fade_seconds"].setSuffix(" 秒")
-        欄["position"] = QComboBox()
-        for 名, 值 in (("停靠上緣", "top"), ("停靠下緣", "bottom"), ("自由位置（拖曳）", "free")):
-            欄["position"].addItem(名, 值)
-        欄["screen"] = QComboBox()
-        for i, s in enumerate(QGuiApplication.screens()):
-            欄["screen"].addItem(f"螢幕 {i}" + ("（主螢幕）" if i == 0 else "") + f"  {s.geometry().width()}×{s.geometry().height()}", i)
-        最寬 = max(s.geometry().width() for s in QGuiApplication.screens())
-        欄["width"] = 滑桿(300, 最寬, lambda v: f"{v} px")
-        項目 = [("字型", "font"), ("字級", "font_size"), ("文字顏色", "text_color"), ("背景色", "bg_color"),
-              ("背景透明度", "bg_opacity"), ("文字效果", "text_effect"), ("幾秒沒更新就淡出", "fade_seconds"),
-              ("位置", "position"), ("螢幕", "screen"), ("寬度（高度自動）", "width")]
-        if 鍵 == "summary_box":
-            欄["show_minute"] = QCheckBox("分鐘摘要")
-            欄["show_topic"] = QCheckBox("目前話題")
-            欄["show_side"] = QCheckBox("支線")
-            欄["show_audience"] = QCheckBox("觀眾反應")
-            欄["max_lines"] = QSpinBox()
-            欄["max_lines"].setRange(1, 8)
-            欄["max_lines"].setSuffix(" 行")
-            項目.append(("分鐘摘要最多", "max_lines"))
-        else:
-            欄["lines"] = QComboBox()
-            欄["lines"].addItem("最近 1 句", 1)
-            欄["lines"].addItem("最近 2 句", 2)
-            項目.append(("顯示句數", "lines"))
-        格.addWidget(欄["show"], 0, 0, 1, 4)
-        for i, (名, k) in enumerate(項目):
-            列, 行 = 1 + i // 2, (i % 2) * 2
-            格.addWidget(小標(名), 列, 行)
-            格.addWidget(欄[k], 列, 行 + 1)
-        if 鍵 == "summary_box":
-            列 = 2 + len(項目) // 2
-            勾們 = QHBoxLayout()
-            勾們.addWidget(小標("要顯示的項目"))
-            for k in ("show_minute", "show_topic", "show_side", "show_audience"):
-                勾們.addWidget(欄[k])
-            勾們.addStretch(1)
-            格.addLayout(勾們, 列, 0, 1, 4)
-        # 任何一個改了就即時預覽
-        for k, w in 欄.items():
-            if isinstance(w, QCheckBox):
-                w.toggled.connect(預覽)
-            elif isinstance(w, QFontComboBox):
-                w.currentFontChanged.connect(預覽)
-            elif isinstance(w, QComboBox):
-                w.currentIndexChanged.connect(預覽)
-            elif isinstance(w, QSpinBox):
-                w.valueChanged.connect(預覽)
-            elif isinstance(w, 滑桿):
-                w.桿.valueChanged.connect(預覽)
-        self.框欄[鍵] = 欄
-        return 框
-
     def _下次(self):
         w = QLabel("下次開始生效")
         w.setStyleSheet("color: #f5b84a; font-size: 12px;")
@@ -222,7 +101,7 @@ class 設定頁(QScrollArea):
         return w
 
     def _做一般區(self):
-        框, 格 = self._面板("功能、快捷鍵與模型")
+        框, 格 = self._面板("功能與模型")
         self.欄 = {}
         e = self.欄
         e["subtitle_mode"] = QComboBox()
@@ -249,10 +128,6 @@ class 設定頁(QScrollArea):
         e["translate_batch_lines"] = QSpinBox()
         e["translate_batch_lines"].setRange(1, 8)
         e["translate_batch_lines"].setSuffix(" 句")
-        e["click_through"] = QCheckBox("字幕框一開啟就是滑鼠穿透")
-        for k in ("hotkey_toggle", "hotkey_summary", "hotkey_subtitle", "hotkey_click_through"):
-            e[k] = QLineEdit()
-            e[k].setPlaceholderText("例如 Ctrl+Shift+S")
         e["provider"] = QComboBox()
         e["provider"].addItem("Claude（anthropic）", "anthropic")
         e["provider"].addItem("OpenAI 相容（openai_compatible）", "openai_compatible")
@@ -280,11 +155,6 @@ class 設定頁(QScrollArea):
         加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
         加("翻譯批次：最多等", e["translate_batch_seconds"], True)
         加("翻譯批次：累積", e["translate_batch_lines"], True)
-        加("", e["click_through"])
-        加("同時開關兩個框", e["hotkey_toggle"])
-        加("只開關摘要框", e["hotkey_summary"])
-        加("只開關字幕框", e["hotkey_subtitle"])
-        加("切換滑鼠穿透", e["hotkey_click_through"])
         加("模型服務", e["provider"], True)
         加("模型名稱", e["model"], True)
         加("API 金鑰", self.金鑰字)
@@ -315,37 +185,14 @@ class 設定頁(QScrollArea):
 
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):
-        """把設定（live_topics.載入設定 的格式）放進表單。不給就讀 config.json，位置用兩個框目前的實際位置。"""
+        """把設定（live_topics.載入設定 的格式）放進表單。不給就讀 config.json。"""
         if 設定 is None:
             設定, _, _ = live_topics.載入設定({})
-            ov, _ = overlay.讀設定(設定["overlay"])
-            for 框 in self.主.框們():
-                ov[框.設定鍵].update(框.目前位置設定())
-        else:
-            ov, _ = overlay.讀設定(設定["overlay"])
         self._載入中 = True
         try:
-            for 鍵, 欄 in self.框欄.items():
-                s = ov[鍵]
-                for k, w in 欄.items():
-                    v = s[k]
-                    if k == "bg_opacity":
-                        w.設值(v * 100)
-                    elif isinstance(w, 滑桿):
-                        w.設值(v)
-                    elif isinstance(w, 顏色鈕):
-                        w.設值(v)
-                    elif isinstance(w, QCheckBox):
-                        w.setChecked(v)
-                    elif isinstance(w, QFontComboBox):
-                        w.setCurrentFont(v)
-                    elif isinstance(w, QComboBox):
-                        w.setCurrentIndex(max(0, w.findData(v)))
-                    elif isinstance(w, QSpinBox):
-                        w.setValue(int(v))
             e = self.欄
             for k, w in e.items():
-                v = ov[k] if k in overlay.共用預設 else 設定[k]
+                v = 設定[k]
                 if isinstance(w, QCheckBox):
                     w.setChecked(v)
                 elif isinstance(w, QComboBox):
@@ -358,20 +205,6 @@ class 設定頁(QScrollArea):
             self._載入中 = False
         self.更新金鑰()
 
-    def 同步位置(self):
-        """切到設定分頁時：位置、寬度、螢幕改成兩個框目前的實際狀態（拖曳過會變成自由位置）。"""
-        self._載入中 = True
-        try:
-            for 框 in self.主.框們():
-                欄 = self.框欄[框.設定鍵]
-                現在 = 框.目前位置設定()
-                欄["position"].setCurrentIndex(max(0, 欄["position"].findData(現在["position"])))
-                欄["screen"].setCurrentIndex(max(0, 欄["screen"].findData(現在["screen"])))
-                欄["width"].設值(現在["width"])
-        finally:
-            self._載入中 = False
-        self.更新金鑰()
-
     def 更新金鑰(self):
         環境變數 = live_topics.載入設定({})[0]["api_key_env"].strip()
         if not 環境變數:
@@ -379,27 +212,8 @@ class 設定頁(QScrollArea):
         else:
             self.金鑰字.setText(("已設定" if os.environ.get(環境變數) else "未設定") + f"（環境變數 {環境變數}）")
 
-    def 讀框(self, 鍵):
-        s = {}
-        for k, w in self.框欄[鍵].items():
-            if k == "bg_opacity":
-                s[k] = round(w.值() / 100, 2)
-            elif isinstance(w, 滑桿):
-                s[k] = w.值()
-            elif isinstance(w, 顏色鈕):
-                s[k] = w.色
-            elif isinstance(w, QCheckBox):
-                s[k] = w.isChecked()
-            elif isinstance(w, QFontComboBox):
-                s[k] = w.currentFont().family()
-            elif isinstance(w, QComboBox):
-                s[k] = w.currentData()
-            elif isinstance(w, QSpinBox):
-                s[k] = w.value()
-        return s
-
     def 讀全部(self):
-        """回傳 (要寫進 config.json 的欄位, overlay 區塊)。"""
+        """回傳要寫進 config.json 的欄位（不含已停用的舊欄位）。"""
         e = self.欄
         一般 = {
             "subtitle_mode": e["subtitle_mode"].currentData(),
@@ -415,22 +229,9 @@ class 設定頁(QScrollArea):
             "translate_batch_lines": e["translate_batch_lines"].value(),
             "provider": e["provider"].currentData(), "model": e["model"].text().strip(),
         }
-        ov = {"click_through": e["click_through"].isChecked()}
-        for k in ("hotkey_toggle", "hotkey_summary", "hotkey_subtitle", "hotkey_click_through"):
-            ov[k] = e[k].text().strip()
-        ov["summary_box"] = self.讀框("summary_box")
-        ov["subtitle_box"] = self.讀框("subtitle_box")
-        return 一般, ov
+        return 一般
 
-    # ---------- 即時預覽 ----------
-    def _預覽(self, 鍵):
-        if self._載入中:
-            return
-        框 = self.主.框(鍵)
-        框.套用設定(self.讀框(鍵), 動位置=True)
-        if not 框.開啟:
-            self.主.開關框(框, True)
-
+    # ---------- 立即生效的項目 ----------
     def _換方向(self, *_):
         """選了「最新內容顯示在」就立刻重新排列所有分頁（按「儲存」才寫進 config.json）。"""
         if not self._載入中:
@@ -443,15 +244,9 @@ class 設定頁(QScrollArea):
 
     # ---------- 儲存、還原 ----------
     def 儲存(self):
-        一般, ov = self.讀全部()
+        一般 = self.讀全部()
         if not 一般["model"]:
             return self._提示("模型名稱不能空白。", 錯=True)
-        鍵們 = [ov[k] for k in ("hotkey_toggle", "hotkey_summary", "hotkey_subtitle", "hotkey_click_through")]
-        for 鍵 in 鍵們:
-            if not overlay.解析快捷鍵(鍵):
-                return self._提示(f"快捷鍵「{鍵}」看不懂，請寫成像 Ctrl+Shift+S 這樣（最後一個是英文字母、數字或 F1~F12）。", 錯=True)
-        if len({k.lower().replace(" ", "") for k in 鍵們}) < 4:
-            return self._提示("四個快捷鍵不能重複，請改成不同的按鍵。", 錯=True)
         路徑 = live_topics.設定檔路徑
         try:
             原本 = {}
@@ -461,33 +256,21 @@ class 設定頁(QScrollArea):
                     原本 = json.load(f)
                 if not isinstance(原本, dict):
                     原本 = {}
-            原本.update(一般)
-            原本["overlay"] = ov
+            原本.update(一般)              # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留
             with open(路徑, "w", encoding="utf-8") as f:
                 json.dump(原本, f, ensure_ascii=False, indent=2)
                 f.write("\n")
         except Exception as e:
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
-        for 框 in self.主.框們():
-            框.存檔後(ov[框.設定鍵])
-        問題們 = self.主.註冊快捷鍵(ov)
         字 = "已儲存到 config.json（舊的設定備份在 config.backup.json）。"
         if self.主.執行中():
             字 += "標示「下次開始生效」的項目，要等下次按「開始」才會用新的設定。"
-        if 問題們:
-            字 += "\n" + "　".join(問題們)
-        self._提示(字, 錯=bool(問題們))
-        if hasattr(self.主, "設定已儲存"):          # 主控台分頁與設定框各有一份設定頁：存了一份就讓另一份重新載入
-            self.主.設定已儲存(self)
+        self._提示(字)
 
     def 還原預設(self):
-        設定 = live_topics.內建預設()
-        設定["overlay"] = overlay.預設設定()
-        self.載入(設定)
-        for 鍵 in self.框欄:
-            self._預覽(鍵)
+        self.載入(live_topics.內建預設())
         self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
-        self._提示("已還原成預設值，字幕框已預覽。按「儲存」才會寫入 config.json。")
+        self._提示("已還原成預設值。按「儲存」才會寫入 config.json。")
 
     def _提示(self, 字, 錯=False):
         self.狀態字.setStyleSheet(f"color: {'#ff5c7a' if 錯 else '#3ecf8e'};")
