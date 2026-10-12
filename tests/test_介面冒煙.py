@@ -406,8 +406,11 @@ def test_設定框_字幕速度說明與儲存_原有欄位保留(環境):
     assert "翻譯字幕約慢 18 秒" in 頁.段位說明.text()
     表 = 頁.費用表
     assert 表[0] == ("項目", "每小時（估算）", "受字幕段位影響", "目前狀態")
-    assert [列[0] for 列 in 表[1:]] == ["字幕翻譯", "換話題判斷", "分鐘摘要", "話題摘要", "合計"]
+    assert [列[0] for 列 in 表[1:]] == ["字幕翻譯", "摘要（小計）", "　話題追蹤（每分鐘檢查）", "　分鐘摘要", "　話題摘要", "合計"]
     assert 表[-1][1].startswith("US$")
+    細項 = sum(float(列[1][1:]) for 列 in 表[3:6])
+    assert abs(float(表[2][1][1:]) - 細項) < 1e-9                      # 小計 = 三個細項
+    assert abs(float(表[-1][1][4:]) - float(表[1][1][1:]) - float(表[2][1][1:])) < 1e-9   # 合計 = 字幕翻譯 + 摘要
     assert [x.text() for x in 頁.費用註們] == cost_estimate.備註們
 
     頁.儲存()
@@ -436,9 +439,12 @@ def test_啟動面板切換段位_延遲準確度與費用拆分跟著更新(環
         啟.段位鈕們[代碼].click()
         assert 延遲 in 啟.段位註.text() and 準確 in 啟.段位註.text()
         字 = 啟.費用註.text()
-        assert 字.startswith("每小時約 US$") and "（估算）＝" in 字 and "字幕翻譯 $" in 字 and "第一句" not in 字
+        總, 甲, 乙 = re.findall(r"\$(\d+\.\d{2})", 字)
+        assert re.fullmatch(r"每小時約 US\$[\d.]+（估算）＝ (字幕翻譯|摘要) \$[\d.]+ ＋ (字幕翻譯|摘要) \$[\d.]+", 字), 字
+        assert "字幕翻譯 $" in 字 and "摘要 $" in 字 and "其他" not in 字 and "話題追蹤" not in 字
+        assert abs(float(總) - float(甲) - float(乙)) < 1e-9 and float(甲) >= float(乙)       # 加總等於合計、由大到小
         看到[代碼] = 字
     assert len(set(看到.values())) == 3                      # 三個段位的費用字都不同（字幕翻譯金額不同）
     啟.語言選.setCurrentIndex(啟.語言選.findData("zh"))        # 中文直播：不翻譯
-    assert "字幕翻譯 未開啟 $0" in 啟.費用註.text()
+    assert re.fullmatch(r"每小時約 US\$\d+\.\d{2}（估算）＝ 字幕翻譯 未開啟 \$0 ＋ 摘要 \$\d+\.\d{2}", 啟.費用註.text()), 啟.費用註.text()
     assert "第一句" not in 啟.段位註.text() + 啟.費用註.text()

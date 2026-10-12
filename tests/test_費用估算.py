@@ -84,19 +84,28 @@ def test_合計等於各項顯示金額相加():
 
 
 # ---------- 文字格式 ----------
-def test_一行說明格式與估算字樣():
-    字 = ce.一行說明(ce.估算(設定(), "balanced", True))
-    assert re.match(r"^每小時約 US\$\d+\.\d{2}（估算）＝ ", 字)
-    金額們 = re.findall(r"\$(\d+\.\d{2})", 字)
-    assert all(len(m.split(".")[1]) == 2 for m in 金額們)
-    assert "其他 $" in 字                       # 4 項開啟 → 前兩大＋其他
-    排序 = [float(m) for m in 金額們[1:3]]      # 第 0 個是合計；後面依金額由大到小
-    assert 排序 == sorted(排序, reverse=True)
+def test_一行說明只有字幕翻譯與摘要兩項_加總等於合計():
+    結果 = ce.估算(設定(), "balanced", True)
+    字 = ce.一行說明(結果)
+    assert re.fullmatch(r"每小時約 US\$\d+\.\d{2}（估算）＝ (字幕翻譯|摘要) \$\d+\.\d{2} ＋ (字幕翻譯|摘要) \$\d+\.\d{2}", 字)
+    總, 甲, 乙 = (float(x) for x in re.findall(r"\$(\d+\.\d{2})", 字))
+    assert 總 == pytest.approx(甲 + 乙) and 甲 >= 乙 and 總 == 結果["合計"]
+    摘要 = sum(項(結果, k)["每小時"] for k in ("判斷", "分鐘", "話題"))
+    assert f"摘要 ${摘要:.2f}" in 字 and "其他" not in 字 and "話題追蹤" not in 字
 
 
-def test_一行說明_翻譯沒開時註明():
-    字 = ce.一行說明(ce.估算(設定(), "balanced", False))
-    assert "字幕翻譯 未開啟 $0" in 字 and "其他" not in 字      # 只剩三項開啟，全部列出
+def test_一行說明_翻譯沒開時固定寫未開啟():
+    結果 = ce.估算(設定(), "balanced", False)
+    assert ce.一行說明(結果) == f"每小時約 US${結果['合計']:.2f}（估算）＝ 字幕翻譯 未開啟 $0 ＋ 摘要 ${結果['合計']:.2f}"
+
+
+def test_費用表_摘要歸類與名稱():
+    結果 = ce.估算(設定(), "balanced", True)
+    列們 = ce.表格列們(結果)
+    assert [列[0] for 列 in 列們] == ["項目", "字幕翻譯", "摘要（小計）", "　話題追蹤（每分鐘檢查）", "　分鐘摘要", "　話題摘要", "合計"]
+    assert float(列們[2][1][1:]) == pytest.approx(sum(float(列[1][1:]) for 列 in 列們[3:6]))
+    assert 列們[-1][1] == f"US${結果['合計']:.2f}"
+    assert ce.估算(設定(check_minutes=2), "balanced", True)["項目們"][1]["名稱"] == "話題追蹤（每 2 分鐘檢查）"
 
 
 def test_合計字格式():

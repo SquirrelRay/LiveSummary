@@ -262,9 +262,7 @@ class 設定頁(QScrollArea):
             w = 格.takeAt(0).widget()
             if w:
                 w.deleteLater()
-        列們 = [("項目", "每小時（估算）", "受字幕段位影響", "目前狀態")]
-        列們 += [(x["名稱"], cost_estimate.項目金額字(x), "是" if x["受段位影響"] else "否", x["狀態"]) for x in 結果["項目們"]]
-        列們.append(("合計", cost_estimate.合計字(結果), "", ""))
+        列們 = cost_estimate.表格列們(結果)
         for r, 列 in enumerate(列們):
             for c, 字 in enumerate(列):
                 w = QLabel(字)
