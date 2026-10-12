@@ -32,6 +32,7 @@ import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
+import startup_timeline  # 啟動時間里程碑紀錄
 
 語言選項 = [("中文", "zh"), ("日文", "ja"), ("英文", "en"), ("韓文", "ko"), ("自動偵測", "auto")]
 速度選項 = [("60 倍速", 60), ("30 倍速", 30), ("10 倍速", 10), ("真實速度", 1), ("瞬間跑完", 0)]
@@ -1337,6 +1338,7 @@ class 主控台(QMainWindow):
 
     # ---------- 開始 / 停止 ----------
     def 開始(self):
+        按下時間 = time.time()
         直播 = self.直播鈕.isChecked()
         網址 = self.網址框.text().strip() if 直播 else None
         檔案 = self.檔案框.text().strip().strip('"') if not 直播 else None
@@ -1377,7 +1379,13 @@ class 主控台(QMainWindow):
                       設定["price_input"], 設定["price_output"],
                       設定["translate_batch_seconds"], 設定["translate_batch_lines"])
         self.字幕器.啟用 = self.字幕框.開啟 or self.面板.要翻譯()     # 逐句翻譯面板開著也會翻譯
-        self.面板.開始(設定)
+        import live_capture
+        startup_timeline.開始({
+            "來源": "直播網址" if 直播 else "文字稿重播", "語言設定": 設定["language"], "字幕模式": 設定["subtitle_mode"],
+            "摘要模型": 設定["model"], "轉錄模型": 設定["whisper_model"],
+            "分段長度設定(秒)": live_capture.段秒數, "翻譯批次秒數": subtitle.批次秒數, "翻譯批次句數": subtitle.批次句數,
+        }, 起點=按下時間)
+        self.面板.開始(設定, 直播)
         self.本場設定, self.本場檔案 = 設定, []
         self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
         self._更新翻譯註()

@@ -23,6 +23,7 @@ from PySide6.QtGui import QActionGroup
 import overlay          # 最上層、滑鼠穿透（Windows 原生）
 import subtitle
 import live_topics
+import startup_timeline
 
 版面檔 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "版面配置.json")
 種類們 = ["分鐘摘要", "話題摘要", "逐句翻譯", "直播稿", "聊天室"]
@@ -33,6 +34,7 @@ import live_topics
 HWND_NOTOPMOST = overlay.wintypes.HWND(-2)
 WS_EX_TOPMOST = 0x8
 
+提示種類 = ("逐句翻譯", "分鐘摘要", "話題摘要")      # 還沒有內容時顯示階段提示的面板
 最小尺寸 = {"清單": (200, 40), "字幕": (200, 20)}     # (最小寬, 最小高)
 透明度級距 = [1.0, 0.8, 0.6, 0.4, 0.2]               # 文字、背景透明度選單的固定級距（背景另外多一個 0%）
 
@@ -272,7 +274,9 @@ class 面板(QWidget):
         頁.頂.layout().setContentsMargins(8, 4, 8, 0)
         self.清單容器.layout().addWidget(頁)
         self.清單頁 = 頁
+        self._原提示 = None
         self._排()
+        self.更新提示()
 
     def 新項目(self, 方法, 參數):
         getattr(self.清單頁, 方法)(*參數)
@@ -304,7 +308,29 @@ class 面板(QWidget):
             self.字幕字.setText(f'<div style="color:rgba(255,255,255,{round(255 * a)});">'
                              + "<br>".join(跳脫(t) for t in 句們) + "</div>")
         else:
-            self.字幕字.setText(f'<span style="color:rgba(255,255,255,{round(140 * a)});">（{self.種類}會出現在這裡）</span>')
+            提示 = self._空提示() or f"（{self.種類}會出現在這裡）"
+            self.字幕字.setText(f'<span style="color:rgba(255,255,255,{round(140 * a)});">{跳脫(提示)}</span>')
+
+    def _空提示(self):
+        """還沒有內容時的階段提示（載入模型中…等）；這種面板不顯示、或已經完成就是空字串。"""
+        return self.管理.階段.提示() if self.種類 in 提示種類 else ""
+
+    def 更新提示(self):
+        """清單樣式：把頁面原本的空白提示換成階段提示（沒有階段提示就換回原文字）；字幕樣式：重畫。"""
+        頁 = self.清單頁
+        if 頁 is None:
+            return
+        提示 = self._空提示()
+        if isinstance(getattr(頁, "提示", None), QLabel):          # 卡片清單（分鐘摘要、話題摘要）
+            if self._原提示 is None:
+                self._原提示 = 頁.提示.text()
+            頁.提示.setText(提示 or self._原提示)
+        elif hasattr(頁, "瀏覽"):                                    # 文字清單、逐句頁（逐句翻譯）
+            if self._原提示 is None:
+                self._原提示 = 頁.瀏覽.placeholderText()
+            頁.瀏覽.setPlaceholderText(提示 or self._原提示)
+        if self.設["樣式"] == "字幕":
+            self._畫字幕()
 
     # ---------- 樣式與設定 ----------
     def _套樣式(self):
@@ -497,6 +523,7 @@ class 面板管理(QObject):
         self.懸停計時 = QTimer(self, interval=80, timeout=self._看懸停)
         self.懸停計時.start()
         self.存檔 = self._讀檔()
+        self.階段 = startup_timeline.啟動階段()      # 面板還沒有內容時顯示哪一句提示
 
     # ---------- 版面檔 ----------
     def _讀檔(self):
@@ -627,7 +654,8 @@ class 面板管理(QObject):
                 面.清單頁.設註(註)
 
     # ---------- 主控台的動作 ----------
-    def 開始(self, 設定):
+    def 開始(self, 設定, 直播=True):
+        self.階段.重設(有模型=直播)
         for k, 紀 in self.紀錄們.items():
             紀.清空()
             紀.設上限(設定[上限鍵[k]])
@@ -649,6 +677,10 @@ class 面板管理(QObject):
         if 面:
             面.新項目(方法, 參數)
 
+    def _更新提示(self):
+        for 面 in self.面板們.values():
+            面.更新提示()
+
     def _設檔案(self, 種類, 路徑):
         self.紀錄們[種類].檔案 = 路徑
         面 = self.面板們.get(種類)
@@ -667,7 +699,14 @@ class 面板管理(QObject):
         if 種類 == "files":
             for k, 鍵 in 檔案鍵.items():
                 self._設檔案(k, 內容[鍵])
+        elif 種類 == "milestone":
+            self.階段.收里程碑(內容["名稱"])
+            self._更新提示()
+        elif 種類 == "subtitle":
+            startup_timeline.標記(startup_timeline.第一句顯示)
         elif 種類 == "transcript_line":
+            if not 台.字幕器.啟用:           # 沒開字幕也沒開逐句翻譯面板：不會有字幕，第一句文字稿出現就當作第一句
+                startup_timeline.標記(startup_timeline.第一句顯示_無字幕)
             self._加("直播稿", "加一行", (f'<span style="color:{淡};">{跳脫(內容["時間字"])}</span>&nbsp;&nbsp;{跳脫(內容["內容"])}',),
                     內容["內容"])
             if 內容["內容"] and not subtitle.要翻譯(台.字幕器.模式, 台.字幕器.語言, 內容["內容"]):
@@ -696,6 +735,8 @@ class 面板管理(QObject):
             self._設進行中((f"已進行 {內容['進行分鐘']:.0f} 分鐘", 內容["簡述"] or "（新話題剛開始）"))
         elif 種類 in ("error", "finished"):
             self._設進行中(None)
+            self.階段.結束()
+            self._更新提示()
         elif 種類 == "language_detected":
             self._同步註()
 

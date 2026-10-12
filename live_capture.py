@@ -17,6 +17,7 @@ import numpy as np
 
 import transcribe  # 沿用 GPU 優先的作法與時間格式
 import events      # 提示訊息改成送出事件
+import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
 
 段秒數 = 20
 取樣率 = 16000
@@ -153,6 +154,7 @@ class live_session:
         self.網址 = 網址
         self.語言 = 語言
         串流名 = 檢查直播(網址)
+        里程碑.標記(里程碑.直播檢查完成)
         events.送出("stage", 階段="尋找 ffmpeg")
         self.ffmpeg = 找ffmpeg()
         self.串流名 = 串流名
@@ -202,6 +204,7 @@ class live_session:
     def __iter__(self):
         events.送出("info", 印出="載入轉錄模型中...")
         model = 載入模型(self.語言)
+        里程碑.標記(里程碑.模型載入完成)
         p1 = subprocess.Popen(
             [sys.executable, "-m", "streamlink_cli", "--loglevel", "error", "--stdout",
              self.網址, self.串流名],
@@ -211,6 +214,7 @@ class live_session:
              "-ar", str(取樣率), "-f", "s16le", "pipe:1"],
             stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
+        里程碑.標記(里程碑.擷取已啟動)
         if self.聊天:
             self.聊天.開始(time.time())   # 聊天室的時間和直播稿從同一個起點開始算
 
@@ -243,6 +247,7 @@ class live_session:
                         events.送出("info", 印出="\n直播串流已結束。")
                         return
                     開始 = time.time()
+                    里程碑.標記(里程碑.第一段收滿, 分段設定秒=段秒數, 實際秒=round(len(資料) / 2 / 取樣率, 2))
                     self._存音訊(資料, 第幾段 + 1, 第幾段 * 段秒數)
                     音訊 = np.frombuffer(資料, dtype=np.int16).astype(np.float32) / 32768.0
                     待轉 = [(第幾段, 音訊)]
@@ -252,9 +257,13 @@ class live_session:
                         待轉 = []
                         if len(緩存) >= 偵測句數:
                             self.語言 = 偵測語言(model, [a for _, a in 緩存])
+                            里程碑.標記(里程碑.語言偵測完成, 語言=self.語言)
                             待轉, 緩存 = 緩存, []
                     for 段號, 音訊 in 待轉:
-                        for 段內秒, 文字 in 轉錄一段(model, 音訊, self.語言):
+                        里程碑.標記(里程碑.第一段送轉錄, 語言=self.語言)
+                        結果們 = 轉錄一段(model, 音訊, self.語言)
+                        里程碑.標記(里程碑.第一段轉錄完成, 句數=len(結果們))
+                        for 段內秒, 文字 in 結果們:
                             if 文字 == 上一句:   # 跟上一句一模一樣，多半是亂猜
                                 continue
                             上一句 = 文字
@@ -262,6 +271,7 @@ class live_session:
                             行 = f"{transcribe.時間(秒)} {文字}"
                             稿.write(行 + "\n")
                             稿.flush()
+                            里程碑.標記(里程碑.第一句文字稿)
                             yield 秒, 行
                     花費 = time.time() - 開始
                     if 花費 > 段秒數:

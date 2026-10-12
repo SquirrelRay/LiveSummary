@@ -12,6 +12,7 @@ import queue
 import threading
 
 import events
+import startup_timeline as 里程碑
 import llm
 
 批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由 config.json 覆蓋）
@@ -167,6 +168,7 @@ class 字幕器:
         if not 文字:
             return
         if 要翻譯(self.模式, self.語言, 文字):
+            里程碑.標記(里程碑.第一句進佇列)
             self._佇列.put((time.time(), 內容["時間字"], 文字))
         else:
             events.送出("subtitle", 時間字=內容["時間字"], 文字=文字, 已翻譯=False)
@@ -237,8 +239,11 @@ class 字幕器:
         提示詞 = 翻譯規則 + "\n".join(f"{i + 1}. {原文}" for i, (_, _, 原文) in enumerate(批))
         回答 = ""
         try:
+            里程碑.標記(里程碑.翻譯請求送出, 句數=len(批), 批次秒數=批次秒數, 批次句數=批次句數)
             回答 = llm.call_llm(提示詞, self.模型, 類別="翻譯")
+            里程碑.標記(里程碑.翻譯回來, 回傳字數=len(回答))
         except Exception as e:
+            里程碑.標記(里程碑.翻譯回來, 失敗=type(e).__name__)
             self._記錄失敗(批, 回答, e)
             events.送出("info", 印出="（這幾句翻譯失敗，暫時顯示原文）")
             return [""] * len(批)
