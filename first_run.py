@@ -27,8 +27,10 @@ import events
 逾時秒 = 4.0                 # 顯示卡偵測最多等幾秒
 
 # 轉錄模型的檔案總大小（位元組，faster-whisper 會下載的那幾個檔加起來）。
-# 2026-10-14 查：Hugging Face 模型頁的檔案清單（mobiuslabsgmbh/faster-whisper-large-v3-turbo：model.bin 1.62 GB；
-# Systran/faster-whisper-small：model.bin 484 MB），並用這台電腦快取裡實際下載好的檔案逐一核對位元組數。
+# 2026-10-14 查：Hugging Face 的檔案清單 API（huggingface.co/api/models/mobiuslabsgmbh/faster-whisper-large-v3-turbo/tree/main、
+# huggingface.co/api/models/Systran/faster-whisper-small/tree/main），把 config.json、preprocessor_config.json、model.bin、
+# tokenizer.json、vocabulary.* 的位元組數相加；和這台電腦快取裡下載好的檔案逐一比對，完全相同。
+# medium 只用這台電腦的快取量過（沒有上網核對）。
 模型大小 = {
     "large-v3-turbo": 1_621_665_983,
     "turbo": 1_621_665_983,
