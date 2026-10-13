@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 import cost_estimate
 import events
 import config
+import names_page
 import subtitle_speed
 from launch_state import 啟動狀態
 
@@ -123,6 +124,22 @@ class 啟動面板(QWidget):
         self.網址框.setPlaceholderText("直播網址，例如 https://www.twitch.tv/頻道名稱")
         self.網址框.returnPressed.connect(self.開始)
         版.addWidget(self.網址框)
+
+        名詞列 = QHBoxLayout()            # 名詞清單：用網址欄的頻道決定是哪位直播主，開始前可以先填名字
+        名詞列.setSpacing(8)
+        self.名詞鈕 = QPushButton("名詞清單")
+        self.名詞鈕.setObjectName("小鈕")
+        self.名詞鈕.setCursor(Qt.PointingHandCursor)
+        self.名詞鈕.setFocusPolicy(Qt.NoFocus)
+        self.名詞鈕.setToolTip("先替這位直播主填好名字的寫法（中文、羅馬拼音或英文），摘要會照著寫")
+        self.名詞鈕.clicked.connect(台.開名詞清單)
+        self.名詞原因 = QLabel("")
+        self.名詞原因.setObjectName("小標")
+        名詞列.addWidget(self.名詞鈕)
+        名詞列.addWidget(self.名詞原因, 1)
+        版.addLayout(名詞列)
+        self.網址框.textChanged.connect(lambda _: self._更新名詞鈕())
+        self._更新名詞鈕()
 
         列 = QHBoxLayout()
         列.setSpacing(8)
@@ -256,6 +273,12 @@ class 啟動面板(QWidget):
         self.收起比較()                  # 點面板其他地方就收起比較表
         if e.button() == Qt.LeftButton and self.windowHandle():     # 拖曳空白處移動
             self.windowHandle().startSystemMove()
+
+    def _更新名詞鈕(self):
+        """網址欄還不是有效的 Twitch 頻道網址時，名詞清單按鈕停用，旁邊寫出原因。"""
+        名, 原因 = names_page.頻道(self.網址框.text())
+        self.名詞鈕.setEnabled(bool(名))
+        self.名詞原因.setText(原因 or f"直播主：{名}")
 
     @property
     def 等待中(self):

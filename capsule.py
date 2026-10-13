@@ -605,6 +605,10 @@ class 膠囊管理(QObject):
         a.setCheckable(True)
         a.setChecked(self.顯示用量)
         a.toggled.connect(self.設顯示用量)
+        _, _, 原因 = 台.名詞清單目標()        # 直播中與待命都可用；看不出是哪位直播主時停用並寫出原因
+        a = 選單.addAction("名詞清單" + (f"（{原因}）" if 原因 else ""))
+        a.setEnabled(not 原因)
+        a.triggered.connect(台.開名詞清單)
         選單.addAction("設定").triggered.connect(台.開設定框)
         選單.addAction("顯示主控台").triggered.connect(self.顯示主控台)
         if 含重設:

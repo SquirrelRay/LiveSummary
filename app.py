@@ -24,6 +24,8 @@ import live_topics
 import subtitle      # 逐句字幕（原文或翻譯）
 import chat_translate  # 聊天室翻譯（和逐句字幕分開的另一條翻譯執行緒）
 import settings_page # 設定框
+import names_page    # 名詞清單（直播主詞庫的寫法訂正）
+import glossary
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
@@ -112,6 +114,10 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical, QScrollBar::add-pa
 QMessageBox {{ background: {面板}; }}
 QMessageBox QPushButton {{ min-width: 80px; }}
 QToolTip {{ background: {卡片}; color: {文字色}; border: 1px solid {邊框}; }}
+QTableWidget {{ background: {面板}; border: 1px solid {邊框}; border-radius: 8px; gridline-color: {邊框};
+    selection-background-color: #3a3456; selection-color: {文字色}; }}
+QTableWidget QLineEdit {{ border-radius: 4px; padding: 2px 6px; }}
+QHeaderView::section {{ background: {卡片}; color: {淡字}; border: none; border-bottom: 1px solid {邊框}; padding: 6px 8px; }}
 """
 
 
@@ -1064,6 +1070,7 @@ class 主控台(QMainWindow):
         self.本場設定 = None
         self.本場檔案 = []
         self.設定框 = None
+        self.名詞清單框 = None
 
         # 逐句字幕（翻譯）：只有逐句翻譯面板開著時才產生（見 panel.面板管理.要翻譯）
         self.字幕器 = subtitle.字幕器()
@@ -1506,6 +1513,8 @@ class 主控台(QMainWindow):
         self.啟動面板.close()
         if self.設定框:
             self.設定框.close()
+        if self.名詞清單框:
+            self.名詞清單框.close()
         e.accept()
         QApplication.quit()              # 主控台常常是隱藏的，不靠「最後一個視窗關閉」來結束
 
@@ -1518,6 +1527,33 @@ class 主控台(QMainWindow):
         if self.設定框 is None:
             self.設定框 = settings_page.設定框(self)
         self.設定框.打開(self.膠囊.膠囊._所在螢幕())
+
+    # ---------- 名詞清單（膠囊選單、啟動面板的按鈕）----------
+    def 名詞清單目標(self):
+        """回傳 (直播主, 這一場的詞庫物件或 None, 停用原因)。停用原因是空字串＝可以打開。
+        直播中：這一場的頻道（引擎載入詞庫後就用它那一個物件）；文字稿重播沒有直播主 → 停用。
+        待命：啟動面板網址欄的頻道；不是有效的 Twitch 頻道網址 → 停用。"""
+        if self.執行中():
+            if glossary.本場詞庫 is not None:
+                return glossary.本場詞庫.直播主, glossary.本場詞庫, ""
+            if not self.直播鈕.isChecked():
+                return None, None, "文字稿重播沒有指定直播主"
+            名, 原因 = names_page.頻道(self.網址框.text())
+            return 名, None, 原因
+        名, 原因 = names_page.頻道(self.啟動面板.網址框.text())
+        return 名, None, 原因
+
+    def 開名詞清單(self):
+        名, 本場, 原因 = self.名詞清單目標()
+        if 原因:
+            self.膠囊.小提示("名詞清單：" + 原因, 秒=6, 錯誤=True)
+            return
+        詞庫 = 本場 or glossary.詞庫(glossary.檔名安全(名))
+        if self.名詞清單框 is None:
+            self.名詞清單框 = names_page.名詞清單框()
+        elif 本場 is None and self.名詞清單框.詞庫 is not None and self.名詞清單框.詞庫.路徑 == 詞庫.路徑:
+            詞庫 = self.名詞清單框.詞庫          # 同一位直播主、視窗已經開過：沿用（保留這一場的出現紀錄）
+        self.名詞清單框.打開(詞庫, 本場=本場 is not None, 螢幕範圍=self.膠囊.膠囊._所在螢幕())
 
     # ---------- 狀態 ----------
     def 執行中(self):
