@@ -133,6 +133,30 @@ def 量(scale):
             print("  ← 被截斷：", type(w).__name__, w.width(), "<", w.minimumSizeHint().width())
 
 
+def 截網址欄(app, 台, Qt, 出, 尾):
+    """啟動面板與主控台的網址欄：空白時顯示提示文字（150% 縮放也要放得下，不被截斷）；另外存滑鼠提示的文字。"""
+    面 = 台.啟動面板
+    面.setAttribute(Qt.WA_DontShowOnScreen)
+    面.網址框.setText("")
+    面.show()
+    等(app, 0.3)
+    存(面, os.path.join(出, f"啟動面板_網址欄提示{尾}.png"))
+    框 = 面.網址框
+    print(f"  啟動面板網址欄：寬 {框.width()}，提示文字需要 {框.fontMetrics().horizontalAdvance(框.placeholderText())}")
+    面.開始()          # 網址空白按開始：錯誤訊息列出兩種網址範例，不能被截斷
+    等(app, 0.3)
+    存(面, os.path.join(出, f"啟動面板_沒輸入網址{尾}.png"))
+    面.hide()
+    台.直播鈕.setChecked(True)
+    台.setAttribute(Qt.WA_DontShowOnScreen)
+    台.show()
+    等(app, 0.3)
+    存(台, os.path.join(出, f"主控台_網址欄提示{尾}.png"))
+    框 = 台.網址框
+    print(f"  主控台網址欄：寬 {框.width()}，提示文字需要 {框.fontMetrics().horizontalAdvance(框.placeholderText())}")
+    台.hide()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scale", type=float, default=1.0)
@@ -159,6 +183,7 @@ def main():
     引.區.測試連線()
     等(app, 0.3)
     存(引, os.path.join(出, f"引導_1_模型與金鑰{尾}.png"))
+    截網址欄(app, 台, Qt, 出, 尾)
     if a.scale != 1:
         return
 
@@ -197,7 +222,7 @@ def main():
     面 = 台.啟動面板
     面.setAttribute(Qt.WA_DontShowOnScreen)
     面.狀態.開始("檢查直播")
-    面.網址框.setText("https://www.twitch.tv/demo_channel")
+    面.網址框.setText("https://www.youtube.com/watch?v=示範影片代碼")
     面.下載.時鐘 = lambda: 1000.0
     面._收模型({"狀態": "將下載", "模型": "large-v3-turbo", "總": first_run.大小("large-v3-turbo"), "已": 0})
     面.下載.開始 = 1000.0 - 83

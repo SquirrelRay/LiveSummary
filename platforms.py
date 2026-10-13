@@ -11,6 +11,14 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 TWITCH = "twitch"
 YOUTUBE = "youtube"
 
+# 介面文字（啟動面板與主控台的網址欄共用）：提示文字要短（150% 縮放也放得下），完整範例放滑鼠提示與錯誤訊息
+網址提示 = "貼上 Twitch 頻道或 YouTube 直播網址"
+網址範例 = "https://www.twitch.tv/頻道名稱"
+網址範例YT = "https://www.youtube.com/watch?v=影片代碼"
+網址欄提示 = (f"Twitch 頻道網址，例如 {網址範例}\n"
+          f"YouTube 直播網址，例如 {網址範例YT}\n"
+          "（YouTube 也可用 youtu.be/…、/live/…、@帳號/live、/channel/UC… 等格式）")
+請先輸入網址 = f"請先貼上直播網址：Twitch 頻道（{網址範例}）或 YouTube 直播（{網址範例YT}）"
 VOD原因 = "直播檔（VOD）網址看不出是哪個頻道，請改用頻道網址"
 Twitch保留路徑 = {"videos", "directory", "settings", "search", "downloads", "jobs", "turbo", "friends", "subscriptions",
              "inventory", "wallet", "p", "u", "moderator", "popout", "embed"}

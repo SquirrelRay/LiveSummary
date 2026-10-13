@@ -29,6 +29,7 @@ import glossary
 import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
+import platforms     # 網址欄提示文字
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
 import onboarding    # 首次引導（第一次打開時出現；選單「使用說明」可重新打開）
 import startup_timeline  # 啟動時間里程碑紀錄
@@ -1161,7 +1162,8 @@ class 主控台(QMainWindow):
         第二列.setContentsMargins(0, 0, 0, 0)
         第二列.setSpacing(8)
         self.網址框 = 網址欄()
-        self.網址框.setPlaceholderText("https://www.twitch.tv/頻道名稱")
+        self.網址框.setPlaceholderText(platforms.網址提示)
+        self.網址框.setToolTip(platforms.網址欄提示)
         self.檔案框 = QLineEdit()
         self.檔案框.setPlaceholderText("選一個文字稿 .txt 檔（每行 [mm:ss] 文字）")
         self.瀏覽鈕 = QPushButton("瀏覽…")
@@ -1358,7 +1360,7 @@ class 主控台(QMainWindow):
         檔案 = self.檔案框.text().strip().strip('"') if not 直播 else None
         self.網址清單.hide()
         if 直播 and not 網址:
-            return self._錯誤框("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱")
+            return self._錯誤框(platforms.請先輸入網址)
         if 直播 and "/videos/" in 網址.lower():
             return self._錯誤框(launcher.VOD提示)
         if 直播 and (擋 := launcher.YouTube不支援(網址)):
@@ -1688,7 +1690,10 @@ class 主控台(QMainWindow):
         elif 種類 == "stream_info":
             self.直播資訊 = dict(內容)
             self._更新時間藥丸()
-            if not 內容["有開播"]:          # 開始時提示一次：時間改從開始擷取起算
+            if 內容.get("連續") and 內容.get("印出"):      # 24 小時連續直播不是出錯：用主控台那句白話說明
+                說明 = 內容["印出"].replace("，時間改為", "，\n時間改為").replace("），直播稿", "），\n直播稿")
+                self.膠囊.小提示(說明, 8, 錯誤=None)
+            elif not 內容["有開播"]:          # 開始時提示一次：時間改從開始擷取起算
                 self.膠囊.小提示("抓不到開播時間：時間改為從開始擷取起算（前面加 +），\n摘要卡片顯示「幾分鐘前」", 8, 錯誤=None)
             self.膠囊.更新()
         elif 種類 == "current_topic":
@@ -1785,9 +1790,15 @@ class 主控台(QMainWindow):
         return 絕對字
 
     def _時間藥丸字(self, 時間字):
+        if self.連續直播():
+            return f"擷取時間 {時間字} · 連續直播"
         if self.直播資訊 and not self.直播資訊["有開播"]:
             return f"擷取時間 {時間字} · 抓不到開播時間"
         return f"直播時間 {時間字}"
+
+    def 連續直播(self):
+        """這一場是 24 小時連續直播（開播超過 24 小時，時間從開始擷取起算）：不是出錯，說明和「抓不到開播時間」分開。"""
+        return bool(self.直播資訊 and self.直播資訊.get("連續"))
 
     def _更新時間藥丸(self):
         """抓不到開播時間：藥丸標黃並說明；抓到了：滑鼠提示寫開播時間與來源。"""
@@ -1796,12 +1807,17 @@ class 主控台(QMainWindow):
             return
         if 資["有開播"]:
             開播字 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(資["開播"]))
-            來源 = {"GQL": "Twitch 公開資料", "網頁": "Twitch 頻道網頁"}.get(資.get("來源"), "Twitch")
+            來源 = {"GQL": "Twitch 公開資料", "網頁": "Twitch 頻道網頁",
+                  "YouTube網頁": "YouTube 觀看頁（公開資料）"}.get(資.get("來源"), "公開資料")
             self.時間藥丸.setStyleSheet("")
             self.時間藥丸.setToolTip(f"直播實際進行時間（{開播字} 開播，來源：{來源}；已扣除約 {資['延遲']:.0f} 秒串流延遲）")
+        elif 資.get("連續"):
+            self.時間藥丸.setStyleSheet("")
+            self.時間藥丸.setToolTip("這是連續播出的直播（開播已超過 24 小時）：時間改為從開始擷取起算（前面加 +），摘要卡片顯示「幾分鐘前」。")
+            self._設藥丸(self.時間藥丸, "擷取時間 --:-- · 連續直播")
         else:
             self.時間藥丸.setStyleSheet(f"color: {黃};")
-            self.時間藥丸.setToolTip("抓不到 Twitch 開播時間：時間改為從開始擷取起算（前面加 +），摘要卡片顯示「幾分鐘前」。")
+            self.時間藥丸.setToolTip("抓不到開播時間：時間改為從開始擷取起算（前面加 +），摘要卡片顯示「幾分鐘前」。")
             self._設藥丸(self.時間藥丸, "擷取時間 --:-- · 抓不到開播時間")
 
     def 設時間顯示(self, 模式, 寫回=True):

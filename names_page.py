@@ -111,7 +111,7 @@ def 頻道(網址):
     資 = platforms.判斷(網址)
     if not 資.支援:
         if not 資.平台:
-            return None, "這不是 Twitch 頻道網址或 YouTube 直播網址（例如 https://www.twitch.tv/頻道名稱）"
+            return None, "這不是 Twitch 頻道網址或 YouTube 直播網址（例如 https://www.twitch.tv/頻道名稱 或 https://www.youtube.com/watch?v=影片代碼）"
         return None, 資.原因
     if 資.平台 == platforms.TWITCH:
         return 資.頻道, ""

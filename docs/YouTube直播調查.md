@@ -13,7 +13,7 @@
 - **Super Chat** 當一般留言處理，內容前面加「【SC】」。
 - 第一版**不做**：官方 API、yt-dlp 音訊備援、會員／年齡限制直播、抓遊戲名稱。
 
-## 5 步計畫（一次一步，每步前後各建存檔點）
+## 5 步計畫（一次一步，每步前後各建存檔點）——**5 步全部完成（2026-10-14）**，YouTube 直播支援結案
 
 1. **存報告＋平台判斷＋YouTube 直播資訊**：本文件；平台判斷模組（platforms.py）；stream_info 加 YouTube 觀看頁讀法；
    啟動面板與名詞清單的網址驗證（YouTube 網址在背景查頻道 ID，詞庫檔名 YT_頻道ID）。
@@ -30,7 +30,7 @@
    觀眾是看著約 20 秒前的畫面留言，所以留言時間會比它回應的那句話晚約一個延遲，這是正常的（Twitch 也一樣）。
 4. **詞庫與檔名**：引擎的詞庫改用 YT_頻道ID（live_topics.執行 目前用 頻道名稱(網址)）；直播稿等輸出檔名用 @帳號；
    查不到頻道 ID 時這一場不用詞庫並印一行說明（避免分裂出第二份詞庫）。
-5. **文字**：首次引導、網址欄提示文字（launcher、app）、時間藥丸的「Twitch 公開資料」字樣、README；
+5. **文字（✓ 完成，做法見「第 5 步做法」）**：首次引導、網址欄提示文字（launcher、app）、時間藥丸的「Twitch 公開資料」字樣、README；
    chat_translate 的 YouTube 表情與機器人規則。
 
 會動到的檔案：live_capture、stream_info、stream_clock、chat_capture、chat_translate、live_topics、app、launcher、
@@ -60,6 +60,18 @@ names_page、onboarding、README，新增 platforms.py 與 YouTube 聊天室模�
   `YoutubeLiveChatFD.real_download` 真的用到替換後的版本、安裝版本和 requirements 一樣；不符就失敗並說「yt-dlp 版本變了，聊天室的停止機制要重新檢查」。
   執行時找不到：主控台說一次、寫進 logs/YouTube聊天室_紀錄.txt，聊天室照常（只是按停止可能要多等幾秒）。
 - 真實測試（Lofi Girl，各約 1 分鐘）：watch?v= 與 @LofiGirl/live 都載入 `YT_UCSJ4gkVC6NrvII8umztf0Ow`，輸出檔名都是 `@LofiGirl_日期_時間_…`。
+
+## 第 5 步做法（2026-10-14）
+
+- 存檔點：「存檔點：YouTube 第5步修改前」（9fd50d6）、「存檔點：YouTube 第5步修改後」（見 git log）。
+- 網址欄提示（啟動面板、主控台共用 platforms.py 的常數）：提示文字「貼上 Twitch 頻道或 YouTube 直播網址」（要短，150% 縮放實測放得下），完整範例放滑鼠提示；
+  沒輸入網址按開始的錯誤訊息列出兩種範例（會換行，不截斷）。首次引導第 3 頁、名詞清單的網址錯誤範例也寫兩個平台。
+- 時間藥丸的滑鼠提示依來源顯示（Twitch 公開資料／Twitch 頻道網頁／YouTube 觀看頁（公開資料）），不再預設寫 Twitch；「抓不到 Twitch 開播時間」改成不綁平台。
+- 24 小時連續直播：`stream_info` 事件多一個 `連續` 旗標；連續直播時膠囊旁提示、藥丸（「連續直播」）、藥丸滑鼠提示、膠囊選單說明都用主控台那句白話說明，不再寫「抓不到開播時間」（真的抓不到時維持原樣）。
+- Super Chat 沒有文字（「【SC】（沒有留言）」「【SC】貼圖」）：`chat_translate.跳過原因` 回「SC 沒有文字」，不送翻譯、直接顯示原文；有文字的 SC 照常翻。
+- README 新增「支援的直播平台與網址」（網址格式＋YouTube 六項已知限制）。
+- 測試 tests/test_YouTube介面文字.py：用 AST 掃過介面程式的字串，只提 Twitch 的使用者可見文字會失敗（只限 Twitch 流程的字串列在白名單）。
+- 截圖（scripts/引導截圖.py）多存網址欄提示、沒輸入網址的錯誤、主控台網址欄（100% 與 150%）。
 
 ## 實測結果（2026-10-14）
 

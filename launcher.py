@@ -153,7 +153,8 @@ class 啟動面板(QWidget):
         self.金鑰列.setVisible(self.缺金鑰())
 
         self.網址框 = 網址欄類()
-        self.網址框.setPlaceholderText("直播網址，例如 https://www.twitch.tv/頻道名稱")
+        self.網址框.setPlaceholderText(platforms.網址提示)
+        self.網址框.setToolTip(platforms.網址欄提示)
         self.網址框.returnPressed.connect(self.開始)
         版.addWidget(self.網址框)
 
@@ -454,7 +455,7 @@ class 啟動面板(QWidget):
         self.網址清單.hide()
         網址 = self.網址框.text().strip()
         if not 網址 and not self.測試檔案:
-            return self.設狀態("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱", 錯誤=True)
+            return self.設狀態(platforms.請先輸入網址, 錯誤=True)
         if not self.測試檔案 and "/videos/" in 網址.lower():
             return self.設狀態(VOD提示, 錯誤=True)
         if not self.測試檔案 and (擋 := YouTube不支援(網址)):

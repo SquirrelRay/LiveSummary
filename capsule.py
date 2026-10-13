@@ -606,7 +606,8 @@ class 膠囊管理(QObject):
             a.setChecked(台.時間顯示 == 值)
             a.triggered.connect(lambda _=False, 值=值: 台.設時間顯示(值))
         if 台.直播資訊 and not 台.直播資訊["有開播"]:
-            a = 時.addAction("（這一場抓不到開播時間，摘要卡片一律顯示幾分鐘前）")
+            a = 時.addAction("（這是連續直播，摘要卡片一律顯示幾分鐘前）" if 台.連續直播()
+                           else "（這一場抓不到開播時間，摘要卡片一律顯示幾分鐘前）")
             a.setEnabled(False)
         a = 選單.addAction("顯示用量")
         a.setCheckable(True)

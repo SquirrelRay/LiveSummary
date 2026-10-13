@@ -95,8 +95,14 @@ def 去雜訊(內容):
     return " ".join(t.split())
 
 
+# Super Chat／Super Sticker 沒有文字時 yt_chat 補的固定字樣：沒有內容可翻，直接顯示原文
+SC無文字們 = {"【SC】（沒有留言）", "【SC】貼圖"}
+
+
 def 跳過原因(內容):
     """不需要翻譯的留言回傳原因（字串），要翻回傳 None。和直播語言無關的部分。"""
+    if (內容 or "").strip() in SC無文字們:
+        return "SC 沒有文字"
     t = 去雜訊(內容)
     if not t:
         return "純表情代碼"
