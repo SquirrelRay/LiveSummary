@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 import test_介面冒煙 as 冒煙
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QApplication, QMenu
 
 import api_key
 import config
@@ -564,7 +564,7 @@ def test_命令列的文字稿模式照舊可用(tmp_path, monkeypatch):
 
 
 def test_一般使用者看得到的字沒有內部名詞():
-    字們 = []
+    字們 = list(onboarding.怎麼處理們.values())
     for 頁 in onboarding.頁們:
         字們 += [頁["標題"], 頁["說明"], *頁["了解更多"]]
     字們 += [字 for _, 字 in onboarding.流程們]
@@ -580,3 +580,75 @@ def test_一般使用者看得到的字沒有內部名詞():
     for 頁 in onboarding.頁們:
         assert len(頁["標題"]) <= 10
         assert 頁["說明"].count("\n") <= 1
+
+
+# ---------------- 版面修正 ----------------
+def test_第1頁_了解更多最多三條(環境, 同步):
+    assert len(onboarding.頁們[0]["了解更多"]) == 3
+    assert onboarding.頁們[1]["了解更多"] == []
+
+
+def test_第2頁_沒有了解更多_只有警告與錯誤的項目有怎麼處理(環境, 同步, monkeypatch):
+    monkeypatch.setattr(first_run, "顯示卡數", lambda: 0)
+    monkeypatch.setattr(first_run, "有NVIDIA驅動", lambda: False)
+    monkeypatch.setattr(first_run, "找得到ffmpeg", lambda: False)      # ffmpeg ✕、streamlink ✓（conftest 預設找得到）
+    引 = _打開引導(環境["台"])
+    引.到(1, 動畫=False)
+    頁 = 引.頁們[1]
+    assert 頁.了解鈕.isHidden()
+    列們 = 引.檢查列們
+    assert 列們["顯示卡"].結果["等級"] == first_run.注意 and not 列們["顯示卡"].處理鈕.isHidden()
+    assert 列們["ffmpeg"].結果["等級"] == first_run.錯 and not 列們["ffmpeg"].處理鈕.isHidden()
+    assert 列們["streamlink"].結果["等級"] == first_run.好 and 列們["streamlink"].處理鈕.isHidden()    # ✓ 不附說明
+    assert all(列.處理字.isHidden() for 列 in 列們.values())                                         # 預設收起
+    列們["ffmpeg"].處理鈕.click()
+    assert not 列們["ffmpeg"].處理字.isHidden() and "winget install Gyan.FFmpeg" in 列們["ffmpeg"].處理字.text()
+    assert 列們["ffmpeg"].處理鈕.text() == onboarding.收起處理字
+    assert 列們["顯示卡"].處理字.isHidden()
+    列們["ffmpeg"].處理鈕.click()
+    assert 列們["ffmpeg"].處理字.isHidden() and 列們["ffmpeg"].處理鈕.text() == onboarding.怎麼處理字
+
+
+def test_第1頁_只有一個金鑰狀態_引導裡的提示文字不被截斷(環境, 同步):
+    api_key.儲存("claude", "sk-ant-假金鑰-已存")
+    引 = _打開引導(環境["台"])
+    assert 引.區.金鑰字.isHidden()                               # 設定框原本那行綠字在引導裡不顯示
+    assert not 引.金鑰標列.isHidden() and 引.金鑰標字.text() == onboarding.金鑰好了字
+    assert 引.區.金鑰欄.placeholderText() == "已儲存"
+    assert 引.金鑰標列.parent() is 引.區.金鑰狀態列                   # 和「如何取得金鑰」同一行
+
+
+def test_設定框裡的金鑰提示文字不變(環境):
+    api_key.儲存("claude", "sk-ant-假金鑰-已存")
+    台 = 環境["台"]
+    台.開設定框()
+    頁 = 台.設定框.頁
+    assert 頁.金鑰欄.placeholderText() == "已儲存（要更換就貼上新的金鑰）"
+    assert not 頁.金鑰字.isHidden() and "已儲存在這台電腦" in 頁.金鑰字.text()
+
+
+def test_最後一頁沒有跳過(環境, 同步):
+    引 = _打開引導(環境["台"])
+    assert not 引.跳過鈕.isHidden()
+    引.到(1, 動畫=False)
+    assert not 引.跳過鈕.isHidden()
+    引.到(2, 動畫=False)
+    assert 引.跳過鈕.isHidden()
+    引.上一步()
+    assert not 引.跳過鈕.isHidden()
+
+
+def test_三頁切換視窗大小固定_內容垂直置中(環境, 同步):
+    引 = _打開引導(環境["台"])
+    大小 = 引.size()
+    上下 = []
+    for i in range(3):
+        引.到(i, 動畫=False)
+        QApplication.processEvents()
+        assert 引.size() == 大小
+        頁 = 引.頁們[i]
+        上 = 頁.圖示.mapTo(頁, 頁.圖示.rect().topLeft()).y()
+        下 = 頁.height() - (頁.了解鈕.mapTo(頁, 頁.了解鈕.rect().bottomLeft()).y() if not 頁.了解鈕.isHidden()
+                          else 頁.操作區.mapTo(頁, 頁.操作區.rect().bottomLeft()).y())
+        上下.append((上, 下))
+        assert abs(上 - 下) <= 24, (i, 上, 下)          # 上下留白差不多：置中，不是全擠在上面

@@ -1,6 +1,8 @@
 # 首次引導（第一次打開程式時出現；之後從膠囊／系統匣選單的「使用說明」重新打開）。
 #   三頁，一頁一步：(1) 設定模型與金鑰 (2) 檢查這台電腦 (3) 開始使用。
 #   每頁固定結構：大圖示 → 短標題 → 最多兩行說明 → 操作區；補充說明收在「了解更多」（點了才展開，展開時取代操作區，視窗大小不變）。
+#   內容（圖示到操作區）在固定大小的視窗內垂直置中，三頁切換時視窗大小不跳動。
+#   第 2 頁沒有「了解更多」：只有 ⚠／✕ 的項目右邊有「怎麼處理？」，點了在那一項正下方展開；最後一頁沒有「跳過」。
 #   最上方三個圓點標示第幾步；底部「上一步」「下一步」（最後一頁是「開始使用」），左下角小字「跳過」。
 #   第 1 頁的模型服務與金鑰就是設定框的 模型金鑰區（同一個元件，精簡模式），按「下一步」時把換過的服務、模型寫進設定。
 #   第 2 頁打開時自動檢查（顯示卡、ffmpeg、streamlink），每項先轉圈再變成 ✓／⚠／✕；全部完成前「下一步」停用。
@@ -50,20 +52,12 @@ import ui_state
      "說明": "摘要和翻譯要用線上的 AI 模型。\n選一個服務，貼上金鑰後按「測試連線」。",
      "了解更多": [
          "金鑰像一組密碼，讓本程式用你的帳號使用 AI 模型。金鑰只存在這台電腦的 Windows 認證管理員，不會寫進任何檔案。",
-         "按「如何取得金鑰」會打開該服務的官方網頁：註冊帳號、儲值後建立一把金鑰，複製回來貼上即可。",
          "「測試連線」只確認金鑰能不能用，不會產生費用；成功才會存起來。",
          "費用是估算：外語直播開逐句翻譯、開聊天室翻譯時會比較多，實際金額以服務的帳單為準。",
-         "建議用 Claude。其他服務標示「實驗性」，摘要格式與翻譯品質可能不穩定。",
-         "之後可以在「設定」裡更換服務、模型或金鑰。",
      ]},
     {"圖示": "電腦", "標題": "檢查這台電腦",
      "說明": "確認轉錄需要的東西都準備好了。\n橘色提醒也能用，紅色的要先處理。",
-     "了解更多": [
-         "NVIDIA 顯示卡：把聲音轉成文字時，用 NVIDIA 顯示卡最快。沒有的話會改用處理器，比較慢，字幕可能越來越晚。",
-         "開始後如果顯示卡不能用，程式會自動改用處理器，不需要另外設定。",
-         "ffmpeg：處理直播聲音的工具。安裝方法：打開命令提示字元，執行 winget install Gyan.FFmpeg，裝好後重新開啟本程式。",
-         "streamlink：連上直播、取得聲音的工具。安裝方法：打開命令提示字元，執行 pip install streamlink，裝好後重新開啟本程式。",
-     ]},
+     "了解更多": []},          # 第 2 頁沒有整頁說明：⚠／✕ 的項目各有自己的「怎麼處理？」
     {"圖示": "播放", "標題": "開始使用",
      "說明": "在啟動面板貼上 Twitch 直播網址，按「開始」。\n摘要和字幕會出現在可以自由擺放的面板上。",
      "了解更多": [
@@ -75,6 +69,13 @@ import ui_state
      ]},
 ]
 流程們 = [("剪貼簿", "貼上網址"), ("播放", "按開始"), ("面板", "面板出現")]
+怎麼處理們 = {      # 只有 ⚠／✕ 的項目才有；✓ 的項目不附說明
+    "顯示卡": "沒有可用的 NVIDIA 顯示卡時，程式會自動改用處理器轉錄：能用，但比較慢，字幕可能越來越晚。"
+            "有 NVIDIA 顯示卡並更新驅動程式後會更快。",
+    "ffmpeg": "ffmpeg 是處理直播聲音的工具。打開命令提示字元，執行 winget install Gyan.FFmpeg，裝好後重新開啟本程式。",
+    "streamlink": "streamlink 是連上直播的工具。打開命令提示字元，執行 pip install streamlink，裝好後重新開啟本程式。",
+}
+怎麼處理字, 收起處理字 = "怎麼處理？", "收起"
 檢查們 = [("顯示卡", "NVIDIA 顯示卡", first_run.檢查顯示卡),
        ("ffmpeg", "ffmpeg", first_run.檢查ffmpeg),
        ("streamlink", "streamlink", first_run.檢查streamlink)]
@@ -220,27 +221,50 @@ class 轉圈(QWidget):
 
 
 class 結果列(QWidget):
-    """一列：轉圈（檢查中）或 ✓／⚠／✕ ＋ 一句短標籤。"""
+    """一列：轉圈（檢查中）或 ✓／⚠／✕ ＋ 一句短標籤；⚠／✕ 才在右邊有小字連結「怎麼處理？」，點了在這一項正下方展開（預設收起）。"""
 
-    def __init__(self):
+    def __init__(self, 處理說明=""):
         super().__init__()
-        版 = QHBoxLayout(self)
-        版.setContentsMargins(0, 0, 0, 0)
-        版.setSpacing(10)
+        self.處理說明 = 處理說明
+        外 = QVBoxLayout(self)
+        外.setContentsMargins(0, 0, 0, 0)
+        外.setSpacing(6)
+        上 = QHBoxLayout()
+        上.setSpacing(10)
         self.轉 = 轉圈()
         self.標記 = 狀態標記()
         self.字 = QLabel("")
         self.字.setWordWrap(True)
-        版.addWidget(self.轉, 0, Qt.AlignTop)
-        版.addWidget(self.標記, 0, Qt.AlignTop)
-        版.addWidget(self.字, 1)
+        self.處理鈕 = QPushButton(怎麼處理字)
+        self.處理鈕.setCursor(Qt.PointingHandCursor)
+        self.處理鈕.setFocusPolicy(Qt.NoFocus)
+        self.處理鈕.setStyleSheet("QPushButton { border: none; background: transparent; color: #7aa2ff; padding: 0px;"
+                               " font-size: 12px; } QPushButton:hover { color: #a9c1ff; }")
+        self.處理鈕.clicked.connect(lambda: self.展開處理(self.處理字.isHidden()))
+        上.addWidget(self.轉, 0, Qt.AlignTop)
+        上.addWidget(self.標記, 0, Qt.AlignTop)
+        上.addWidget(self.字, 1)
+        上.addWidget(self.處理鈕, 0, Qt.AlignTop)
+        外.addLayout(上)
+        self.處理字 = QLabel(處理說明)
+        self.處理字.setWordWrap(True)
+        self.處理字.setStyleSheet(f"color: {淡}; font-size: 12px; padding-left: 28px;")
+        外.addWidget(self.處理字)
         self.標記.hide()
+        self.處理鈕.hide()
+        self.處理字.hide()
         self.結果 = None
+
+    def 展開處理(self, 開=True):
+        self.處理字.setVisible(bool(開) and self.處理鈕.isVisibleTo(self))
+        self.處理鈕.setText(收起處理字 if self.處理字.isVisibleTo(self) else 怎麼處理字)
 
     def 檢查中(self, 字):
         self.結果 = None
         self.轉.show()
         self.標記.hide()
+        self.展開處理(False)
+        self.處理鈕.hide()
         self.字.setText(字)
         self.字.setStyleSheet(f"color: {淡};")
 
@@ -251,6 +275,8 @@ class 結果列(QWidget):
         self.標記.show()
         self.字.setText(結果["標籤"])
         self.字.setStyleSheet("")
+        self.處理鈕.setVisible(結果["等級"] != first_run.好 and bool(self.處理說明))     # ✓ 的項目不附任何說明
+        self.展開處理(False)
 
     def 文字(self):
         """測試、回報用：✓ 標籤（檢查中回傳標籤本身）。"""
@@ -290,6 +316,7 @@ class 引導頁(QWidget):
         版 = QVBoxLayout(self)
         版.setContentsMargins(0, 0, 0, 0)
         版.setSpacing(0)
+        版.addStretch(1)
         self.圖示 = 線條圖示(資料["圖示"])
         版.addWidget(self.圖示, 0, Qt.AlignHCenter)
         版.addSpacing(10)
@@ -330,8 +357,10 @@ class 引導頁(QWidget):
                                " font-size: 12px; } QPushButton:hover { color: #a9c1ff; }")
         self.了解鈕.clicked.connect(lambda: self.展開(not self.展開了))
         版.addWidget(self.了解鈕, 0, Qt.AlignHCenter)
-        版.addStretch(1)
+        版.addStretch(1)                          # 上下各一個 stretch：內容在視窗內垂直置中
         self.展開了 = False
+        if not 資料["了解更多"]:                  # 這一頁沒有整頁說明（第 2 頁）
+            self.了解鈕.hide()
 
     def 展開(self, 開=True):
         self.展開了 = bool(開)
@@ -430,7 +459,7 @@ class 首次引導(QWidget):
         self.區 = settings_page.模型金鑰區(self, self.台, 精簡=True)      # 和設定框同一個元件
         self.區.提示了.connect(self._金鑰提示)
         版.addWidget(self.區)
-        標列 = QHBoxLayout()
+        標列 = QHBoxLayout()          # 唯一的金鑰狀態：放在金鑰欄下面那一行的左邊（右邊是「如何取得金鑰」）
         標列.setSpacing(8)
         self.金鑰標記 = 狀態標記(16)
         self.金鑰標字 = QLabel("")
@@ -441,7 +470,12 @@ class 首次引導(QWidget):
         self.金鑰標列 = QWidget()
         self.金鑰標列.setLayout(標列)
         標列.setContentsMargins(0, 0, 0, 0)
-        版.addWidget(self.金鑰標列)
+        狀態版 = self.區.金鑰狀態列.layout()
+        for i in reversed(range(狀態版.count())):
+            if 狀態版.itemAt(i).spacerItem():
+                狀態版.takeAt(i)
+        狀態版.insertWidget(0, self.金鑰標列, 1)
+        self.區.取得連結.setAlignment(Qt.AlignRight)
 
         費 = QFrame()
         費.setObjectName("卡片")
@@ -545,7 +579,7 @@ class 首次引導(QWidget):
         版.setSpacing(14)
         self.檢查列們 = {}
         for 鍵, 名, _ in self.檢查們:
-            列 = 結果列()
+            列 = 結果列(怎麼處理們.get(鍵, ""))
             列.檢查中(f"正在檢查 {名}…")
             self.檢查列們[鍵] = 列
             版.addWidget(列)
@@ -684,6 +718,7 @@ class 首次引導(QWidget):
         i = self.目前頁
         self.上一步鈕.setVisible(i > 0)
         最後 = i == len(self.頁們) - 1
+        self.跳過鈕.setVisible(not 最後)           # 最後一頁已經有「開始使用」
         self.下一步鈕.setText("開始使用" if 最後 else "下一步")
         可 = self.檢查完了() if i == 1 else True
         self.下一步鈕.setEnabled(可)

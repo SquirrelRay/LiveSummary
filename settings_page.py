@@ -162,7 +162,7 @@ class 模型金鑰區(QWidget):
         self.載入鈕.clicked.connect(lambda: self.載入可用模型())
         self.篩選欄.textChanged.connect(lambda _: self._重建模型選單())
         if 精簡:
-            for w in (self.單價字, 進階, self.清除鈕):
+            for w in (self.單價字, 進階, self.清除鈕, self.金鑰字):      # 金鑰字：引導自己在同一行顯示唯一的狀態
                 w.setVisible(False)
 
     def _下次(self):
@@ -486,7 +486,8 @@ class 模型金鑰區(QWidget):
             w.setEnabled(需要)
         self.清除鈕.setEnabled(api_key.讀取已儲存(代號) is not None)
         self.金鑰欄.setPlaceholderText(
-            "" if not 需要 else "已儲存（要更換就貼上新的金鑰）" if 狀態 == api_key.已儲存 else f"貼上 {名稱} 的 API 金鑰")
+            "" if not 需要 else ("已儲存" if self.精簡 else "已儲存（要更換就貼上新的金鑰）") if 狀態 == api_key.已儲存
+            else f"貼上 {名稱} 的 API 金鑰")
         連結 = api_key.取得網址(代號)
         self.取得連結.setText(f"<a href='{連結}' style='color:#7aa2ff;'>如何取得金鑰</a>" if 連結 else "")
         self.取得連結.setToolTip(連結)
