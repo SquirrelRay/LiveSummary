@@ -30,6 +30,7 @@ import stream_clock     # 滑鼠提示裡跳動的直播時間
 }
 半透明, 不透明 = 0.5, 1.0
 高 = 30
+提示等待輪數 = 6      # 滑鼠停在膠囊上幾輪（每輪 80 毫秒）後主動顯示提示
 吸附距離 = 0          # 吸附後離螢幕邊緣幾像素
 
 
@@ -77,6 +78,7 @@ class 膠囊(QWidget):
         self.置頂計時 = QTimer(self, interval=500, timeout=self._保持置頂)
         self.游標位置 = QCursor.pos  # 測試時可以換掉
         self.懸停計時 = QTimer(self, interval=80, timeout=self._看懸停)
+        self._懸停輪數, self._提示過 = 0, False
         self.調整大小()
 
     # ---------- 外觀 ----------
@@ -143,10 +145,26 @@ class 膠囊(QWidget):
         if 在上面 != self.懸停:
             self.懸停 = 在上面
             self.update()
+        self._自己顯示提示(在上面)
         if 在上面 or self.管.選單開著 or self._按下:
             self._動到(不透明, 150)          # 移上去很快變清楚
         else:
             self._動到(半透明, 900)          # 離開後慢慢變回半透明
+
+    def _自己顯示提示(self, 在上面):
+        """滑鼠停在膠囊上約半秒就顯示提示，不靠 Qt 的提示事件：
+        點過面板（拖曳移動走系統的移動流程）之後，Qt 可能一直以為滑鼠鍵還按著，不再產生提示事件，提示就出不來。
+        每次移進膠囊只主動顯示一次（提示被 Qt 收掉後不重複彈出）；離開就收起提示並停掉每秒更新。"""
+        if not 在上面 or self._按下:
+            if self._懸停輪數 or self.管.提示計時.isActive():
+                self.管.收起提示()
+            self._懸停輪數 = 0
+            self._提示過 = False
+            return
+        self._懸停輪數 += 1
+        if self._懸停輪數 >= 提示等待輪數 and not self._提示過:
+            self._提示過 = True
+            self.管.顯示提示(self.游標位置())
 
     # ---------- 置頂（和面板同一套規則）----------
     def _套置頂(self):
@@ -512,6 +530,10 @@ class 膠囊管理(QObject):
         """滑鼠停在膠囊上（Qt 的 ToolTip 事件）：顯示提示，並開始每秒更新。"""
         QToolTip.showText(點, self.提示文字(), self.膠囊)
         self.提示計時.start()
+
+    def 收起提示(self):
+        QToolTip.hideText()
+        self.提示計時.stop()
 
     def 提示開著(self):
         """膠囊的提示還開著：提示框可見、而且滑鼠還在膠囊上。"""

@@ -380,3 +380,77 @@ def test_面板新開或切換置頂_排在膠囊下面(前後):
     面.設置頂(False)
     面.設置頂(True)
     assert 假.順序[0] == 膠
+
+
+# ---------- 5. 點過面板之後，滑鼠停在膠囊上仍要出現提示（Qt 的提示事件可能不再產生）----------
+def test_沒有Qt提示事件_滑鼠停在膠囊上也會顯示提示_直播時間照跳_離開就收起(環境, monkeypatch):
+    台 = 環境["台"]
+    從啟動面板開始(台, monkeypatch, 假引擎())
+    時刻 = [1000.0]
+    monkeypatch.setattr(stream_clock, "_目前", stream_clock.時軸(開播=1000.0 - 65, 時鐘=lambda: 時刻[0], 延遲=0.0))
+    框 = 假提示框()
+    框.hideText = lambda: setattr(框, "可見", False)
+    monkeypatch.setattr(capsule, "QToolTip", 框)
+    管, 膠 = 台.膠囊, 台.膠囊.膠囊
+    位置 = [膠.frameGeometry().topLeft() - QPoint(80, 80)]          # 先在膠囊外面
+    monkeypatch.setattr(膠, "游標位置", lambda: 位置[0])
+    for _ in range(10):
+        膠._看懸停()
+    assert not 框.可見                                          # 沒在膠囊上：不顯示
+
+    位置[0] = 膠.frameGeometry().center()                        # 移到膠囊上；整個過程沒有任何 Qt 的 ToolTip 事件
+    for _ in range(capsule.提示等待輪數 - 1):
+        膠._看懸停()
+    assert not 框.可見                                          # 還沒停夠久
+    膠._看懸停()
+    assert 框.可見 and "直播時間 01:05" in 框.文字們[-1] and 管.提示計時.isActive()
+    時刻[0] += 1
+    管._刷新提示()
+    assert "直播時間 01:06" in 框.文字們[-1]
+    n = len(框.文字們)
+    for _ in range(20):                                         # 停久了不會一直重複彈出
+        膠._看懸停()
+    assert len(框.文字們) == n
+
+    位置[0] = 膠.frameGeometry().topLeft() - QPoint(80, 80)      # 離開：收起提示、停掉每秒更新
+    膠._看懸停()
+    assert not 框.可見 and not 管.提示計時.isActive()
+    位置[0] = 膠.frameGeometry().center()                        # 再移進來：又會顯示
+    for _ in range(capsule.提示等待輪數):
+        膠._看懸停()
+    assert 框.可見 and len(框.文字們) == n + 1
+    停止並等完(台)
+
+
+def test_滑鼠按著拖曳時不顯示提示(環境, monkeypatch):
+    台 = 環境["台"]
+    框 = 假提示框()
+    框.hideText = lambda: setattr(框, "可見", False)
+    monkeypatch.setattr(capsule, "QToolTip", 框)
+    膠 = 台.膠囊.膠囊
+    monkeypatch.setattr(膠, "游標位置", lambda: 膠.frameGeometry().center())
+    膠._按下 = (QPoint(0, 0), 膠.pos())
+    for _ in range(20):
+        膠._看懸停()
+    assert not 框.可見
+    膠._按下 = None
+
+
+def test_點過面板之後_膠囊仍會變清楚_點膠囊仍開選單(環境, monkeypatch):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    台 = 環境["台"]
+    從啟動面板開始(台, monkeypatch, 假引擎())
+    管, 膠 = 台.膠囊, 台.膠囊.膠囊
+    monkeypatch.setattr(膠, "游標位置", lambda: 膠.frameGeometry().center())     # 滑鼠停在膠囊上
+    膠.setWindowOpacity(capsule.半透明)
+    膠.動畫.stop()
+    膠._看懸停()
+    assert 膠.懸停 and 膠.動畫.endValue() == capsule.不透明           # 移上去：開始變清楚
+    開過 = []
+    monkeypatch.setattr(管, "開選單", lambda: 開過.append(1))
+    點 = QPointF(10, 10)
+    for 種類 in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+        QApplication.sendEvent(膠, QMouseEvent(種類, 點, 膠.mapToGlobal(點), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    assert 開過 == [1]
+    停止並等完(台)
