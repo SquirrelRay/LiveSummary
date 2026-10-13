@@ -529,3 +529,43 @@ def test_設定框有勾選且會存進config(tmp_path, monkeypatch):
     勾.setChecked(True)
     assert 頁.費用表[-2][1].startswith("$") and 頁.讀全部()["web_verify"] is True
     頁.deleteLater()
+
+
+# ---------- 收尾：官方單價與一般詞彙 ----------
+def test_出廠預設與範例檔的單價是Haiku5點5官方單價():
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.example.json"),
+              encoding="utf-8") as f:
+        範例 = json.load(f)
+    for 設定 in (config.出廠預設(), 範例):
+        assert (設定["price_input"], 設定["price_output"]) == (0.10, 0.50)
+
+
+def test_結束訊息的金額照目前單價算():
+    llm.用量.update(次數=2, 輸入=1_000_000, 輸出=1_000_000)
+    assert "0.600 美元" in llm.用量文字(0.10, 0.50)
+    llm.查證用量.update(次數=1, 輸入=1_000_000, 輸出=1_000_000, 搜尋=3)
+    assert "0.630 美元（token 0.600" in llm.查證用量文字(0.10, 0.50)
+
+
+def test_提示詞要求只列專有名詞_一般詞彙回查無():
+    for 字 in ("人名", "作品名", "遊戲名", "角色名", "團體名", "店名", "地名"):
+        assert 字 in glossary.名詞格式
+    assert "一般詞彙一律不要列" in glossary.名詞格式 and "蛋白粉" in glossary.名詞格式
+    e = glossary.條目("蛋白粉", "プロテイン", "候選")
+    p = wv.提示詞(e, {}, [])
+    assert "一般詞彙" in p and "回答查無" in p
+
+
+def test_背景查證進行中_主執行緒的交接不被擋住(乾淨, monkeypatch):
+    放行 = threading.Event()
+    monkeypatch.setattr(llm, "上網搜尋", lambda 提示詞, 模型, 最多搜尋=2: (放行.wait(5), 回覆(查無))[1])
+    寫詞庫(乾淨, "")
+    庫 = glossary.詞庫("某主")
+    新的 = 庫.自動加入([(f"詞{i}", f"ゴ{i}") for i in range(3)])
+    查 = wv.背景查證(庫, {}, "m")
+    t0 = time.monotonic()
+    查.加入(新的, [])
+    庫.自動加入([("新詞", "シンゴ")])                      # 查證卡在搜尋時，主執行緒照樣能寫詞庫
+    assert time.monotonic() - t0 < 0.5 and 查.進行中() == 3
+    放行.set()
+    assert "未完成 0 個" in 查.收尾(5)
