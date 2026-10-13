@@ -19,6 +19,7 @@ import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
 import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
 import web_verify       # 上網查證詞庫的候選名詞（預設關）
+import first_run        # 轉錄模型下載失敗的錯誤種類（第一次使用）
 
 # ---- 可以調整的設定 ----
 # 下面三個由 執行() 依設定改寫，起始值 = config.py 的出廠預設
@@ -764,7 +765,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
     try:
         話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"], 詞庫=詞庫,
                     查證=查證)
-    except llm.模型錯誤 as e:
+    except (llm.模型錯誤, first_run.模型下載錯誤) as e:     # 模型下載錯誤：轉錄模型下載失敗（訊息已是白話）
         if 聊天:
             聊天.關閉()
         if 查證:

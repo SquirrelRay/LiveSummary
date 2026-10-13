@@ -152,3 +152,16 @@ def 假金鑰庫(monkeypatch):
     for 名 in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(名, raising=False)                # 不用這台電腦環境變數裡的真實金鑰
     return 庫
+
+
+@pytest.fixture(autouse=True)
+def 假第一次使用偵測(monkeypatch):
+    """首次引導與轉錄模型下載：一律用假的偵測結果（有顯示卡、模型已下載），不問真的顯示卡、不看真的模型快取。
+    要測真的判斷邏輯的測試，請在模組載入時先把原本的函式存起來（例如 真已下載 = first_run.已下載）。"""
+    import first_run
+    monkeypatch.setattr(first_run, "顯示卡數", lambda: 1)
+    monkeypatch.setattr(first_run, "有NVIDIA驅動", lambda: True)
+    monkeypatch.setattr(first_run, "已下載", lambda 名稱: True)
+    monkeypatch.setattr(first_run, "找得到ffmpeg", lambda: True)
+    monkeypatch.setattr(first_run, "找得到streamlink", lambda: True)
+    monkeypatch.setattr(first_run, "_顯示卡快取", {})

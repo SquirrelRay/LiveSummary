@@ -9,6 +9,8 @@
 #   「測試連線」成功才存、失敗絕不存；按「儲存」也會存；只輸入不按這兩顆就關掉，金鑰不會被存（和其他欄位一致）。
 #   已存的金鑰永遠不會放回輸入框，只顯示白話狀態。
 # 視窗大小：預設依內容算（不截斷文字），使用者拉過就記在 介面設定.json；超出目前螢幕時自動縮回。
+# 開發者選項（最下面，預設收起）：「顯示文字稿重播模式」勾選後主控台的來源才出現「文字稿檔案」；
+#   記在本機的 介面設定.json（不進 config.json、不進 git），勾了立即生效，不用按「儲存」。
 import os
 import re
 import threading
@@ -28,6 +30,7 @@ import subtitle_speed
 import ui_state
 
 清單上限 = 300           # 「載入可用模型」最多一次放幾個進選單（OpenRouter 有幾百個，其餘用篩選找）
+文字稿旗標 = "顯示文字稿模式"       # 介面設定.json 的旗標：主控台來源要不要出現「文字稿檔案」（開發測試用）
 查證原因字 = "目前的模型服務不支援上網查證：只有直接連 Claude 時能用（透過 OpenRouter 用 Claude 也不支援）。"
 
 
@@ -51,86 +54,30 @@ class 滾輪過濾(QObject):
         return False
 
 
-class 設定頁(QScrollArea):
+class 模型金鑰區(QWidget):
+    """「模型服務與 API 金鑰」這一塊：服務、模型（推薦清單＋其他）、單價、進階（載入可用模型、篩選）、API 金鑰。
+    設定框與首次引導第 1 頁共用同一個元件（行為完全相同）。
+    宿主：放這一塊的頁面，要有 模型區變了(換服務=False)（服務或模型變了：重算費用等）；
+          可以有 背景測試（False = 測試連線、載入可用模型直接執行，測試用）與 _下次()（「下次開始生效」標籤）。
+    精簡：首次引導用，不顯示單價、進階、清除與環境變數小字，金鑰結果改由引導自己顯示（其餘都一樣）。"""
     _測試完成 = Signal(object)        # 測試連線的背景執行緒 → 介面執行緒
     _列出完成 = Signal(object)        # 載入可用模型的背景執行緒 → 介面執行緒
-    背景測試 = True                   # 測試連線、載入可用模型放背景執行緒（測試時設 False 改成直接執行）
+    提示了 = Signal(str, str)         # 金鑰的結果訊息（字, 種類：好／錯／中）：首次引導用它顯示 ✓／✕
 
-    def __init__(self, 主):
+    def __init__(self, 宿主, 主, 精簡=False):
         super().__init__()
-        self.主 = 主                 # 主控台（換內容方向、看是否執行中）
+        self.宿主, self.主, self.精簡 = 宿主, 主, 精簡
         self._測試完成.connect(self._測試連線完成)
         self._列出完成.connect(self._載入模型完成)
         self._載入中 = False
         self._已載入 = {}            # 服務代號 → 「載入可用模型」讀到的模型們（這次開程式內有效）
         self._設定服務, self._設定模型, self._設定網址 = "claude", "", ""      # 表單載入時的設定（切回同一個服務時還原）
         self._設定單價 = ("", None, None)    # 表單載入時的設定裡註明的單價（price_model, 輸入, 輸出）
-        self._查證記憶 = False       # 切到不支援上網查證的服務前，勾選的狀態
-        self.下次標們 = []           # 「下次開始生效」標籤
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)     # 視窗被縮得太窄時寧可出現橫捲軸，也不截斷文字
-        內 = QWidget()
-        版 = QVBoxLayout(內)
-        版.setContentsMargins(16, 16, 16, 16)
-        版.setSpacing(12)
-
-        上 = QHBoxLayout()
-        說明 = QLabel("按「儲存」才會套用並記住這些設定（會先備份舊的設定）。")
-        說明.setObjectName("小標")
-        說明.setWordWrap(True)
-        上.addWidget(說明, 1)
-        self.還原鈕 = QPushButton("還原預設值")
-        self.儲存鈕 = QPushButton("儲存")
-        self.儲存鈕.setObjectName("開始")
-        for 鈕 in (self.還原鈕, self.儲存鈕):
-            鈕.setCursor(Qt.PointingHandCursor)
-            上.addWidget(鈕)
-        self.還原鈕.clicked.connect(self.還原預設)
-        self.儲存鈕.clicked.connect(self.儲存)
-        版.addLayout(上)
-        self.狀態字 = QLabel("")
-        self.狀態字.setWordWrap(True)
-        版.addWidget(self.狀態字)
-
-        版.addWidget(self._做模型區())
-        版.addWidget(self._做一般區())
-        版.addWidget(self._做費用區())
-        版.addWidget(self._做存檔區())
-        版.addStretch(1)
-        self.setWidget(內)
-        self._滾輪 = 滾輪過濾(self)
-        for w in (w for w in 內.findChildren(QWidget) if isinstance(w, (QSpinBox, QComboBox))):
-            w.setFocusPolicy(Qt.StrongFocus)      # 只有點選過才會有焦點（預設的 Wheel 會讓滾輪也能取得焦點）
-            w.installEventFilter(self._滾輪)
-
-    # ---------- 版面 ----------
-    def _面板(self, 標題):
-        框 = QFrame()
-        框.setObjectName("卡片")
-        外 = QVBoxLayout(框)
-        外.setContentsMargins(16, 12, 16, 14)
-        t = QLabel(標題)
-        t.setStyleSheet("font-weight: 700; font-size: 15px;")
-        外.addWidget(t)
-        格 = QGridLayout()
+        格 = QGridLayout(self)
+        格.setContentsMargins(0, 0, 0, 0)
         格.setHorizontalSpacing(12)
         格.setVerticalSpacing(8)
-        格.setColumnStretch(1, 1)
-        格.setColumnStretch(3, 1)
-        外.addLayout(格)
-        return 框, 格
-
-    def _下次(self):
-        w = QLabel("下次開始生效")
-        w.setStyleSheet("color: #f5b84a; font-size: 12px;")
-        w.hide()
-        self.下次標們.append(w)
-        return w
-
-    def _做模型區(self):
-        """模型服務、模型（推薦清單＋其他）、單價、進階（載入可用模型、篩選）、API 金鑰。"""
-        框, 格 = self._面板("模型服務與 API 金鑰")
-        格.setColumnStretch(3, 0)            # 「下次開始生效」那一欄平常是空的：寬度都給下拉選單與金鑰欄
+        格.setColumnStretch(1, 1)            # 「下次開始生效」那一欄平常是空的：寬度都給下拉選單與金鑰欄
         self.服務選 = QComboBox()
         for s in model_catalog.選單服務們():
             self.服務選.addItem(model_catalog.服務顯示名(s["代號"]), s["代號"])
@@ -210,95 +157,35 @@ class 設定頁(QScrollArea):
 
         self.服務選.currentIndexChanged.connect(self._換服務)
         self.模型選.currentIndexChanged.connect(self._換模型)
-        self.自訂模型欄.textChanged.connect(lambda _: self._更新段位說明())
+        self.自訂模型欄.textChanged.connect(lambda _: self.宿主.模型區變了())
         self.網址欄.textChanged.connect(lambda _: self._換網址())
         self.載入鈕.clicked.connect(lambda: self.載入可用模型())
         self.篩選欄.textChanged.connect(lambda _: self._重建模型選單())
-        return 框
+        if 精簡:
+            for w in (self.單價字, 進階, self.清除鈕):
+                w.setVisible(False)
 
-    def _做一般區(self):
-        框, 格 = self._面板("功能")
-        self.欄 = {}
-        e = self.欄
-        e["subtitle_mode"] = QComboBox()
-        for 名, 值 in (("自動（中文用原文，其他語言翻譯）", "auto"), ("原文", "original"), ("翻譯成繁中", "translate")):
-            e["subtitle_mode"].addItem(名, 值)
-        e["chat"] = QCheckBox("抓聊天室（直播網址模式）")
-        e["minute_summary"] = QCheckBox("分鐘摘要")
-        e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
-        e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
-        e["chat_translate"] = QCheckBox("聊天室翻譯：外語直播時把留言翻成繁體中文（聊天室面板開著才翻，另外計費）")
-        e["web_verify"] = QCheckBox("上網查證詞庫的候選名詞：查到台灣通行寫法就寫回詞庫並附來源網址（只支援 Claude，另外計費）")
-        e["web_verify"].setToolTip("每場只查這一場新加入的候選，最多 10 個；查無的標「已查」不再重查。搜尋每次 0.01 美元＋token")
-        e["web_verify"].toggled.connect(self._記查證)
-        self.查證原因 = QLabel(查證原因字)
-        self.查證原因.setObjectName("小標")
-        self.查證原因.setWordWrap(True)
-        self.查證原因.hide()
-        e["chat_translate_max_per_min"] = QSpinBox()
-        e["chat_translate_max_per_min"].setRange(1, 600)
-        e["chat_translate_max_per_min"].setSuffix(" 則")
-        e["chat_translate_max_per_min"].setToolTip("超過就平均抽樣，沒翻到的留言只顯示原文")
-        for k in ("ui_max_transcript", "ui_max_chat", "ui_max_translation", "ui_max_summary"):
-            e[k] = QSpinBox()
-            e[k].setRange(10, 100000)
-            e[k].setSuffix(" 則")
-        e["newest_on_top"] = QComboBox()
-        e["newest_on_top"].addItem("最下面", False)
-        e["newest_on_top"].addItem("最上面", True)
-        e["newest_on_top"].currentIndexChanged.connect(self._換方向)
-        e["time_display"] = QComboBox()
-        e["time_display"].addItem("直播時間（例如 1:23:45）", "stream")
-        e["time_display"].addItem("幾分鐘前", "ago")
-        e["time_display"].setToolTip("只影響分鐘摘要與話題摘要卡片；直播稿、逐句翻譯、聊天室一律顯示直播時間。抓不到開播時間時自動顯示幾分鐘前")
-        e["minute_sentences"] = QSpinBox()
-        e["minute_sentences"].setRange(1, 3)
-        e["minute_sentences"].setSuffix(" 句")
-        e["subtitle_speed"] = QComboBox()
-        for 代碼 in subtitle_speed.代碼們:
-            e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
-        e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
-        e["subtitle_mode"].currentIndexChanged.connect(self._更新段位說明)
-        for k in ("chat", "minute_summary", "summary_thinking", "chat_translate", "web_verify"):
-            e[k].toggled.connect(self._更新段位說明)
-        e["minute_sentences"].valueChanged.connect(self._更新段位說明)
-        e["chat_translate_max_per_min"].valueChanged.connect(self._更新段位說明)
-        self.段位說明 = QLabel()
-        self.段位說明.setObjectName("小標")
-        self.段位說明.setWordWrap(True)
+    def _下次(self):
+        """「下次開始生效」標籤由宿主（設定框）管理；首次引導沒有，放一個不顯示的空標籤。"""
+        if hasattr(self.宿主, "_下次"):
+            return self.宿主._下次()
+        w = QLabel("")
+        w.hide()
+        return w
 
-        列 = 0
+    def _背景(self):
+        return getattr(self.宿主, "背景測試", True)
 
-        def 加(名, w, 下次=False):
-            nonlocal 列
-            if 名:
-                格.addWidget(小標(名), 列, 0)
-                格.addWidget(w, 列, 1, 1, 2)
-            else:                                    # 沒有標題的勾選框：從最左邊開始，長的文字才放得下
-                格.addWidget(w, 列, 0, 1, 3)
-            if 下次:
-                格.addWidget(self._下次(), 列, 3)
-            列 += 1
-
-        加("逐句字幕模式", e["subtitle_mode"], True)
-        for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking", "web_verify"):
-            加("", e[k], True)
-        格.addWidget(self.查證原因, 列, 0, 1, 4)
-        列 += 1
-        加("", e["chat_translate"])                 # 按「儲存」當場生效（膠囊選單也可以直接切換）
-        加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
-        加("分鐘摘要句數", e["minute_sentences"], True)
-        加("最新內容顯示在", e["newest_on_top"])
-        加("摘要卡片的時間", e["time_display"])        # 按「儲存」當場生效（膠囊選單也可以直接切換）
-        加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
-        加("聊天室分頁最多顯示", e["ui_max_chat"], True)
-        加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
-        加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
-        加("字幕速度（預設）", e["subtitle_speed"], True)
-        self.段位下次標 = self.下次標們[-1]
-        格.addWidget(self.段位說明, 列, 1, 1, 3)
-        列 += 1
-        return 框
+    def 載入設定(self, 設定):
+        """表單載入：記住設定裡的服務、模型、網址、單價，選到那個服務並套用（不算「使用者換了服務」）。"""
+        self._載入中 = True
+        try:
+            self._記住設定(設定)
+            self.服務選.setCurrentIndex(max(0, self.服務選.findData(self._設定服務)))
+        finally:
+            self._載入中 = False
+        self.自訂模型欄.setText("")
+        self._套用服務(self._設定服務, 模型=self._設定模型)
 
     def _做金鑰欄(self):
         """金鑰輸入欄（遮蔽）＋眼睛＋測試連線＋清除；下面一行狀態與「如何取得金鑰」，再下面是測試結果與進階小字。"""
@@ -342,92 +229,11 @@ class 設定頁(QScrollArea):
         self.金鑰進階.setWordWrap(True)
         self.金鑰進階.setStyleSheet("font-size: 11px;")
 
-    def _做費用區(self):
-        """每小時費用表：項目／每小時（估算）／受字幕段位影響／目前狀態，最後一列是合計。內容由 cost_estimate 算。"""
-        框, 格 = self._面板("每小時費用（估算）")
-        self.費用格 = QGridLayout()
-        self.費用格.setHorizontalSpacing(16)
-        self.費用格.setVerticalSpacing(6)
-        self.費用格.setColumnStretch(3, 1)
-        格.addLayout(self.費用格, 0, 0, 1, 4)
-        self.費用註們 = []
-        for i, 字 in enumerate(cost_estimate.備註們):
-            註 = QLabel(字)
-            註.setObjectName("小標")
-            註.setWordWrap(True)
-            self.費用註們.append(註)
-            格.addWidget(註, 1 + i, 0, 1, 4)
-        self.聊天註 = QLabel("")                   # 熱門台的聊天室翻譯有每分鐘上限封頂（金額依目前單價與上限）
-        self.聊天註.setObjectName("小標")
-        self.聊天註.setWordWrap(True)
-        self.費用註們.append(self.聊天註)
-        格.addWidget(self.聊天註, 1 + len(cost_estimate.備註們), 0, 1, 4)
-        self.費用表 = []                 # 目前表格每一列的文字（測試與除錯用）
-        return 框
-
-    存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
-              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每段一個 wav，段長依字幕速度 8～20 秒，檔案較大）"))
-
-    def _做存檔區(self):
-        """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
-        框, 格 = self._面板("存檔")
-        說明 = QLabel("打開的項目才會存成檔案（存在專案資料夾）。關掉的內容只顯示在畫面上，超過顯示上限的較早內容會直接移除。")
-        說明.setObjectName("小標")
-        說明.setWordWrap(True)
-        格.addWidget(說明, 0, 0, 1, 4)
-        for i, (k, 名) in enumerate(self.存檔項目):
-            self.欄[k] = QCheckBox(名)
-            格.addWidget(self.欄[k], 1 + i, 0, 1, 3)
-            格.addWidget(self._下次(), 1 + i, 3)
-        self.資料夾鈕 = QPushButton("打開存檔資料夾")
-        self.資料夾鈕.setCursor(Qt.PointingHandCursor)
-        self.資料夾鈕.clicked.connect(self.打開資料夾)
-        格.addWidget(self.資料夾鈕, 1 + len(self.存檔項目), 0, 1, 2)
-        return 框
-
-    def 打開資料夾(self):
-        os.startfile(os.path.dirname(config.設定檔路徑))
-
-    # ---------- 表單 ⇄ 設定 ----------
-    def 載入(self, 設定=None):
-        """把設定（config.載入設定 的格式）放進表單。不給就讀 config.json。
-        舊設定（只有 provider＋base_url＋model）自動對到服務與模型：模型不在推薦清單就顯示成「其他（自己輸入）」；服務對不到就是其他相容服務。"""
-        if 設定 is None:
-            設定 = config.目前設定()
-        self._載入中 = True
-        try:
-            e = self.欄
-            for k, w in e.items():
-                v = 設定[k]
-                if isinstance(w, QCheckBox):
-                    w.setChecked(v)
-                elif isinstance(w, QComboBox):
-                    w.setCurrentIndex(max(0, w.findData(v)))
-                elif isinstance(w, QSpinBox):
-                    w.setValue(int(v))
-                elif isinstance(w, QLineEdit):
-                    w.setText(str(v))
-            self._記住設定(設定)
-            self._查證記憶 = bool(設定["web_verify"])
-            self.服務選.setCurrentIndex(max(0, self.服務選.findData(self._設定服務)))
-        finally:
-            self._載入中 = False
-        self.自訂模型欄.setText("")
-        self._套用服務(self._設定服務, 模型=self._設定模型)
-
     def _記住設定(self, 設定):
         self._設定服務 = model_catalog.設定的服務(設定)
         self._設定模型 = 設定.get("model", "")
         self._設定網址 = 設定.get("base_url", "") if self._設定服務 == model_catalog.其他 else ""
         self._設定單價 = (設定.get("price_model", ""), 設定.get("price_input"), 設定.get("price_output"))
-
-    def _更新段位說明(self, *_):
-        """字幕速度下方：延遲與準確度、分段與批次設定；並重算下方的每小時費用表。"""
-        if "chat" not in getattr(self, "欄", {}) or "費用格" not in self.__dict__:      # 建構途中，表單還沒建完
-            return
-        代碼 = self.欄["subtitle_speed"].currentData()
-        self.段位說明.setText(subtitle_speed.延遲準確度字(代碼) + chr(10) + subtitle_speed.批次文字(代碼))
-        self._更新費用表()
 
     def _模型設定(self):
         """表單上選的服務與模型 → 要寫進設定的 provider、base_url、model 與單價欄位。
@@ -441,38 +247,6 @@ class 設定頁(QScrollArea):
             設["price_model"] = ""
         return 設
 
-    def _表單設定(self):
-        """目前表單上的值（含還沒按儲存的）合成一份設定，費用表用它估算；語言不在表單上，取 config.json 的。"""
-        e = self.欄
-        return dict(config.目前設定(),
-                    subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
-                    minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
-                    minute_sentences=e["minute_sentences"].value(),
-                    chat_translate=e["chat_translate"].isChecked(),
-                    chat_translate_max_per_min=e["chat_translate_max_per_min"].value(),
-                    web_verify=e["web_verify"].isChecked(), **self._模型設定())
-
-    def _更新費用表(self):
-        代碼 = self.欄["subtitle_speed"].currentData()
-        表單 = self._表單設定()
-        結果 = cost_estimate.估算(表單, 代碼, self.主.面板.翻譯將啟用(), self.主.面板.聊天將開啟())
-        self.聊天註.setText(cost_estimate.聊天備註(表單))
-        格 = self.費用格
-        while 格.count():
-            w = 格.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        列們 = cost_estimate.表格列們(結果)
-        for r, 列 in enumerate(列們):
-            for c, 字 in enumerate(列):
-                w = QLabel(字)
-                w.setObjectName("小標" if r == 0 else "")
-                if r == len(列們) - 1:
-                    w.setStyleSheet("font-weight: 700;")
-                格.addWidget(w, r, c)
-        self.費用表 = 列們
-
-    # ---------- 模型服務與模型 ----------
     def 目前服務(self):
         return self.服務選.currentData()
 
@@ -512,9 +286,8 @@ class 設定頁(QScrollArea):
         if 模型 is None:
             模型 = self._設定模型 if 同 else (model_catalog.建議模型(服務) or model_catalog.自訂)
         self._重建模型選單(模型)
-        self._更新查證可用()
+        self.宿主.模型區變了(換服務=True)        # 設定框：上網查證能不能勾、費用表
         self.更新金鑰()
-        self._更新段位說明()
         if 服務 == "ollama" and "ollama" not in self._已載入:
             self.載入可用模型(自動=True)        # Ollama 的推薦清單就是本機已下載的模型
 
@@ -628,21 +401,7 @@ class 設定頁(QScrollArea):
             字 = model_catalog.單價字(*單, 日期="") + "，服務的模型清單附的單價"
         self.單價字.setText(字)
         self.模型選.setToolTip(self.模型選.itemData(self.模型選.currentIndex(), Qt.ToolTipRole) or "")
-        self._更新段位說明()
-
-    def _記查證(self, 開):
-        if not self._載入中 and self.欄["web_verify"].isEnabled():
-            self._查證記憶 = bool(開)
-
-    def _更新查證可用(self):
-        """上網查證只有直接連 Claude 時能用：其他服務停用勾選並寫原因；切回 Claude 還原原本的勾選。"""
-        可 = self.目前服務() == "claude"
-        w = self.欄["web_verify"]
-        w.blockSignals(True)
-        w.setChecked(self._查證記憶 if 可 else False)
-        w.setEnabled(可)
-        w.blockSignals(False)
-        self.查證原因.setVisible(not 可)
+        self.宿主.模型區變了()
 
     # ---------- 載入可用模型 ----------
     def _載入提示(self, 字, 錯=False, 顏色=None):
@@ -670,7 +429,7 @@ class 設定頁(QScrollArea):
             except Exception:          # noqa: BLE001  不讓背景執行緒的錯誤帶出任何內容
                 結果, 說明, 模型們 = llm.測試其他, "載入時發生問題，請再試一次。", []
             self._列出完成.emit((服務, 網址, 結果, api_key.遮掉(說明, 金鑰), 模型們))
-        if self.背景測試:
+        if self._背景():
             threading.Thread(target=做, daemon=True, name="載入可用模型").start()
         else:
             做()
@@ -734,17 +493,13 @@ class 設定頁(QScrollArea):
         self.取得連結.setVisible(bool(連結) and 需要)
         變數 = api_key.環境變數名(代號, 環境)
         self.金鑰進階.setText(f"進階：也可以用系統環境變數 {變數} 設定金鑰；這台電腦已儲存的金鑰優先。" if 變數 and 需要 else "")
-        self.金鑰進階.setVisible(bool(self.金鑰進階.text()))
+        self.金鑰進階.setVisible(bool(self.金鑰進階.text()) and not self.精簡)
 
     def _金鑰提示(self, 字, 錯=False, 顏色=None):
         self.金鑰訊息.setStyleSheet(f"color: {顏色 or ('#ff5c7a' if 錯 else '#3ecf8e')};")
         self.金鑰訊息.setText(字)
-        self.金鑰訊息.setVisible(bool(字))
-
-    def 捲到金鑰(self):
-        """啟動面板「設定金鑰」：捲到金鑰欄並讓游標停在輸入框。"""
-        self.ensureWidgetVisible(self.金鑰列, 20, 120)
-        self.金鑰欄.setFocus(Qt.OtherFocusReason)
+        self.金鑰訊息.setVisible(bool(字) and not self.精簡)
+        self.提示了.emit(字, "錯" if 錯 else "中" if 顏色 else "好")
 
     def 測試連線(self):
         """用輸入框的金鑰（空白就用目前讀得到的那把）列出模型清單。成功且是輸入框的金鑰才存；失敗絕不存。"""
@@ -763,7 +518,7 @@ class 設定頁(QScrollArea):
             except Exception:          # noqa: BLE001  不讓背景執行緒的錯誤帶出任何內容
                 結果, 說明 = llm.測試其他, "測試時發生問題，請再試一次。"
             self._測試完成.emit((代號, 輸入, 結果, api_key.遮掉(說明, 金鑰)))
-        if self.背景測試:
+        if self._背景():
             threading.Thread(target=做, daemon=True, name="測試連線").start()
         else:
             做()
@@ -799,6 +554,357 @@ class 設定頁(QScrollArea):
         self._金鑰提示(字)
         self.主.更新啟動面板費用()
 
+
+class 設定頁(QScrollArea):
+    背景測試 = True                   # 測試連線、載入可用模型放背景執行緒（測試時設 False 改成直接執行）
+
+    def __init__(self, 主):
+        super().__init__()
+        self.主 = 主                 # 主控台（換內容方向、看是否執行中）
+        self._載入中 = False
+        self._查證記憶 = False       # 切到不支援上網查證的服務前，勾選的狀態
+        self.下次標們 = []           # 「下次開始生效」標籤
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)     # 視窗被縮得太窄時寧可出現橫捲軸，也不截斷文字
+        內 = QWidget()
+        版 = QVBoxLayout(內)
+        版.setContentsMargins(16, 16, 16, 16)
+        版.setSpacing(12)
+
+        上 = QHBoxLayout()
+        說明 = QLabel("按「儲存」才會套用並記住這些設定（會先備份舊的設定）。")
+        說明.setObjectName("小標")
+        說明.setWordWrap(True)
+        上.addWidget(說明, 1)
+        self.還原鈕 = QPushButton("還原預設值")
+        self.儲存鈕 = QPushButton("儲存")
+        self.儲存鈕.setObjectName("開始")
+        for 鈕 in (self.還原鈕, self.儲存鈕):
+            鈕.setCursor(Qt.PointingHandCursor)
+            上.addWidget(鈕)
+        self.還原鈕.clicked.connect(self.還原預設)
+        self.儲存鈕.clicked.connect(self.儲存)
+        版.addLayout(上)
+        self.狀態字 = QLabel("")
+        self.狀態字.setWordWrap(True)
+        版.addWidget(self.狀態字)
+
+        版.addWidget(self._做模型區())
+        版.addWidget(self._做一般區())
+        版.addWidget(self._做費用區())
+        版.addWidget(self._做存檔區())
+        版.addWidget(self._做開發者區())
+        版.addStretch(1)
+        self.setWidget(內)
+        self._滾輪 = 滾輪過濾(self)
+        for w in (w for w in 內.findChildren(QWidget) if isinstance(w, (QSpinBox, QComboBox))):
+            w.setFocusPolicy(Qt.StrongFocus)      # 只有點選過才會有焦點（預設的 Wheel 會讓滾輪也能取得焦點）
+            w.installEventFilter(self._滾輪)
+
+    # ---------- 版面 ----------
+    def _面板(self, 標題):
+        框 = QFrame()
+        框.setObjectName("卡片")
+        外 = QVBoxLayout(框)
+        外.setContentsMargins(16, 12, 16, 14)
+        t = QLabel(標題)
+        t.setStyleSheet("font-weight: 700; font-size: 15px;")
+        外.addWidget(t)
+        格 = QGridLayout()
+        格.setHorizontalSpacing(12)
+        格.setVerticalSpacing(8)
+        格.setColumnStretch(1, 1)
+        格.setColumnStretch(3, 1)
+        外.addLayout(格)
+        return 框, 格
+
+    def _下次(self):
+        w = QLabel("下次開始生效")
+        w.setStyleSheet("color: #f5b84a; font-size: 12px;")
+        w.hide()
+        self.下次標們.append(w)
+        return w
+
+    def _做模型區(self):
+        """模型服務與 API 金鑰：內容是共用的 模型金鑰區（首次引導第 1 頁也用它）。"""
+        框, 格 = self._面板("模型服務與 API 金鑰")
+        格.setColumnStretch(3, 0)
+        self.模型區 = 模型金鑰區(self, self.主)
+        格.addWidget(self.模型區, 0, 0, 1, 4)
+        return 框
+
+    def 捲到金鑰(self):
+        """啟動面板「設定金鑰」：捲到金鑰欄並讓游標停在輸入框。"""
+        self.ensureWidgetVisible(self.模型區.金鑰列, 20, 120)
+        self.模型區.金鑰欄.setFocus(Qt.OtherFocusReason)
+
+    def 模型區變了(self, 換服務=False):
+        """模型金鑰區的服務或模型變了：換服務時更新上網查證能不能勾；重算段位說明與費用表。"""
+        if 換服務 and "web_verify" in getattr(self, "欄", {}):
+            self._更新查證可用()
+        self._更新段位說明()
+
+    def __getattr__(self, 名):
+        """舊的寫法（設定頁.服務選、設定頁.測試連線…）照樣能用：轉給 模型金鑰區。"""
+        區 = self.__dict__.get("模型區")
+        if 區 is None or 名.startswith("__"):
+            raise AttributeError(名)
+        return getattr(區, 名)
+
+
+    def _做一般區(self):
+        框, 格 = self._面板("功能")
+        self.欄 = {}
+        e = self.欄
+        e["subtitle_mode"] = QComboBox()
+        for 名, 值 in (("自動（中文用原文，其他語言翻譯）", "auto"), ("原文", "original"), ("翻譯成繁中", "translate")):
+            e["subtitle_mode"].addItem(名, 值)
+        e["chat"] = QCheckBox("抓聊天室（直播網址模式）")
+        e["minute_summary"] = QCheckBox("分鐘摘要")
+        e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
+        e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
+        e["chat_translate"] = QCheckBox("聊天室翻譯：外語直播時把留言翻成繁體中文（聊天室面板開著才翻，另外計費）")
+        e["web_verify"] = QCheckBox("上網查證詞庫的候選名詞：查到台灣通行寫法就寫回詞庫並附來源網址（只支援 Claude，另外計費）")
+        e["web_verify"].setToolTip("每場只查這一場新加入的候選，最多 10 個；查無的標「已查」不再重查。搜尋每次 0.01 美元＋token")
+        e["web_verify"].toggled.connect(self._記查證)
+        self.查證原因 = QLabel(查證原因字)
+        self.查證原因.setObjectName("小標")
+        self.查證原因.setWordWrap(True)
+        self.查證原因.hide()
+        e["chat_translate_max_per_min"] = QSpinBox()
+        e["chat_translate_max_per_min"].setRange(1, 600)
+        e["chat_translate_max_per_min"].setSuffix(" 則")
+        e["chat_translate_max_per_min"].setToolTip("超過就平均抽樣，沒翻到的留言只顯示原文")
+        for k in ("ui_max_transcript", "ui_max_chat", "ui_max_translation", "ui_max_summary"):
+            e[k] = QSpinBox()
+            e[k].setRange(10, 100000)
+            e[k].setSuffix(" 則")
+        e["newest_on_top"] = QComboBox()
+        e["newest_on_top"].addItem("最下面", False)
+        e["newest_on_top"].addItem("最上面", True)
+        e["newest_on_top"].currentIndexChanged.connect(self._換方向)
+        e["time_display"] = QComboBox()
+        e["time_display"].addItem("直播時間（例如 1:23:45）", "stream")
+        e["time_display"].addItem("幾分鐘前", "ago")
+        e["time_display"].setToolTip("只影響分鐘摘要與話題摘要卡片；直播稿、逐句翻譯、聊天室一律顯示直播時間。抓不到開播時間時自動顯示幾分鐘前")
+        e["minute_sentences"] = QSpinBox()
+        e["minute_sentences"].setRange(1, 3)
+        e["minute_sentences"].setSuffix(" 句")
+        e["subtitle_speed"] = QComboBox()
+        for 代碼 in subtitle_speed.代碼們:
+            e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
+        e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
+        e["subtitle_mode"].currentIndexChanged.connect(self._更新段位說明)
+        for k in ("chat", "minute_summary", "summary_thinking", "chat_translate", "web_verify"):
+            e[k].toggled.connect(self._更新段位說明)
+        e["minute_sentences"].valueChanged.connect(self._更新段位說明)
+        e["chat_translate_max_per_min"].valueChanged.connect(self._更新段位說明)
+        self.段位說明 = QLabel()
+        self.段位說明.setObjectName("小標")
+        self.段位說明.setWordWrap(True)
+
+        列 = 0
+
+        def 加(名, w, 下次=False):
+            nonlocal 列
+            if 名:
+                格.addWidget(小標(名), 列, 0)
+                格.addWidget(w, 列, 1, 1, 2)
+            else:                                    # 沒有標題的勾選框：從最左邊開始，長的文字才放得下
+                格.addWidget(w, 列, 0, 1, 3)
+            if 下次:
+                格.addWidget(self._下次(), 列, 3)
+            列 += 1
+
+        加("逐句字幕模式", e["subtitle_mode"], True)
+        for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking", "web_verify"):
+            加("", e[k], True)
+        格.addWidget(self.查證原因, 列, 0, 1, 4)
+        列 += 1
+        加("", e["chat_translate"])                 # 按「儲存」當場生效（膠囊選單也可以直接切換）
+        加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
+        加("分鐘摘要句數", e["minute_sentences"], True)
+        加("最新內容顯示在", e["newest_on_top"])
+        加("摘要卡片的時間", e["time_display"])        # 按「儲存」當場生效（膠囊選單也可以直接切換）
+        加("直播稿分頁最多顯示", e["ui_max_transcript"], True)
+        加("聊天室分頁最多顯示", e["ui_max_chat"], True)
+        加("逐句翻譯分頁最多顯示", e["ui_max_translation"], True)
+        加("摘要分頁最多顯示（分鐘、話題各）", e["ui_max_summary"], True)
+        加("字幕速度（預設）", e["subtitle_speed"], True)
+        self.段位下次標 = self.下次標們[-1]
+        格.addWidget(self.段位說明, 列, 1, 1, 3)
+        列 += 1
+        return 框
+
+
+    def _做費用區(self):
+        """每小時費用表：項目／每小時（估算）／受字幕段位影響／目前狀態，最後一列是合計。內容由 cost_estimate 算。"""
+        框, 格 = self._面板("每小時費用（估算）")
+        self.費用格 = QGridLayout()
+        self.費用格.setHorizontalSpacing(16)
+        self.費用格.setVerticalSpacing(6)
+        self.費用格.setColumnStretch(3, 1)
+        格.addLayout(self.費用格, 0, 0, 1, 4)
+        self.費用註們 = []
+        for i, 字 in enumerate(cost_estimate.備註們):
+            註 = QLabel(字)
+            註.setObjectName("小標")
+            註.setWordWrap(True)
+            self.費用註們.append(註)
+            格.addWidget(註, 1 + i, 0, 1, 4)
+        self.聊天註 = QLabel("")                   # 熱門台的聊天室翻譯有每分鐘上限封頂（金額依目前單價與上限）
+        self.聊天註.setObjectName("小標")
+        self.聊天註.setWordWrap(True)
+        self.費用註們.append(self.聊天註)
+        格.addWidget(self.聊天註, 1 + len(cost_estimate.備註們), 0, 1, 4)
+        self.費用表 = []                 # 目前表格每一列的文字（測試與除錯用）
+        return 框
+
+    存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
+              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每段一個 wav，段長依字幕速度 8～20 秒，檔案較大）"))
+
+    def _做存檔區(self):
+        """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
+        框, 格 = self._面板("存檔")
+        說明 = QLabel("打開的項目才會存成檔案（存在專案資料夾）。關掉的內容只顯示在畫面上，超過顯示上限的較早內容會直接移除。")
+        說明.setObjectName("小標")
+        說明.setWordWrap(True)
+        格.addWidget(說明, 0, 0, 1, 4)
+        for i, (k, 名) in enumerate(self.存檔項目):
+            self.欄[k] = QCheckBox(名)
+            格.addWidget(self.欄[k], 1 + i, 0, 1, 3)
+            格.addWidget(self._下次(), 1 + i, 3)
+        self.資料夾鈕 = QPushButton("打開存檔資料夾")
+        self.資料夾鈕.setCursor(Qt.PointingHandCursor)
+        self.資料夾鈕.clicked.connect(self.打開資料夾)
+        格.addWidget(self.資料夾鈕, 1 + len(self.存檔項目), 0, 1, 2)
+        return 框
+
+    def _做開發者區(self):
+        """開發者選項（預設收起）：顯示文字稿重播模式。"""
+        框 = QFrame()
+        框.setObjectName("卡片")
+        外 = QVBoxLayout(框)
+        外.setContentsMargins(16, 10, 16, 12)
+        外.setSpacing(8)
+        self.開發者鈕 = QPushButton("▸ 開發者選項")
+        self.開發者鈕.setCursor(Qt.PointingHandCursor)
+        self.開發者鈕.setStyleSheet("QPushButton { border: none; background: transparent; padding: 2px 0px;"
+                                 " font-weight: 700; font-size: 15px; text-align: left; }")
+        self.開發者鈕.clicked.connect(lambda: self.展開開發者(self.開發者內容.isHidden()))
+        外.addWidget(self.開發者鈕, 0, Qt.AlignLeft)
+        self.開發者內容 = QWidget()
+        內版 = QVBoxLayout(self.開發者內容)
+        內版.setContentsMargins(0, 0, 0, 0)
+        內版.setSpacing(4)
+        self.文字稿勾 = QCheckBox("顯示文字稿重播模式")
+        self.文字稿勾.toggled.connect(self._切文字稿模式)
+        註 = QLabel("主控台的來源多一個「文字稿檔案」，用已存的直播稿重播測試（開發用）。勾選後立即生效。")
+        註.setObjectName("小標")
+        註.setWordWrap(True)
+        內版.addWidget(self.文字稿勾)
+        內版.addWidget(註)
+        外.addWidget(self.開發者內容)
+        self.開發者內容.hide()
+        return 框
+
+    def 展開開發者(self, 開=True):
+        self.開發者內容.setVisible(bool(開))
+        self.開發者鈕.setText(("▾ " if 開 else "▸ ") + "開發者選項")
+
+    def _切文字稿模式(self, 開):
+        ui_state.存旗標(文字稿旗標, bool(開))
+        if hasattr(self.主, "套用開發者選項"):
+            self.主.套用開發者選項()
+
+    def 打開資料夾(self):
+        os.startfile(os.path.dirname(config.設定檔路徑))
+
+    # ---------- 表單 ⇄ 設定 ----------
+    def 載入(self, 設定=None):
+        """把設定（config.載入設定 的格式）放進表單。不給就讀 config.json。
+        舊設定（只有 provider＋base_url＋model）自動對到服務與模型：模型不在推薦清單就顯示成「其他（自己輸入）」；服務對不到就是其他相容服務。"""
+        if 設定 is None:
+            設定 = config.目前設定()
+        self._載入中 = True
+        try:
+            e = self.欄
+            for k, w in e.items():
+                v = 設定[k]
+                if isinstance(w, QCheckBox):
+                    w.setChecked(v)
+                elif isinstance(w, QComboBox):
+                    w.setCurrentIndex(max(0, w.findData(v)))
+                elif isinstance(w, QSpinBox):
+                    w.setValue(int(v))
+                elif isinstance(w, QLineEdit):
+                    w.setText(str(v))
+            self._查證記憶 = bool(設定["web_verify"])
+            self.文字稿勾.blockSignals(True)
+            self.文字稿勾.setChecked(ui_state.讀旗標(文字稿旗標))     # 本機的介面設定，不在 config.json
+            self.文字稿勾.blockSignals(False)
+        finally:
+            self._載入中 = False
+        self.模型區.載入設定(設定)
+
+
+    def _更新段位說明(self, *_):
+        """字幕速度下方：延遲與準確度、分段與批次設定；並重算下方的每小時費用表。"""
+        if "chat" not in getattr(self, "欄", {}) or "費用格" not in self.__dict__:      # 建構途中，表單還沒建完
+            return
+        代碼 = self.欄["subtitle_speed"].currentData()
+        self.段位說明.setText(subtitle_speed.延遲準確度字(代碼) + chr(10) + subtitle_speed.批次文字(代碼))
+        self._更新費用表()
+
+
+    def _表單設定(self):
+        """目前表單上的值（含還沒按儲存的）合成一份設定，費用表用它估算；語言不在表單上，取 config.json 的。"""
+        e = self.欄
+        return dict(config.目前設定(),
+                    subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
+                    minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
+                    minute_sentences=e["minute_sentences"].value(),
+                    chat_translate=e["chat_translate"].isChecked(),
+                    chat_translate_max_per_min=e["chat_translate_max_per_min"].value(),
+                    web_verify=e["web_verify"].isChecked(), **self.模型區._模型設定())
+
+    def _更新費用表(self):
+        代碼 = self.欄["subtitle_speed"].currentData()
+        表單 = self._表單設定()
+        結果 = cost_estimate.估算(表單, 代碼, self.主.面板.翻譯將啟用(), self.主.面板.聊天將開啟())
+        self.聊天註.setText(cost_estimate.聊天備註(表單))
+        格 = self.費用格
+        while 格.count():
+            w = 格.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        列們 = cost_estimate.表格列們(結果)
+        for r, 列 in enumerate(列們):
+            for c, 字 in enumerate(列):
+                w = QLabel(字)
+                w.setObjectName("小標" if r == 0 else "")
+                if r == len(列們) - 1:
+                    w.setStyleSheet("font-weight: 700;")
+                格.addWidget(w, r, c)
+        self.費用表 = 列們
+
+    # ---------- 模型服務與模型 ----------
+
+    def _記查證(self, 開):
+        if not self._載入中 and self.欄["web_verify"].isEnabled():
+            self._查證記憶 = bool(開)
+
+    def _更新查證可用(self):
+        """上網查證只有直接連 Claude 時能用：其他服務停用勾選並寫原因；切回 Claude 還原原本的勾選。"""
+        可 = self.模型區.目前服務() == "claude"
+        w = self.欄["web_verify"]
+        w.blockSignals(True)
+        w.setChecked(self._查證記憶 if 可 else False)
+        w.setEnabled(可)
+        w.blockSignals(False)
+        self.查證原因.setVisible(not 可)
+
+
     def 讀全部(self):
         """回傳要寫進 config.json 的欄位（不含已停用的舊欄位）。服務、網址、模型、單價一起換，舊服務的值不殘留。"""
         e = self.欄
@@ -817,9 +923,9 @@ class 設定頁(QScrollArea):
             "ui_max_summary": e["ui_max_summary"].value(),
             "subtitle_speed": e["subtitle_speed"].currentData(),
             "time_display": e["time_display"].currentData(),
-            **self._模型設定(),
+            **self.模型區._模型設定(),
         }
-        if self.目前服務() != model_catalog.設定的服務(config.目前設定()):
+        if self.模型區.目前服務() != model_catalog.設定的服務(config.目前設定()):
             一般["api_key_env"] = api_key.出廠環境變數       # 換了服務：舊服務的環境變數名稱不殘留（出廠值 = 各家預設名稱）
         return 一般
 
@@ -845,27 +951,27 @@ class 設定頁(QScrollArea):
     # ---------- 儲存、還原 ----------
     def 儲存(self):
         一般 = self.讀全部()
-        服務 = self.目前服務()
+        服務 = self.模型區.目前服務()
         if 服務 == model_catalog.其他 and not re.match(r"https?://\S+$", 一般["base_url"]):
             return self._提示("請填「服務網址」（例如 https://example.com/v1）。", 錯=True)
         if not 一般["model"]:
             return self._提示("請先選擇模型（Ollama 要先下載模型）。" if 服務 == "ollama" else "模型名稱不能空白。", 錯=True)
-        代號 = self.金鑰代號()                   # 用寫入前的設定決定是哪個服務（寫入後 provider 可能已改）
-        金鑰 = self.金鑰欄.text().strip() if self.金鑰欄.isEnabled() else ""
+        代號 = self.模型區.金鑰代號()                   # 用寫入前的設定決定是哪個服務（寫入後 provider 可能已改）
+        金鑰 = self.模型區.金鑰欄.text().strip() if self.模型區.金鑰欄.isEnabled() else ""
         try:
             config.寫入設定(一般)        # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留；寫之前先備份
         except Exception as e:
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
-        self._記住設定(config.目前設定())
+        self.模型區._記住設定(config.目前設定())
         金鑰字 = ""
         if 金鑰:
             try:
                 api_key.儲存(代號, 金鑰)       # 金鑰只進認證管理員，不進 config.json
-                self.金鑰欄.clear()
+                self.模型區.金鑰欄.clear()
                 金鑰字 = "金鑰已儲存在這台電腦。"
             except api_key.金鑰存取錯誤 as e:
                 金鑰字 = str(e)
-        self.更新金鑰()
+        self.模型區.更新金鑰()
         self.主.聊天翻譯器.開啟 = 一般["chat_translate"]     # 聊天室翻譯開關當場生效（和膠囊選單一樣）
         self.主._更新聊天藥丸()
         if 一般["time_display"] != self.主.時間顯示:          # 時間顯示當場生效（和膠囊選單一樣）
@@ -946,9 +1052,9 @@ class 設定框(QWidget):
         """每次打開都從 config.json 重新載入（沒按「儲存」的修改不保留，輸入框裡沒存的金鑰也清掉）。放在指定螢幕範圍的中間。
         捲到金鑰：啟動面板「設定金鑰」打開時，捲到金鑰欄。"""
         if not self.isVisible():
-            self.頁.金鑰欄.clear()
-            self.頁.眼睛鈕.setChecked(False)
-            self.頁.金鑰訊息.hide()
+            self.頁.模型區.金鑰欄.clear()
+            self.頁.模型區.眼睛鈕.setChecked(False)
+            self.頁.模型區.金鑰訊息.hide()
             self.頁.載入()
             self.頁.設執行中(self.主.執行中())
             self.頁.狀態字.setText("")

@@ -6,8 +6,12 @@
 #     成功開始擷取（收到 files 事件）→ 啟動面板收起，並套用上次使用的版面（沒有就套用預設版面），讓面板出現。
 #     網址錯誤、頻道沒開播等錯誤 → 在啟動面板裡用中文顯示，不收起。
 #   沒有 API 金鑰時：一打開就顯示「尚未設定 API 金鑰」與「設定金鑰」按鈕（打開設定框並捲到金鑰欄），不必等按了開始才報錯。
+#   第一次使用、轉錄模型還沒下載：開始擷取前引擎先送 model「將下載」，啟動面板就先不收起，改顯示下載畫面
+#     （進度條＋「已下載 0.8／1.6 GB」＋已等時間；總大小不明時是會動的進度條＋已等時間），模型「就緒」才收起並讓面板出現。
+#     直播中顯示卡失敗退回 CPU、要另外下載小模型時，也會重新打開啟動面板顯示這次下載，下載好自動收起。
+#     下載失敗（連不上網路、硬碟空間不夠）：用白話顯示在啟動面板裡。
 # 啟動面板不另外跑引擎，也不改主控台的行為。
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
@@ -16,6 +20,7 @@ from PySide6.QtWidgets import (
 import cost_estimate
 import events
 import config
+import first_run
 import llm
 import names_page
 import subtitle_speed
@@ -238,6 +243,31 @@ class 啟動面板(QWidget):
         self.進度條.hide()
         版.addWidget(self.進度條)
 
+        self.下載 = first_run.下載進度()      # 第一次使用：轉錄模型下載畫面
+        self._等模型 = False                  # 開始擷取了，但轉錄模型還在下載：先不收起
+        self._為下載打開 = False              # 直播中為了顯示下載（退回 CPU 要下載小模型）才打開的
+        self.下載區 = QFrame()
+        self.下載區.setObjectName("卡片")
+        下版 = QVBoxLayout(self.下載區)
+        下版.setContentsMargins(14, 12, 14, 12)
+        下版.setSpacing(8)
+        self.下載字 = QLabel("")
+        self.下載字.setWordWrap(True)
+        self.下載字.setStyleSheet("font-weight: 600;")
+        self.下載條 = QProgressBar()
+        self.下載條.setTextVisible(False)
+        self.下載條.setFixedHeight(8)
+        self.下載條.setStyleSheet("QProgressBar { background: #2a2e3a; border: none; border-radius: 4px; }"
+                              "QProgressBar::chunk { background: #8b6cff; border-radius: 4px; }")
+        self.下載細節 = QLabel("")
+        self.下載細節.setObjectName("淡")
+        self.下載細節.setStyleSheet("font-size: 12px;")
+        for w in (self.下載字, self.下載條, self.下載細節):
+            下版.addWidget(w)
+        self.下載區.hide()
+        版.addWidget(self.下載區)
+        self.下載計時 = QTimer(self, interval=1000, timeout=self._更新下載區)     # 「已等」每秒更新
+
         self.狀態字 = QLabel("")
         self.狀態字.setWordWrap(True)
         self.狀態字.hide()
@@ -280,6 +310,7 @@ class 啟動面板(QWidget):
 
     def hideEvent(self, e):
         self.收起比較()
+        self.下載計時.stop()
         super().hideEvent(e)
 
     def paintEvent(self, e):
@@ -375,8 +406,9 @@ class 啟動面板(QWidget):
         """依啟動狀態更新：開始鈕、進度條、提示文字、字幕速度能不能改。"""
         self._更新段位註()
         self.開始鈕.setEnabled(self.狀態.開始鈕可用())
-        self.進度條.setVisible(self.狀態.顯示進度條())
-        self.設狀態(self.狀態.文字(), 錯誤=self.狀態.是錯誤())
+        下載中 = self.下載.顯示中
+        self.進度條.setVisible(self.狀態.顯示進度條() and not 下載中)     # 下載畫面有自己的進度條
+        self.設狀態("" if 下載中 and not self.狀態.是錯誤() else self.狀態.文字(), 錯誤=self.狀態.是錯誤())
 
     # ---------- 顯示 ----------
     def 顯示(self):
@@ -427,6 +459,9 @@ class 啟動面板(QWidget):
         台._切換來源()
         台.語言選.setCurrentIndex(max(0, 台.語言選.findData(self.語言選.currentData())))
         台.本次段位 = self.段位()      # 只用在這一場，不寫回 config.json
+        self.下載.重設()
+        self._等模型 = self._為下載打開 = False
+        self._更新下載區()
         self.狀態.開始("檢查直播" if not self.測試檔案 else "開始重播文字稿")
         self._套用狀態()
         台.開始()
@@ -451,11 +486,67 @@ class 啟動面板(QWidget):
             self.狀態.失敗("啟動失敗，請再試一次。")
             self._套用狀態()
 
+    # ---------- 轉錄模型下載畫面 ----------
+    def _更新下載區(self):
+        顯示 = self.下載.顯示中
+        if 顯示:
+            失敗 = self.下載.狀態 == "失敗"
+            self.下載字.setText(self.下載.標題())
+            self.下載字.setStyleSheet(f"font-weight: 600; color: {'#ff5c7a' if 失敗 else '#e7e9ef'};")
+            百分比 = self.下載.百分比()
+            if 百分比 is None:
+                self.下載條.setRange(0, 0)          # 取不到進度：會動的進度條
+            else:
+                self.下載條.setRange(0, 100)
+                self.下載條.setValue(百分比)
+            self.下載條.setVisible(not 失敗)
+            self.下載細節.setText(self.下載.細節())
+            self.下載細節.setVisible(not 失敗)
+            if not self.下載計時.isActive() and not 失敗:
+                self.下載計時.start()
+        else:
+            self.下載計時.stop()
+        if self.下載區.isHidden() == 顯示:
+            self.下載區.setVisible(顯示)
+            if not self.網址清單.isVisible():
+                self._回基本高()
+
+    def _收模型(self, 內容):
+        狀態 = 內容.get("狀態", "")
+        if 狀態 == "就緒":                   # 模型載入好了：收掉下載畫面；等著的就收起並讓面板出現
+            self.下載.重設()
+            self._更新下載區()
+            if self._等模型:
+                self._等模型 = False
+                self.狀態.成功()
+                self._套用狀態()
+                self.hide()
+                self.台.面板.套用上次或預設()
+            elif self._為下載打開:
+                self._為下載打開 = False
+                self.hide()
+            return
+        self.下載.收(內容)
+        if 狀態 == "將下載" and self.等待中:
+            self._等模型 = True
+        if 狀態 in ("將下載", "下載中") and not self.isVisible() and not self.台.要結束:
+            self._為下載打開 = True
+            self.show()
+            self.raise_()
+        self._更新下載區()
+        if self.等待中:
+            self._套用狀態()
+
     def 收事件(self, 種類, 內容):
+        if 種類 == "model":                   # 轉錄模型下載（直播中退回 CPU 時也可能出現）
+            return self._收模型(內容)
         if not self.等待中:
             return
         if 種類 == "stage":                   # 啟動階段文字
             self.狀態.換階段(內容.get("階段", ""))
+            self._套用狀態()
+        elif 種類 == "files" and self._等模型:   # 開始擷取了，但轉錄模型還在下載：等下載完（模型就緒）才收起
+            self.狀態.換階段("下載轉錄模型")
             self._套用狀態()
         elif 種類 == "files":                 # 成功開始擷取：收起，套用版面讓面板出現
             self.狀態.成功()
@@ -465,6 +556,10 @@ class 啟動面板(QWidget):
         elif 種類 == "error":                 # 網址錯誤、頻道沒開播、金鑰問題等：留在啟動面板顯示
             if self.台.要結束:                # 正在結束中被取消，不顯示錯誤
                 return
+            self._等模型 = False
+            if self.下載.狀態 == "失敗":      # 下載失敗的白話訊息改由下面的狀態文字顯示（不重複）
+                self.下載.重設()
+                self._更新下載區()
             self.狀態.失敗(內容.get("訊息") or "發生錯誤，請再試一次。")
             self._套用狀態()
             if not self.isVisible():

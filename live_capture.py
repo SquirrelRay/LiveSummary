@@ -19,6 +19,7 @@ import transcribe  # 沿用 GPU 優先的作法
 import events      # 提示訊息改成送出事件
 import config      # 語言清單（單一來源）
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
+import first_run     # 轉錄模型下載過沒有、下載進度（第一次使用）
 import stream_info   # 開播時間、標題、分類、直播主（不需要金鑰）
 import stream_clock  # 音訊秒數、收到時刻 → 直播實際進行時間
 
@@ -119,18 +120,27 @@ def 檢查直播(網址):
 
 
 def 載入模型(語言):
-    """GPU 優先，失敗退回 CPU。GPU 的錯誤要真的算一次才會出現，所以先試跑一段靜音。"""
+    """GPU 優先，失敗退回 CPU。GPU 的錯誤要真的算一次才會出現，所以先試跑一段靜音。
+    模型還沒下載過就先下載（first_run.準備模型：送出下載進度，失敗丟出白話的 模型下載錯誤）。
+    確定沒有可用的 NVIDIA 顯示卡時，直接用 CPU 的模型，不必先下載顯示卡用的大模型。"""
     transcribe.找顯示卡函式庫()
     from faster_whisper import WhisperModel
     試音 = np.zeros(取樣率, dtype=np.float32)
     語言 = None if 語言 == "auto" else 語言
-    try:
-        model = WhisperModel(transcribe.GPU_MODEL, device="cuda", compute_type="float16")
-        list(model.transcribe(試音, language=語言)[0])
-        return model
-    except Exception as e:
-        events.送出("info", 印出=f"顯示卡（GPU）無法使用（{type(e).__name__}），改用 CPU，可能跟不上直播。")
-        return WhisperModel(transcribe.CPU_MODEL, device="cpu", compute_type="int8")
+    if first_run.顯示卡可用() is False:
+        events.送出("info", 印出="顯示卡（GPU）無法使用（沒有偵測到可用的 NVIDIA 顯示卡），改用 CPU，可能跟不上直播。")
+    else:
+        try:
+            first_run.準備模型(transcribe.GPU_MODEL)
+            model = WhisperModel(transcribe.GPU_MODEL, device="cuda", compute_type="float16")
+            list(model.transcribe(試音, language=語言)[0])
+            return model
+        except first_run.模型下載錯誤:
+            raise
+        except Exception as e:
+            events.送出("info", 印出=f"顯示卡（GPU）無法使用（{type(e).__name__}），改用 CPU，可能跟不上直播。")
+    first_run.準備模型(transcribe.CPU_MODEL)       # 退回 CPU 時另外要 small：沒下載過一樣會顯示下載進度
+    return WhisperModel(transcribe.CPU_MODEL, device="cpu", compute_type="int8")
 
 
 class 信心太低(ValueError):
@@ -240,6 +250,10 @@ class live_session:
         self.時軸 = 取得時軸(查詢)
         events.送出("stage", 階段="尋找 ffmpeg")
         self.ffmpeg = 找ffmpeg()
+        try:                     # 這次要用的轉錄模型還沒下載：先告訴啟動面板（等下載完才收起）
+            first_run.預告(first_run.要用的模型(first_run.顯示卡可用()))
+        except Exception:        # noqa: BLE001, S110  只是預告，失敗不影響開始
+            pass
         self.串流名 = 串流名
         時間字 = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.稿路徑 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_直播稿.txt")
@@ -287,6 +301,7 @@ class live_session:
     def __iter__(self):
         events.送出("info", 印出="載入轉錄模型中...")
         model = 載入模型(self.語言)
+        events.送出("model", 狀態="就緒")
         里程碑.標記(里程碑.模型載入完成)
         p1 = subprocess.Popen(
             [sys.executable, "-m", "streamlink_cli", "--loglevel", "error", "--stdout",

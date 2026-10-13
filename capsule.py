@@ -616,6 +616,7 @@ class 膠囊管理(QObject):
         a = 選單.addAction("名詞清單" + (f"（{原因}）" if 原因 else ""))
         a.setEnabled(not 原因)
         a.triggered.connect(台.開名詞清單)
+        選單.addAction("使用說明").triggered.connect(台.開引導)
         選單.addAction("設定").triggered.connect(台.開設定框)
         選單.addAction("顯示主控台").triggered.connect(self.顯示主控台)
         if 含重設:

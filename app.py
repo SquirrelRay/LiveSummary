@@ -30,6 +30,7 @@ import ui_state      # 網址紀錄、並排欄數（本機記憶）
 import panel         # 可自由擺放的面板與版面配置（新介面第一階段）
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
+import onboarding    # 首次引導（第一次打開時出現；選單「使用說明」可重新打開）
 import startup_timeline  # 啟動時間里程碑紀錄
 import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
 import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
@@ -1072,6 +1073,7 @@ class 主控台(QMainWindow):
         self.本場檔案 = []
         self.設定框 = None
         self.名詞清單框 = None
+        self.引導 = None
 
         # 逐句字幕（翻譯）：只有逐句翻譯面板開著時才產生（見 panel.面板管理.要翻譯）
         self.字幕器 = subtitle.字幕器()
@@ -1109,6 +1111,7 @@ class 主控台(QMainWindow):
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
         self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和啟動面板一起顯示）
         self.啟動面板 = launcher.啟動面板(self, 網址欄, 網址清單)
+        self.套用開發者選項()
         self._切換來源()
 
     # ---------- 版面 ----------
@@ -1513,6 +1516,8 @@ class 主控台(QMainWindow):
         self.面板.全部收掉()
         self.膠囊.收掉()
         self.啟動面板.close()
+        if self.引導:
+            self.引導.hide()             # 只是收起，不算「看過」
         if self.設定框:
             self.設定框.close()
         if self.名詞清單框:
@@ -1529,6 +1534,38 @@ class 主控台(QMainWindow):
         if self.設定框 is None:
             self.設定框 = settings_page.設定框(self)
         self.設定框.打開(self.膠囊.膠囊._所在螢幕(), 捲到金鑰=bool(捲到金鑰))
+
+    # ---------- 首次引導（開程式、膠囊／系統匣選單「使用說明」）----------
+    def 開程式(self):
+        """開程式時：出現浮動膠囊；還沒看過引導就打開引導（關掉後才出現啟動面板），看過就直接出現啟動面板。"""
+        self.膠囊.顯示()
+        if onboarding.要自動出現():
+            self.開引導()
+        else:
+            self.啟動面板.顯示()
+
+    def 開引導(self):
+        if self.引導 is None:
+            self.引導 = onboarding.首次引導(self)
+            self.引導.關閉了.connect(self._引導關了)
+        self.引導.顯示(self.膠囊.膠囊._所在螢幕())
+
+    def _引導關了(self):
+        """看完或跳過：沒在直播就打開啟動面板（直播中 啟動面板.顯示 本來就不會打開）。"""
+        if not self.要結束:
+            self.啟動面板.顯示()
+
+    # ---------- 開發者選項（設定框最下面）----------
+    def 顯示文字稿模式(self):
+        return ui_state.讀旗標(settings_page.文字稿旗標)
+
+    def 套用開發者選項(self):
+        """「文字稿」來源只給開發測試用：預設隱藏，設定框的開發者選項勾選後才出現（命令列的文字稿模式不受影響）。"""
+        顯示 = self.顯示文字稿模式()
+        self.檔案鈕.setVisible(顯示)
+        if not 顯示 and self.檔案鈕.isChecked() and not self.執行中():
+            self.直播鈕.setChecked(True)
+            self._切換來源()
 
     # ---------- 名詞清單（膠囊選單、啟動面板的按鈕）----------
     def 名詞清單目標(self):
@@ -1856,8 +1893,7 @@ def main():
     app.setStyleSheet(樣式表)
     app.setQuitOnLastWindowClosed(False)      # 主控台、啟動面板都可能收著；只有「結束程式」才結束
     窗 = 主控台()                # 主控台先建好但不顯示（可從膠囊選單「顯示主控台」打開）
-    窗.膠囊.顯示()              # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板
-    窗.啟動面板.顯示()          # 面板等按了「開始」才依版面出現
+    窗.開程式()                 # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板（第一次是首次引導）；面板等按了「開始」才依版面出現
     sys.exit(app.exec())
 
 
