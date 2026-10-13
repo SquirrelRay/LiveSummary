@@ -324,7 +324,11 @@ def 框(qapp, monkeypatch):
     monkeypatch.setattr(names_page, "確認", lambda *a: True)
     w = names_page.名詞清單框()
     yield w
+    w.計時器.stop()
     w.close()
+    w.deleteLater()                  # 在 QApplication 還在時刪掉；留到程式結束才由 Python 回收會在關閉時當掉
+    from PySide6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def 列文字(框, 欄):
