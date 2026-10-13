@@ -491,3 +491,88 @@ def test_清掉上次留下的舊暫存_正在用的不動(monkeypatch, tmp_path
     os.utime(新, (起點 - 5, 起點 - 5))
     yt_chat.清舊暫存(起點)
     assert not 舊.exists() and 新.exists() and 別的.exists()
+
+
+# ---------- 保護測試：yt-dlp 更新後，被替換的等待還在不在 ----------
+# yt_chat 替換了 yt_dlp.downloader.youtube_live_chat 的 time（兩批之間的 time.sleep），按停止才能立刻生效。
+# yt-dlp 改版把那個位置拿掉或改寫時，這裡要直接失敗，不能默默退回「按停止停不下來」。
+改版訊息 = "yt-dlp 版本變了，聊天室的停止機制要重新檢查（yt_chat._可中斷時間 替換的位置）"
+
+
+def test_保護_yt_dlp被替換的等待位置還在():
+    模組, 原因 = yt_chat.檢查可中斷等待(要原始碼=True)
+    assert 模組 is not None, f"{改版訊息}：{原因}"
+
+
+def test_保護_裝上後_yt_dlp聊天室下載真的用我們的等待():
+    assert yt_chat._裝上可中斷等待(), 改版訊息
+    import yt_dlp.downloader.youtube_live_chat as 模組
+    類 = getattr(模組, "YoutubeLiveChatFD", None)
+    assert 類 is not None and hasattr(類, "real_download"), f"{改版訊息}：找不到 YoutubeLiveChatFD.real_download"
+    assert isinstance(類.real_download.__globals__.get("time"), yt_chat._可中斷時間), \
+        f"{改版訊息}：real_download 用的 time 不是替換後的版本"
+
+
+def test_保護_安裝的yt_dlp和requirements固定的版本一樣():
+    import re
+
+    import yt_dlp.version
+    根 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(根, "requirements.txt"), encoding="utf-8") as f:
+        m = re.search(r"^yt-dlp==(\S+)", f.read(), re.MULTILINE)
+    assert m, "requirements.txt 沒有固定 yt-dlp 的版本（yt-dlp==版本）"
+
+    def 正規(v):
+        return tuple(int(x) for x in v.split("."))
+    assert 正規(yt_dlp.version.__version__) == 正規(m.group(1)), (
+        f"{改版訊息}：安裝的是 {yt_dlp.version.__version__}，requirements.txt 固定 {m.group(1)}。"
+        "確認保護測試都通過、真的按停止會立刻結束後，再更新 requirements.txt 的版本")
+
+
+@pytest.mark.parametrize("改法", ["沒有time", "找不到sleep", "讀不到原始碼", "模組不見"])
+def test_保護_位置不見時檢查會失敗並寫出白話原因(monkeypatch, 改法):
+    import importlib
+    import inspect
+
+    import yt_dlp.downloader.youtube_live_chat as 模組
+    if 改法 == "沒有time":
+        monkeypatch.setattr(模組, "time", object())
+    elif 改法 == "找不到sleep":
+        monkeypatch.setattr(inspect, "getsource", lambda m: "import time\nwait(timeout_ms)\n")
+    elif 改法 == "讀不到原始碼":
+        def 讀不到(m):
+            raise OSError("frozen")
+        monkeypatch.setattr(inspect, "getsource", 讀不到)
+    else:
+        def 不見(名):
+            raise ImportError("No module named " + 名)
+        monkeypatch.setattr(importlib, "import_module", 不見)
+    結果, 原因 = yt_chat.檢查可中斷等待(要原始碼=True)
+    assert 結果 is None and "youtube_live_chat" in 原因
+
+
+def test_執行時讀不到原始碼_只看模組結構照樣裝上(monkeypatch):
+    import inspect
+
+    def 讀不到(m):
+        raise OSError("打包成 .exe")
+    monkeypatch.setattr(inspect, "getsource", 讀不到)
+    assert yt_chat.檢查可中斷等待()[0] is not None
+
+
+def test_執行時位置不見_主控台說一次_寫進log_聊天室照常(monkeypatch, tmp_path, 事件們):
+    紀錄檔 = tmp_path / "logs" / "YouTube聊天室_紀錄.txt"
+    monkeypatch.setattr(yt_chat, "紀錄檔", str(紀錄檔))
+    monkeypatch.setattr(yt_chat, "_說過", False)
+    monkeypatch.setattr(yt_chat, "檢查可中斷等待", lambda 要原始碼=False: (None, "找不到 time.sleep("))
+    assert yt_chat._裝上可中斷等待() is False
+    assert yt_chat._裝上可中斷等待() is False
+    說 = [c["印出"] for k, c in 事件們 if k == "info"]
+    assert 說 == [yt_chat.無法快速停止] and "按停止後可能要多等幾秒" in 說[0]
+    行們 = 紀錄檔.read_text(encoding="utf-8").splitlines()
+    assert len(行們) == 2 and all(yt_chat.無法快速停止 in x and "找不到 time.sleep(" in x for x in 行們)
+
+    下載 = 假下載([[文字(起點 + 1, "@a", "還是收得到")]], 結束=True)     # 聊天室照常運作
+    聊 = 跑(下載, sc.時軸(開播=起點))
+    assert 等(lambda: any(k == "chat_line" for k, _ in 事件們))
+    聊.關閉()

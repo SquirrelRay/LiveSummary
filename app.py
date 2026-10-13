@@ -1577,6 +1577,8 @@ class 主控台(QMainWindow):
         if self.執行中():
             if glossary.本場詞庫 is not None:
                 return glossary.本場詞庫.直播主, glossary.本場詞庫, ""
+            if glossary.本場沒詞庫原因:      # 這一場刻意不用詞庫（YouTube 查不到頻道 ID）：不另外打開別份詞庫
+                return None, None, glossary.本場沒詞庫原因
             if not self.直播鈕.isChecked():
                 return None, None, "文字稿重播沒有指定直播主"
             名, 原因 = names_page.頻道(self.網址框.text())

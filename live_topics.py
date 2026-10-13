@@ -18,6 +18,7 @@ import model_catalog    # 模型的單價（查不到就是未知，不沿用舊
 import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
 import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
+import platforms        # Twitch／YouTube（YouTube 的詞庫鍵、查證脈絡）
 import web_verify       # 上網查證詞庫的候選名詞（預設關）
 import first_run        # 轉錄模型下載失敗的錯誤種類（第一次使用）
 
@@ -659,12 +660,25 @@ def main():
         sys.exit(1)
 
 
-def 載入詞庫(直播主):
-    """讀入直播主詞庫並印一行說明；沒有直播主（文字稿模式沒給 --streamer）回傳 None。"""
+本場沒詞庫 = "這一場查不到 YouTube 頻道 ID，沒有使用詞庫"
+YouTube沒頻道ID = "YouTube：查不到這個頻道的頻道 ID，這一場不使用詞庫（不讀也不寫），以免多出一份對不上的詞庫；摘要照常。"
+
+
+def YouTube詞庫標示(詞庫名, 資訊):
+    """YouTube 詞庫檔開頭的直播主名稱（和名詞清單按鈕一樣）：「名稱（@帳號），YouTube 頻道 UC…」。"""
+    資訊 = 資訊 or {}
+    名 = 資訊.get("直播主") or 詞庫名[3:]
+    名 = f"{名}（{資訊['帳號']}）" if 資訊.get("帳號") else 名
+    return f"{名}，YouTube 頻道 {詞庫名[3:]}"
+
+
+def 載入詞庫(直播主, 標示=None):
+    """讀入直播主詞庫並印一行說明；沒有直播主（文字稿模式沒給 --streamer）回傳 None。
+    標示：新建詞庫檔時開頭寫的直播主名稱（YouTube 用；沒給就用詞庫名）。"""
     名字 = glossary.檔名安全(直播主)
     if not 名字:
         return None
-    詞庫 = glossary.詞庫(名字)
+    詞庫 = glossary.詞庫(名字, 標示=標示)
     if 詞庫.讀錯誤:
         events.送出("info", 印出=f"詞庫讀不到（{詞庫.讀錯誤}），這一場不使用也不寫入：{詞庫.路徑}")
         return None
@@ -678,7 +692,7 @@ def 載入詞庫(直播主):
     return 詞庫
 
 
-def 開始查證(設定, 詞庫, 直播主):
+def 開始查證(設定, 詞庫, 直播主, 平台=None):
     """開關打開又有詞庫時，建立這一場的背景查證；provider 不支援時印一句說明，其他照常（回傳 None）。"""
     if not 設定.get("web_verify"):
         return None
@@ -687,10 +701,13 @@ def 開始查證(設定, 詞庫, 直播主):
                                  "這一場不查證，其他功能照常。")
         return None
     if 詞庫 is None:
-        events.送出("info", 印出="上網查證：這一場沒有使用詞庫（文字稿模式沒給 --streamer），不查證。")
+        原因 = "查不到 YouTube 頻道 ID" if 平台 == platforms.YOUTUBE else "文字稿模式沒給 --streamer"
+        events.送出("info", 印出=f"上網查證：這一場沒有使用詞庫（{原因}），不查證。")
         return None
     資訊 = stream_clock.資訊() or {}
     脈絡 = {"直播主": 資訊.get("直播主") or 直播主, "分類": 資訊.get("遊戲", ""), "標題": 資訊.get("標題", "")}
+    if 平台 == platforms.YOUTUBE:      # YouTube 的分類很粗（Gaming、Music），請模型多看標題
+        脈絡["平台"] = platforms.YOUTUBE
     events.送出("info", 印出=f"上網查證：開啟（只查這一場新加入的候選，最多 {web_verify.每場上限} 個，另外計費）")
     return web_verify.背景查證(詞庫, 脈絡, 設定["model"])
 
@@ -698,8 +715,10 @@ def 開始查證(設定, 詞庫, 直播主):
 def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=None):
     """跑一整場（命令列與介面共用）。結果都用事件送出。成功回傳 True，出錯回傳 False。
     設定：config.載入設定() 的結果（llm.套用設定 要先做好）。
-    直播主：文字稿模式用來指定詞庫（沒給就不讀不寫詞庫）；直播網址模式一律用頻道名稱，這個參數不用。"""
+    直播主：文字稿模式用來指定詞庫（沒給就不讀不寫詞庫）；直播網址模式用 live_session 的詞庫名
+    （Twitch＝頻道名稱；YouTube＝YT_頻道ID，各種網址格式同一份，查不到頻道 ID 就這一場不用詞庫），這個參數不用。"""
     global MIN_TOPIC_MIN, MAX_TOPIC_MIN, MINUTE_SENTENCES
+    標示 = None     # 新建詞庫檔時開頭寫的直播主名稱（YouTube 用）
     # 這一場重新計算（介面可以連續跑好幾場）
     stream_clock.清除()      # 直播網址模式由 live_capture 建立這一場的時軸；文字稿模式沒有時軸
     glossary.登記本場(None)  # 名詞清單視窗看的「這一場的詞庫」：載入詞庫後才登記
@@ -741,10 +760,16 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
             events.送出("error", 訊息=str(e), 印出=str(e))
             return False
         基底 = os.path.splitext(行來源.稿路徑)[0]
-        直播主 = live_capture.頻道名稱(網址)
+        平台 = getattr(行來源, "平台", None)
+        直播主 = getattr(行來源, "詞庫名", None)     # Twitch＝頻道名稱；YouTube＝YT_頻道ID，查不到是 None
+        if 平台 == platforms.YOUTUBE and 直播主:
+            標示 = YouTube詞庫標示(直播主, stream_clock.資訊())
+        elif 平台 != platforms.YOUTUBE and not 直播主:
+            直播主 = live_capture.頻道名稱(網址)
     else:
         行來源 = stream_lines(檔案, speed)
         基底 = os.path.splitext(檔案)[0]
+        平台 = None
     # 結果檔在第一筆內容寫入時才建立（出錯或沒內容就不會留下空白檔）；檔名保證是新的，舊結果檔不會被動到
     輸出檔, 分鐘檔 = 結果檔名(基底, 設定["minute_summary"])
     聊天 = getattr(行來源, "聊天", None)
@@ -758,9 +783,11 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
                      else os.path.abspath(聊天檔) if 聊天檔 and not 網址 and 設定["save_chat"] else None),
                 分鐘=os.path.abspath(分鐘檔) if 分鐘檔 and 存檔["摘要"] else None,
                 話題=os.path.abspath(輸出檔) if 存檔["摘要"] else None)
-    詞庫 = 載入詞庫(直播主)
-    glossary.登記本場(詞庫)
-    查證 = 開始查證(設定, 詞庫, 直播主)
+    if 網址 and 平台 == platforms.YOUTUBE and not 直播主:
+        events.送出("info", 印出=YouTube沒頻道ID)
+    詞庫 = 載入詞庫(直播主, 標示)
+    glossary.登記本場(詞庫, 本場沒詞庫 if 網址 and 平台 == platforms.YOUTUBE and not 直播主 else "")
+    查證 = 開始查證(設定, 詞庫, 直播主, 平台)
     送狀態()
     try:
         話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"], 詞庫=詞庫,

@@ -91,6 +91,32 @@ def 頻道名稱(網址):
     return re.sub(r"[^\w\-]", "", 網址.rstrip("/").split("/")[-1]) or "頻道"
 
 
+YouTube詞庫前綴 = "YT_"       # 和名詞清單按鈕（names_page.YouTube詞庫名）同一個規則
+
+
+def YouTube詞庫名(資訊):
+    """觀看頁資訊 → 詞庫名「YT_頻道ID」；查不到頻道 ID 回傳 None（這一場不用詞庫，避免多出一份錯的詞庫）。"""
+    頻道ID = (資訊 or {}).get("頻道ID") or ""
+    return YouTube詞庫前綴 + 頻道ID if platforms.頻道ID.match(頻道ID) else None
+
+
+def 檔名可用(字):
+    """Windows 檔名不能用的字元（反斜線 / : * ? " < > | 與控制字元）和空白換成 _，去掉前後的 _ 與句點；最多 60 字。"""
+    字 = re.sub(r'[\\/:*?"<>|\x00-\x1f\s]+', "_", str(字 or "")).strip("._")
+    return 字[:60]
+
+
+def YouTube檔名開頭(網址, 資訊):
+    """YouTube 輸出檔名的開頭：@帳號 → 頻道 ID → 影片 ID（觀看頁資訊優先，讀不到用網址看得出的）→ 都沒有就是「YouTube」。"""
+    資訊 = 資訊 or {}
+    資 = platforms.判斷(網址)
+    for 候選 in (資訊.get("帳號"), 資.帳號, 資訊.get("頻道ID"), 資.頻道ID, 資訊.get("影片ID"), 資.影片):
+        名 = 檔名可用(候選)
+        if 名 and 名 != "@":
+            return 名
+    return "YouTube"
+
+
 def _跑streamlink(參數):
     """跑一次 streamlink（不抓音訊），回傳 (stdout, stderr)。等的時候每 0.2 秒看一次有沒有按「結束」，
     按了就殺掉子程序、丟出「已取消啟動」，不會卡住、也不留下背景程序。"""
@@ -397,6 +423,7 @@ class live_session:
     (直播秒數, "[h:mm:ss] 文字")，同時即時存成直播稿。秒數是直播實際進行時間（抓不到開播時間就從開始擷取起算，行首加 +）。"""
 
     時軸 = None      # 這一場的 stream_clock.時軸（__init__ 建立；測試可以直接指定）
+    詞庫名 = None    # 這一場的詞庫名：Twitch＝頻道名稱，YouTube＝YT_頻道ID（查不到是 None＝不用詞庫）
     平台 = platforms.TWITCH     # __init__ 依網址判斷；測試可以直接指定
 
     def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
@@ -419,10 +446,16 @@ class live_session:
             pass
         self.串流名 = 串流名
         時間字 = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.稿路徑 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_直播稿.txt")
+        if self.平台 == platforms.YOUTUBE:      # 詞庫用頻道 ID（各種網址格式同一份）；檔名用 @帳號
+            資訊 = stream_clock.資訊()
+            self.詞庫名 = YouTube詞庫名(資訊)
+            開頭 = YouTube檔名開頭(網址, 資訊)
+        else:
+            self.詞庫名 = 開頭 = 頻道名稱(網址)
+        self.稿路徑 = os.path.join(稿目錄, f"{開頭}_{時間字}_直播稿.txt")
         self.存稿 = 存稿          # False：直播稿只送到介面、不寫檔（稿路徑仍用來決定其他檔名）
         # 每段音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
-        self.音訊資料夾 = os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_音訊") if 存音訊 else None
+        self.音訊資料夾 = os.path.join(稿目錄, f"{開頭}_{時間字}_音訊") if 存音訊 else None
         self.存了段數 = 0
         self.存了位元組 = 0
         self._警告過 = False
@@ -431,12 +464,12 @@ class live_session:
             import yt_chat
             events.送出("stage", 階段="準備聊天室")
             self.聊天 = yt_chat.聊天室(
-                YouTube聊天網址(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt") if 存聊天 else None)
+                YouTube聊天網址(網址), os.path.join(稿目錄, f"{開頭}_{時間字}_聊天室.txt") if 存聊天 else None)
         elif 用聊天室:
             import chat_capture
             events.送出("stage", 階段="準備聊天室")
             self.聊天 = chat_capture.聊天室(
-                頻道名稱(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt") if 存聊天 else None)
+                頻道名稱(網址), os.path.join(稿目錄, f"{開頭}_{時間字}_聊天室.txt") if 存聊天 else None)
 
     def _存音訊(self, 資料, 序號, 起始秒):
         """把這一段音訊存成 wav，檔名像 0001_00-20.wav（序號_起始秒-結束秒）。失敗就停止存檔，不影響轉錄。"""

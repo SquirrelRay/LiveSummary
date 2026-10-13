@@ -49,6 +49,18 @@ names_page、onboarding、README，新增 platforms.py 與 YouTube 聊天室模�
 - 機器人：YouTube 另一份名單（Nightbot、Fossabot、StreamElements、Streamlabs，2026-10-14 查有支援 YouTube 的；Moobot 查不到支援 YouTube，沒加），
   Twitch 的名單不動。會員加入（含里程碑留言）、置頂、系統通知、刪除留言都不算留言。
 
+## 第 4 步做法（2026-10-14）
+
+- 詞庫鍵：live_session 讀完觀看頁後決定 `詞庫名`：YouTube＝`YT_頻道ID`（和名詞清單按鈕同一個規則），Twitch 照舊用頻道名稱。
+  watch?v=、youtu.be、/live/ID、@帳號（/live）、/channel/、embed、/c/ 都對到同一份。新建詞庫檔開頭寫「名稱（@帳號），YouTube 頻道 UC…」。
+- 查不到頻道 ID：這一場不讀不寫詞庫、不查證，主控台說一行；直播中膠囊選單的名詞清單停用並寫原因（glossary.本場沒詞庫原因），不另外打開別份詞庫。
+- 輸出檔名（直播稿、聊天室、摘要、逐句翻譯、音訊）：YouTube 用 @帳號 → 頻道 ID → 影片 ID → 「YouTube」；Windows 不能用的字元與空白換成 _，最多 60 字。
+- 上網查證：YouTube 的分類後面加「YouTube 的大分類，不是遊戲或節目名稱；請多參考直播標題」（標題本來就有給）。Twitch 提示詞不變。
+- yt-dlp 固定 2026.8.19。保護測試（tests/test_YouTube聊天室.py 的「保護」）：被替換的 `youtube_live_chat.time` 與 `time.sleep(` 還在、
+  `YoutubeLiveChatFD.real_download` 真的用到替換後的版本、安裝版本和 requirements 一樣；不符就失敗並說「yt-dlp 版本變了，聊天室的停止機制要重新檢查」。
+  執行時找不到：主控台說一次、寫進 logs/YouTube聊天室_紀錄.txt，聊天室照常（只是按停止可能要多等幾秒）。
+- 真實測試（Lofi Girl，各約 1 分鐘）：watch?v= 與 @LofiGirl/live 都載入 `YT_UCSJ4gkVC6NrvII8umztf0Ow`，輸出檔名都是 `@LofiGirl_日期_時間_…`。
+
 ## 實測結果（2026-10-14）
 
 | 項目 | 結果 |

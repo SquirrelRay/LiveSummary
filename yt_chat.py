@@ -14,6 +14,8 @@
 #       之後不會再寫我們的存檔，暫存資料夾等它結束時再刪。
 # 失效：一輪下來一則都沒收到算失敗，重試 3 次後在主控台與膠囊提示說明，摘要和字幕照常。
 import gc
+import importlib
+import inspect
 import json
 import os
 import shutil
@@ -23,6 +25,7 @@ import time
 
 import chat_capture  # 只用 是洗版（和 Twitch 同一套洗版規則）
 import events
+import startup_timeline  # log 資料夾（logs/）
 import stream_clock  # 存檔開頭的說明
 import timefmt
 
@@ -124,13 +127,56 @@ class _可中斷時間:
         return None
 
 
-def _裝上可中斷等待():
-    """yt-dlp 改版、找不到這個模組時就不裝（停止時改靠背景執行緒，不會卡住程式結束）。"""
+替換模組 = "yt_dlp.downloader.youtube_live_chat"
+替換位置 = "time.sleep("        # 那個模組在兩批之間等待的寫法（2026.08.19 是 real_download 裡的 time.sleep(timeout_ms / 1000)）
+無法快速停止 = "聊天室的快速停止機制無法啟用（yt-dlp 版本可能變了），按停止後可能要多等幾秒；聊天室照常運作。"
+紀錄檔 = os.path.join(startup_timeline.日誌資料夾, "YouTube聊天室_紀錄.txt")
+_說過 = False                 # 無法快速停止：整個程式只說一次
+
+
+def 檢查可中斷等待(要原始碼=False):
+    """yt-dlp 裡被替換的地方還在不在 → (模組 或 None, 白話原因)。
+    要原始碼：一定要讀到原始碼並找到 time.sleep(（測試用）；執行時讀不到原始碼（例如打包成 .exe）就只看模組結構。"""
     try:
-        import yt_dlp.downloader.youtube_live_chat as 模組
-    except ImportError:
+        模組 = importlib.import_module(替換模組)
+    except ImportError as e:
+        return None, f"找不到 {替換模組}（{e}）"
+    原本 = getattr(模組, "time", None)
+    if 原本 is not time and not isinstance(原本, _可中斷時間):
+        return None, f"{替換模組} 裡已經沒有 time 模組可以替換"
+    try:
+        原始碼 = inspect.getsource(模組)
+    except (OSError, TypeError):
+        if 要原始碼:
+            return None, f"讀不到 {替換模組} 的原始碼，無法確認等待的位置"
+        return 模組, ""
+    if 替換位置 not in 原始碼:
+        return None, f"{替換模組} 裡已經找不到 {替換位置}…)，等待的寫法變了"
+    return 模組, ""
+
+
+def _記錄(文字):
+    """寫一行到 logs/YouTube聊天室_紀錄.txt；寫不出來就算了。"""
+    try:
+        os.makedirs(os.path.dirname(紀錄檔), exist_ok=True)
+        with open(紀錄檔, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + 文字 + "\n")
+    except OSError:
+        pass
+
+
+def _裝上可中斷等待():
+    """把 yt-dlp 兩批之間的等待換成收到停止就中斷的版本。yt-dlp 改版、找不到那個位置時不裝：
+    主控台說一行（整個程式一次）、寫進 log，聊天室照常（停止時改靠背景執行緒，不會卡住程式結束，只是可能要多等幾秒）。"""
+    global _說過
+    模組, 原因 = 檢查可中斷等待()
+    if 模組 is None:
+        _記錄(無法快速停止 + "原因：" + 原因)
+        if not _說過:
+            _說過 = True
+            events.送出("info", 印出=無法快速停止)
         return False
-    if not isinstance(getattr(模組, "time", None), _可中斷時間):
+    if not isinstance(模組.time, _可中斷時間):
         模組.time = _可中斷時間()
     return True
 
