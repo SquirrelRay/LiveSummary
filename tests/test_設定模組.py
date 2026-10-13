@@ -53,7 +53,7 @@ def 跑一場假的(tmp_path, monkeypatch, 設定):
     """用假模型跑一場文字稿（會改寫 summarize.MODEL、transcribe.GPU_MODEL、MIN_TOPIC_MIN 等全域值）。"""
     稿 = tmp_path / "稿.txt"
     稿.write_text("".join(f"[{m:02d}:00] 第{m}分鐘" + "字" * 120 + "\n" for m in range(4)), encoding="utf-8")
-    monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+    monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
     monkeypatch.setattr(summarize, "call_llm", lambda 提示詞: json.dumps(
         {"decision": "same", "topic_brief": "假話題", "side_notes": []}, ensure_ascii=False))
     monkeypatch.setattr(summarize, "summarize_chunk", lambda *a, **k: "【話題標題】假\n【摘要】假")

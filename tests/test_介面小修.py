@@ -136,7 +136,7 @@ def test_設定框_啟動面板_狀態列_膠囊提示_系統匣_沒有內部名
     assert [頁.欄["provider"].itemText(i) for i in range(頁.欄["provider"].count())] == ["Claude", "OpenAI 相容服務"]
     monkeypatch.setattr(config, "目前設定", lambda: dict(config.出廠預設(), api_key_env=""))
     頁.更新金鑰()
-    assert 頁.金鑰字.text() == "不需要（設定裡沒有指定金鑰）"
+    assert 頁.金鑰字.text() == "Claude：這個服務不需要金鑰"
 
     藥丸們 = (台.時間藥丸, 台.轉錄藥丸, 台.費用藥丸, 台.翻譯藥丸, 台.聊天翻譯藥丸)
     _沒有內部字([w.toolTip() for w in 藥丸們] + [w.text() for w in 藥丸們])

@@ -122,3 +122,33 @@ def pytest_sessionfinish(session, exitstatus):
         sys.stderr.write("\n【失敗】測試在專案資料夾留下了新檔案（請改用 tmp_path）：\n"
                          + "\n".join(f"  {f}" for f in 新增) + "\n")
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+# ---------- 保護：測試絕不碰真的 Windows 認證管理員、也不讀這台電腦的真實金鑰 ----------
+class 假認證管理員:
+    """取代 keyring：存在記憶體裡，測試結束就消失。"""
+
+    def __init__(self):
+        self.資料 = {}
+
+    def get_password(self, 服務, 帳號):
+        return self.資料.get((服務, 帳號))
+
+    def set_password(self, 服務, 帳號, 密碼):
+        self.資料[(服務, 帳號)] = 密碼
+
+    def delete_password(self, 服務, 帳號):
+        if (服務, 帳號) not in self.資料:
+            raise KeyError(帳號)
+        del self.資料[(服務, 帳號)]
+
+
+@pytest.fixture(autouse=True)
+def 假金鑰庫(monkeypatch):
+    import api_key
+    庫 = 假認證管理員()
+    monkeypatch.setattr(api_key, "_後端", 庫)
+    monkeypatch.setitem(sys.modules, "keyring", None)        # 萬一有程式自己 import keyring，直接失敗，不會碰到真的
+    for 名 in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(名, raising=False)                # 不用這台電腦環境變數裡的真實金鑰
+    return 庫

@@ -259,7 +259,7 @@ def 跑執行(monkeypatch, tmp_path, 直播主=None):
     稿 = tmp_path / "稿.txt"
     稿.write_text("\n".join(f"[{s // 60:02d}:{s % 60:02d}] エレンの話" + "字" * 110 for s in range(0, 301, 60)),
                  encoding="utf-8")
-    monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+    monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
     e = 環境(monkeypatch, 摘要本體 + "\n【名詞】艾連（エレン）")
     設定 = config.出廠預設() | {"save_summary": False, "language": "ja"}
     assert lt.執行(設定, 檔案=str(稿), 直播主=直播主) is True

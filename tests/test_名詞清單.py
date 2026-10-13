@@ -290,7 +290,7 @@ def test_執行時登記這一場的詞庫(暫存詞庫, monkeypatch):
     做詞庫(暫存詞庫, ["艾倫｜エレン｜手動"])
     登記 = []
     monkeypatch.setattr(lt, "引擎", lambda *a, **k: 登記.append(glossary.本場詞庫) or 0)
-    monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+    monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
     monkeypatch.setattr(events, "接收者們", [])
     稿 = 暫存詞庫.parent / "稿.txt"
     稿.write_text("[00:00] こんにちは\n", encoding="utf-8")

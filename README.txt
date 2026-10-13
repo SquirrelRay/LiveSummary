@@ -1,10 +1,11 @@
 直播重點摘要（階段 1）
 
 第一次設定：
-1. 安裝套件：pip install anthropic
-2. 設定金鑰（只做一次，PowerShell）：
-   setx ANTHROPIC_API_KEY "你的金鑰"
-   設完後「關掉再重開」終端機才會生效。
+1. 安裝套件：pip install -r requirements.txt（清單與版本見 requirements.txt；ffmpeg 另外裝）
+2. 設定金鑰：打開程式，啟動面板會顯示「尚未設定 API 金鑰」→ 按「設定金鑰」→ 貼上金鑰 → 按「測試連線」（成功就會記住）。
+   金鑰存在 Windows 的「認證管理員」（控制台 → 認證管理員 → Windows 認證，名稱含「直播摘要」），不會寫進任何檔案。
+   每家服務（Claude、OpenAI、DeepSeek、其他相容服務）各存一把，切換服務時各自的金鑰都還在。
+   進階：仍然可以用環境變數（setx ANTHROPIC_API_KEY "你的金鑰"，設完重開終端機）；這台電腦已儲存的金鑰優先。
 
 使用：
    python summarize.py sample.txt --type game
@@ -23,7 +24,8 @@
         check_minutes、min_topic_min、max_topic_min、model、whisper_model、language、minute_sentences（1 到 3）。
   看目前實際生效的設定與來源：  python live_topics.py --show-config
   臨時覆蓋範例：  --no-chat / --chat、--no-minute / --minute、--no-save-audio / --save-audio、--fix / --no-fix
-  注意：API 金鑰不要寫進 config.json，只放在環境變數（預設 ANTHROPIC_API_KEY，可用 api_key_env 改名字）。
+  注意：API 金鑰不要寫進 config.json。金鑰在設定框輸入（存在 Windows 認證管理員，見 api_key.py）；
+  讀取順序：認證管理員 → 環境變數（預設各家的 ANTHROPIC_API_KEY／OPENAI_API_KEY／DEEPSEEK_API_KEY，api_key_env 改過名字就照舊用那個）。
   金鑰無效時，程式會用一句中文停下來，不會繼續空跑。
 
 外語直播（日文等）：
@@ -38,7 +40,10 @@
 切換語言模型（live_topics.py；config.json 改這幾欄）：
   provider     ："anthropic"（預設，Claude）或 "openai_compatible"（OpenAI、DeepSeek、Ollama 等）
   base_url     ：服務網址，空白 = 該家預設
-  api_key_env  ：金鑰放在哪個「環境變數名稱」（不是金鑰本身！）；留空 = 不需要金鑰（Ollama）
+  api_key_env  ：進階／舊設定：金鑰放在哪個「環境變數名稱」（不是金鑰本身！）；留空 = 不需要金鑰。
+                 一般情況不用改：金鑰在設定框輸入；出廠值 ANTHROPIC_API_KEY 代表「用各家預設的環境變數名稱」。
+  金鑰怎麼區分服務：Claude、api.openai.com、api.deepseek.com 各一把；其他網址用「主機/路徑」各一把；
+                 localhost／127.0.0.1（Ollama 等本機服務）不需要金鑰。
   model        ：模型名稱
   price_input / price_output：每百萬 token 的美元單價，只用來估算費用。預設 0.10／0.50 是 Claude Haiku 5.5 的官方單價
   （https://platform.claude.com/docs/en/about-claude/pricing，2026-10-13 查）；提示詞超過 10 萬 token 時官方是 0.50／2.50，這個階梯價沒有實作（話題摘要與判斷的提示詞遠低於 10 萬 token）；換模型要自己改單價
@@ -48,11 +53,11 @@
   拿不到 token 數的服務，結束時會顯示「無法計算」。
 
   範例（2026-10-10 查官方文件；模型名稱常會更新，用之前請再到官網確認）：
-  OpenAI：（金鑰先 setx OPENAI_API_KEY "你的金鑰"）
+  OpenAI：（金鑰在設定框輸入；或進階：setx OPENAI_API_KEY "你的金鑰"）
     "provider": "openai_compatible", "base_url": "https://api.openai.com/v1",
     "api_key_env": "OPENAI_API_KEY", "model": "gpt-6-luna"
     （base_url 是從官方範例網址推得的；gpt-6-luna 是官方列的小型便宜款，大型款 gpt-6-astra）
-  DeepSeek：（金鑰先 setx DEEPSEEK_API_KEY "你的金鑰"）
+  DeepSeek：（金鑰在設定框輸入；或進階：setx DEEPSEEK_API_KEY "你的金鑰"）
     "provider": "openai_compatible", "base_url": "https://api.deepseek.com",
     "api_key_env": "DEEPSEEK_API_KEY", "model": "deepseek-flash"
     （另有 deepseek-v4-pro）
@@ -72,7 +77,15 @@
   可調字幕模式、聊天室、分鐘摘要、參考詞修正、延伸思考、聊天室翻譯與每分鐘上限、分鐘摘要句數、內容顯示方向、各分頁顯示上限、字幕速度、模型服務與模型名稱、存檔。
   按「儲存」才寫回 config.json，寫之前自動備份成 config.backup.json，先寫暫存檔再取代（寫到一半失敗原檔不會壞）；只改表單上的欄位，其他欄位原樣保留。
   膠囊選單的「顯示用量」也用同一套寫法。
-  「還原預設值」會把表單變回出廠預設（config.py 的固定值，不受上一場影響；一樣要按「儲存」才寫入）。金鑰只顯示「已設定／未設定」。
+  「還原預設值」會把表單變回出廠預設（config.py 的固定值，不受上一場影響；一樣要按「儲存」才寫入）。
+  API 金鑰（模型服務下面）：輸入時遮蔽，眼睛按鈕暫時顯示剛輸入的字；已存的金鑰永遠不會再顯示出來。
+    狀態：「已儲存在這台電腦」／「使用系統環境變數」／「尚未設定」；旁邊「如何取得金鑰」連到該服務的官方頁面
+    （2026-10-13 查官方文件：Claude https://platform.claude.com/settings/keys、OpenAI https://platform.openai.com/api-keys、
+      DeepSeek https://platform.deepseek.com/api_keys）。
+    「測試連線」：只列出模型清單（不用 token、不產生費用）；成功才存，金鑰無效或連不上一律不存。
+    按「儲存」也會把輸入框的金鑰存起來；只輸入、沒按這兩顆就關掉設定框，金鑰不會被存（和其他欄位一樣）。
+    「清除」：刪掉這台電腦存的這個服務的金鑰（環境變數不動）。
+    切換「模型服務」時，狀態與連結跟著換成那個服務的。
   執行中改到的功能、模型等項目會標「下次開始生效」。
 
 逐句翻譯（字幕模式 subtitle_mode："original" 原文、"translate" 一律翻譯、"auto" 中文原文其他語言翻譯）：

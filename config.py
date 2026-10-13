@@ -76,7 +76,7 @@ def 出廠預設():
     "minute_sentences": "分鐘摘要句數上限",
     "provider": "模型服務種類（anthropic 或 openai_compatible）",
     "base_url": "模型服務網址（空白 = 預設）",
-    "api_key_env": "金鑰的環境變數名稱（空白 = 不需要金鑰）",
+    "api_key_env": "金鑰的環境變數名稱（進階：金鑰優先讀這台電腦的認證管理員，沒有才看這個環境變數；空白 = 不需要金鑰）",
     "price_input": "輸入單價（每百萬 token 美元；預設是 Claude Haiku 5.5 官方單價，2026-10-13 查證）",
     "price_output": "輸出單價（每百萬 token 美元；預設是 Claude Haiku 5.5 官方單價，2026-10-13 查證；提示詞超過 10 萬 token 的階梯價不計）",
     "subtitle_mode": "逐句字幕（介面才有）：original 原文、translate 翻譯、auto 中文用原文其他翻譯",
@@ -249,7 +249,7 @@ def 印設定(設定, 來源, 金鑰狀態):
     print("目前實際生效的設定（優先順序：命令列 > config.json > 內建預設）：")
     for k in 設定說明:
         print(f"  {k:17} = {設定[k]!r:18} ← {來源[k]}　（{設定說明[k]}）")
-    print(f"  API 金鑰：{金鑰狀態}（只從環境變數讀取，不顯示內容）")
+    print(f"  API 金鑰：{金鑰狀態}（先找這台電腦的認證管理員，再找環境變數；不顯示內容）")
 
 
 # ---- 寫入（整個專案只有這裡會寫 config.json）----

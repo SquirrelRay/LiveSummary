@@ -2,15 +2,15 @@
 # 支援兩種寫法（在 config.json 的 provider 切換）：
 #   "anthropic"          ：Claude（預設）
 #   "openai_compatible"  ：OpenAI、DeepSeek、Ollama 等，靠 base_url 與 model 區分
-import os
 import sys
 
+import api_key
 import config
 
 # 這幾個值由 套用設定() 依 config.json 填入；沒填就是 config.py 的出廠預設（= 原本只用 Claude 的行為）
 PROVIDER = config.出廠預設()["provider"]
 BASE_URL = config.出廠預設()["base_url"]           # 空字串 = 用該家的預設網址
-API_KEY_ENV = config.出廠預設()["api_key_env"]     # 金鑰放在哪個環境變數；空字串 = 不需要金鑰（例如 Ollama）
+API_KEY_ENV = config.出廠預設()["api_key_env"]     # 舊設定的環境變數名稱（金鑰先找認證管理員，見 api_key.py）；空字串 = 不需要金鑰
 MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避免文字被截斷
 翻譯_MAX_TOKENS = 600             # 逐句翻譯：關掉思考後只剩譯文，一批 4 到 8 句這樣就夠用
 聊天翻譯_MAX_TOKENS = 1500        # 聊天室翻譯：一批最多 40 則短留言
@@ -73,22 +73,29 @@ def 預先載入():
         pass
 
 
+def _服務代號():
+    return api_key.服務代號(PROVIDER, BASE_URL)
+
+
 def 金鑰狀態():
     """給 --show-config 用，不顯示金鑰內容。"""
-    if not API_KEY_ENV:
-        return "不需要（api_key_env 留空）"
-    return "已設定" if os.environ.get(API_KEY_ENV) else "未設定"
+    return api_key.狀態字們[api_key.狀態(PROVIDER, BASE_URL, API_KEY_ENV)]
 
 
-def 檢查金鑰():
-    """開始前檢查金鑰有沒有設定。沒問題回傳 None，有問題回傳一句中文說明。"""
-    if API_KEY_ENV and not os.environ.get(API_KEY_ENV):
-        return f"找不到 API 金鑰：請先設定環境變數 {API_KEY_ENV}（說明見 README.txt）。"
+未設定金鑰訊息 = "尚未設定 API 金鑰：請到「設定」的「模型服務」貼上金鑰。"
+
+
+def 檢查金鑰(設定=None):
+    """開始前檢查金鑰有沒有設定（認證管理員或環境變數）。沒問題回傳 None，有問題回傳一句中文說明。
+    設定：給了就照這份設定（config.載入設定 的 dict）檢查（啟動面板待命時用）；不給就用 套用設定() 套好的值。"""
+    狀態 = api_key.設定的狀態(設定) if 設定 is not None else api_key.狀態(PROVIDER, BASE_URL, API_KEY_ENV)
+    if 狀態 == api_key.未設定:
+        return 未設定金鑰訊息
     return None
 
 
 def _金鑰訊息():
-    return f"API 金鑰無效或沒有權限，已停止。請確認環境變數 {API_KEY_ENV} 是有效的金鑰後重新執行。"
+    return "API 金鑰無效或沒有權限，已停止。請到「設定」重新貼上金鑰並按「測試連線」。"
 
 
 def _連線訊息():
@@ -111,7 +118,8 @@ def _記用量(輸入, 輸出, 類別="摘要"):
 
 
 def _金鑰():
-    return os.environ.get(API_KEY_ENV) if API_KEY_ENV else None
+    """認證管理員 → 環境變數；沒有回傳 None。"""
+    return api_key.取得(PROVIDER, BASE_URL, API_KEY_ENV)
 
 
 def _最多token(類別):
@@ -130,8 +138,9 @@ def _問_anthropic(提示詞, 模型, 類別):
     # 聊天翻譯：不自動重試（max_retries=0），碰到速率限制直接丟出 限速錯誤，由聊天室翻譯自己暫停
     import anthropic
     參數 = {}
-    if API_KEY_ENV:
-        參數["api_key"] = _金鑰()
+    金鑰 = _金鑰()
+    if 金鑰:
+        參數["api_key"] = 金鑰
     if BASE_URL:
         參數["base_url"] = BASE_URL
     if 類別 == "聊天翻譯":
@@ -217,8 +226,9 @@ def 上網搜尋(提示詞, 模型, 最多搜尋=2):
         raise 查證失敗("目前的模型服務沒有支援的上網搜尋工具")
     import anthropic
     參數 = {"timeout": 查證逾時秒, "max_retries": 1}
-    if API_KEY_ENV:
-        參數["api_key"] = _金鑰()
+    金鑰 = _金鑰()
+    if 金鑰:
+        參數["api_key"] = 金鑰
     if BASE_URL:
         參數["base_url"] = BASE_URL
     client = anthropic.Anthropic(**參數)
@@ -275,6 +285,43 @@ def 查證用量文字(單價_輸入, 單價_輸出):
     token費 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
     return (f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token；"
             f"估算費用約 {token費 + 搜尋費:.3f} 美元（token {token費:.3f}，搜尋 {搜尋費:.3f}，每次 0.01 美元；金額為估算，實際以 API 帳單為準）")
+
+
+# ---- 設定框的「測試連線」：只列出模型清單（不用 token、不產生費用），不印、不記錄金鑰 ----
+測試逾時秒 = 15
+測試成功, 測試金鑰無效, 測試連不上, 測試其他 = "成功", "金鑰無效", "連不上", "其他"
+
+
+def 測試連線(provider, base_url, 金鑰):
+    """用這把金鑰試著「列出模型」。回傳 (結果, 白話說明)；結果：成功／金鑰無效／連不上／其他。
+    說明不含金鑰、也不含伺服器回傳的原文（避免任何內容被帶出來）。"""
+    名稱 = api_key.服務名稱(api_key.服務代號(provider, base_url))
+    網址 = (base_url or "").strip() or None
+    try:
+        if provider == "openai_compatible":
+            try:
+                import openai as 套件
+            except ImportError:
+                return 測試其他, "還沒安裝 OpenAI 相容服務需要的套件（openai），無法測試。"
+            client = 套件.OpenAI(api_key=金鑰 or "ollama", base_url=網址, max_retries=0, timeout=測試逾時秒)
+            client.models.list()
+        else:
+            import anthropic as 套件
+            參數 = {"max_retries": 0, "timeout": 測試逾時秒}
+            if 金鑰:
+                參數["api_key"] = 金鑰
+            if 網址:
+                參數["base_url"] = 網址
+            套件.Anthropic(**參數).models.list(limit=1)
+    except Exception as e:       # noqa: BLE001  任何錯誤都只回白話，不帶原文
+        if isinstance(e, (套件.AuthenticationError, 套件.PermissionDeniedError)):
+            return 測試金鑰無效, "金鑰無效或沒有權限。請確認金鑰有完整複製（前後沒有多空白）。"
+        if isinstance(e, 套件.APIConnectionError):          # 含逾時
+            return 測試連不上, f"連不上 {名稱}。請確認網路連線，稍後再試一次。"
+        if isinstance(e, 套件.APIStatusError):
+            return 測試其他, f"{名稱} 回覆錯誤（代碼 {getattr(e, 'status_code', '?')}），請稍後再試一次。"
+        return 測試其他, "測試時發生問題，請再試一次。"
+    return 測試成功, f"連線成功，{名稱} 的金鑰有效。（測試只列出模型清單，不會產生費用）"
 
 
 def call_llm(提示詞, 模型, 類別="摘要"):

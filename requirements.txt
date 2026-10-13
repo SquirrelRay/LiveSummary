@@ -1,0 +1,15 @@
+# 執行程式需要的套件（版本 = 開發電腦 2026-10-13 實際安裝的版本；打包成 .exe 時也用這份清單）
+# 安裝：pip install -r requirements.txt
+# 開發用（ruff、pytest）另外在 requirements-dev.txt
+# 不是 Python 套件、要另外裝的：ffmpeg（winget install Gyan.FFmpeg）
+anthropic==1.12.1            # 呼叫 Claude（摘要、翻譯、上網查證、測試連線）
+PySide6-Essentials==6.12.0   # 介面（啟動面板、膠囊、面板、設定框）
+faster-whisper==1.2.1        # 語音轉文字
+ctranslate2==4.8.2           # faster-whisper 的運算引擎（跟著 faster-whisper 裝，固定版本避免不相容）
+numpy==2.2.6                 # 音訊資料
+streamlink==8.6.2            # 抓直播音訊（程式用 python -m streamlink_cli 啟動）
+yt-dlp==2026.8.19            # transcribe.py 下載影片音訊
+keyring==25.7.0              # API 金鑰存進 Windows 認證管理員
+openai==3.28.0               # 選用：用 OpenAI 相容服務時才需要（OpenAI、DeepSeek、Ollama 等）
+nvidia-cublas-cu12==12.9.2.10   # 選用：用 NVIDIA 顯示卡轉錄時才需要
+nvidia-cudnn-cu12==9.27.0.42    # 選用：用 NVIDIA 顯示卡轉錄時才需要

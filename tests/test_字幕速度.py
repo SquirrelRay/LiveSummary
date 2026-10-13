@@ -98,7 +98,7 @@ def test_第三段的時間戳(流程, monkeypatch, 分段, 預期):
 def test_執行時依段位設定分段長度(monkeypatch, 代碼, 分段):
     monkeypatch.setattr(lc, "段秒數", lc.段秒數)
     monkeypatch.setattr(lc, "每段位元組", lc.每段位元組)
-    monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+    monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
     看到 = []
 
     def 假直播(*a, **k):

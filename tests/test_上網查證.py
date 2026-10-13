@@ -383,7 +383,7 @@ class 一場:
             monkeypatch.setattr(lt, 名, getattr(lt, 名))
         monkeypatch.setattr(summarize, "MODEL", summarize.MODEL)
         monkeypatch.setattr(summarize, "語言說明", summarize.語言說明)
-        monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+        monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
 
         def 假模型(提示詞):
             self.判斷提示們.append(提示詞)

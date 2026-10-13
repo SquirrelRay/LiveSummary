@@ -111,7 +111,8 @@ def test_anthropic_錯誤對應(甲, 例外類別, 預期):
     with pytest.raises(預期) as e:
         llm.call_llm("q", "m")
     assert isinstance(e.value, llm.模型錯誤)
-    assert "TEST_FAKE_KEY" in str(e.value) if 預期 is llm.金鑰錯誤 else "連不上" in str(e.value)
+    assert "金鑰無效" in str(e.value) if 預期 is llm.金鑰錯誤 else "連不上" in str(e.value)
+    assert "sk-fake" not in str(e.value) and "TEST_FAKE_KEY" not in str(e.value)     # 不含金鑰、不含內部名稱
 
 
 def test_anthropic_其他錯誤不被改寫(甲):
@@ -217,7 +218,7 @@ def test_檢查金鑰():
 
 def test_檢查金鑰_沒設定時給一句中文(monkeypatch):
     monkeypatch.delenv("TEST_FAKE_KEY")
-    assert "TEST_FAKE_KEY" in llm.檢查金鑰()
+    assert llm.檢查金鑰() == llm.未設定金鑰訊息 and "設定" in llm.檢查金鑰()
     monkeypatch.setattr(llm, "API_KEY_ENV", "")
     assert llm.檢查金鑰() is None
 

@@ -82,7 +82,7 @@ def 環境(qapp, tmp_path, monkeypatch, capfd, request):
     monkeypatch.setattr(假引擎, "基底", str(tmp_path / "假基底"))
     模型 = 假模型()
     monkeypatch.setattr(llm, "call_llm", 模型)
-    monkeypatch.setattr(llm, "檢查金鑰", lambda: None)
+    monkeypatch.setattr(llm, "檢查金鑰", lambda *a: None)
     monkeypatch.setattr(capsule, "確認", lambda *a: True)
     例外們 = []
     monkeypatch.setattr(sys, "excepthook", lambda *a: 例外們.append(a))

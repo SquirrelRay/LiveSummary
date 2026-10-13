@@ -5,16 +5,18 @@
 #   按「開始」：和主控台的「開始」完全相同（直接把網址、語言填進主控台再呼叫主控台的 開始）。
 #     成功開始擷取（收到 files 事件）→ 啟動面板收起，並套用上次使用的版面（沒有就套用預設版面），讓面板出現。
 #     網址錯誤、頻道沒開播等錯誤 → 在啟動面板裡用中文顯示，不收起。
+#   沒有 API 金鑰時：一打開就顯示「尚未設定 API 金鑰」與「設定金鑰」按鈕（打開設定框並捲到金鑰欄），不必等按了開始才報錯。
 # 啟動面板不另外跑引擎，也不改主控台的行為。
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
+    QWidget, QFrame, QLabel, QPushButton, QComboBox, QHBoxLayout, QVBoxLayout, QProgressBar, QButtonGroup,
 )
 
 import cost_estimate
 import events
 import config
+import llm
 import names_page
 import subtitle_speed
 from launch_state import 啟動狀態
@@ -119,6 +121,24 @@ class 啟動面板(QWidget):
         self.齒輪.clicked.connect(台.開設定框)
         self.關鈕.clicked.connect(self.hide)
         版.addLayout(頭)
+
+        self.金鑰列 = QFrame()               # 沒有金鑰時才顯示
+        self.金鑰列.setStyleSheet("QFrame { background: #2a2416; border: 1px solid #5c4a1f; border-radius: 8px; }"
+                              "QLabel { border: none; background: transparent; }")
+        金鑰版 = QHBoxLayout(self.金鑰列)
+        金鑰版.setContentsMargins(12, 8, 8, 8)
+        self.金鑰字 = QLabel("尚未設定 API 金鑰")
+        self.金鑰字.setStyleSheet("color: #f5b84a; font-weight: 600;")
+        self.金鑰鈕 = QPushButton("設定金鑰")
+        self.金鑰鈕.setObjectName("小鈕")
+        self.金鑰鈕.setCursor(Qt.PointingHandCursor)
+        self.金鑰鈕.setFocusPolicy(Qt.NoFocus)
+        self.金鑰鈕.setToolTip("打開設定，貼上模型服務的 API 金鑰")
+        self.金鑰鈕.clicked.connect(lambda: 台.開設定框(捲到金鑰=True))
+        金鑰版.addWidget(self.金鑰字, 1)
+        金鑰版.addWidget(self.金鑰鈕)
+        版.addWidget(self.金鑰列)
+        self.金鑰列.setVisible(self.缺金鑰())
 
         self.網址框 = 網址欄類()
         self.網址框.setPlaceholderText("直播網址，例如 https://www.twitch.tv/頻道名稱")
@@ -280,6 +300,19 @@ class 啟動面板(QWidget):
         self.名詞鈕.setEnabled(bool(名))
         self.名詞原因.setText(原因 or f"直播主：{名}")
 
+    # ---------- API 金鑰提示 ----------
+    def 缺金鑰(self):
+        """照目前記住的設定檢查（認證管理員 → 環境變數）；不需要金鑰的服務不算缺。"""
+        return llm.檢查金鑰(config.目前設定()) is not None
+
+    def 更新金鑰提示(self):
+        """打開啟動面板、設定框儲存金鑰／測試連線成功／清除之後呼叫。"""
+        缺 = self.缺金鑰()
+        if self.金鑰列.isHidden() == 缺:
+            self.金鑰列.setVisible(缺)
+            if not self.網址清單.isVisible():
+                self._回基本高()
+
     @property
     def 等待中(self):
         return self.狀態.啟動中
@@ -350,6 +383,7 @@ class 啟動面板(QWidget):
         """打開啟動面板（直播中不會打開），放在膠囊所在螢幕的正中間。"""
         if self.台.執行中() or self.台.結束中:
             return
+        self.更新金鑰提示()
         if not self.等待中:
             if not self.isVisible():    # 重新打開時，字幕速度回到設定框記住的值
                 self.設段位(config.目前設定()["subtitle_speed"])
