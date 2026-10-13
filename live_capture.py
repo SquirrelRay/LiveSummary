@@ -1,6 +1,7 @@
 # Twitch／YouTube 直播即時轉錄：把直播聲音一段一段轉成文字，一句一句吐給 live_topics.py
 # 流程：streamlink（抓音訊）→ ffmpeg（轉 16kHz 單聲道）→ 每段 8～20 秒（依字幕速度段位）→ faster-whisper
-# YouTube：streamlink 改經過 yt_audio.py（多回報第一個片段的 PDT，用來對齊時間）；直播資訊讀觀看頁；聊天室尚未支援。
+# YouTube：streamlink 改經過 yt_audio.py（多回報第一個片段的 PDT，用來對齊時間）；直播資訊讀觀看頁；聊天室用 yt_chat（yt-dlp live_chat）。
+#          開播超過 24 小時（24 小時不停播的頻道）當作連續直播，時間改從開始擷取起算（+ 模式）。
 import os
 import re
 import sys
@@ -327,17 +328,27 @@ def 取得時軸(查詢, 平台=platforms.TWITCH):
     資訊 = 查詢.等()
     if events.停止.is_set():
         raise 直播錯誤("已取消啟動。")
+    開播 = 資訊["開播"] if 資訊 else None
+    連續 = 平台 == platforms.YOUTUBE and stream_clock.是連續直播(開播, time.time())
     if 平台 == platforms.YOUTUBE:
-        軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None, 延遲=stream_clock.平台延遲(平台),
+        軸 = stream_clock.時軸(開播=None if 連續 else 開播, 延遲=stream_clock.平台延遲(平台),
                              說明="依 YouTube 串流片段的時間戳對齊；讀不到時間戳才扣除約 "
                                   f"{stream_clock.平台延遲(平台):.0f} 秒估計的串流延遲")
+        if 連續:
+            軸.連續直播開播 = 開播
     else:
-        軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None)
+        軸 = stream_clock.時軸(開播=開播)
     stream_clock.設定目前(軸, 資訊)
     資訊 = 資訊 or {}
+    if 連續:
+        開播字 = datetime.fromtimestamp(開播).strftime("%Y-%m-%d %H:%M")
+        印出 = (f"這是連續播出的直播（{開播字} 開播，已超過 24 小時），時間改為從開始擷取起算（前面加 +），"
+              "直播稿和聊天室從同一個時間點算起。")
+    else:
+        印出 = None if 軸.有開播 else "抓不到開播時間，時間改為從開始擷取起算（前面加 +）。"
     events.送出("stream_info", 有開播=軸.有開播, 開播=軸.開播, 延遲=軸.延遲, 來源=資訊.get("來源"),
                 直播主=資訊.get("直播主", ""), 標題=資訊.get("標題", ""), 遊戲=資訊.get("遊戲", ""),
-                印出=None if 軸.有開播 else "抓不到開播時間，時間改為從開始擷取起算（前面加 +）。")
+                印出=印出)
     return 軸
 
 
@@ -375,6 +386,12 @@ def 對齊YouTube(軸, 片段時刻):
         events.送出("info", 印出=f"YouTube：讀不到串流片段的時間戳，改用估計的串流延遲（約 {軸.延遲:.0f} 秒），時間可能差幾秒。")
 
 
+def YouTube聊天網址(網址):
+    """觀看頁讀到影片 ID 就用 watch?v=（頻道網址 /@帳號/live 要 yt-dlp 再找一次直播，換了場次也不會抓錯）。"""
+    影片 = (stream_clock.資訊() or {}).get("影片ID")
+    return f"https://www.youtube.com/watch?v={影片}" if 影片 else 網址
+
+
 class live_session:
     """用法：s = live_session(網址)；s.稿路徑 是直播稿檔；for 秒, 行 in s: 一句一句吐出
     (直播秒數, "[h:mm:ss] 文字")，同時即時存成直播稿。秒數是直播實際進行時間（抓不到開播時間就從開始擷取起算，行首加 +）。"""
@@ -409,9 +426,12 @@ class live_session:
         self.存了段數 = 0
         self.存了位元組 = 0
         self._警告過 = False
-        self.聊天 = None     # 有聊天室時，這裡是 chat_capture.聊天室 物件
-        if 用聊天室 and self.平台 == platforms.YOUTUBE:     # 第 3 步才做；不能拿 YouTube 網址去連 Twitch
-            events.送出("info", 印出="YouTube 聊天室尚未支援（開發中）")
+        self.聊天 = None     # 有聊天室時，這裡是 chat_capture.聊天室 或 yt_chat.聊天室 物件（對外用法一樣）
+        if 用聊天室 and self.平台 == platforms.YOUTUBE:
+            import yt_chat
+            events.送出("stage", 階段="準備聊天室")
+            self.聊天 = yt_chat.聊天室(
+                YouTube聊天網址(網址), os.path.join(稿目錄, f"{頻道名稱(網址)}_{時間字}_聊天室.txt") if 存聊天 else None)
         elif 用聊天室:
             import chat_capture
             events.送出("stage", 階段="準備聊天室")

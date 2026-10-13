@@ -36,6 +36,19 @@
 會動到的檔案：live_capture、stream_info、stream_clock、chat_capture、chat_translate、live_topics、app、launcher、
 names_page、onboarding、README，新增 platforms.py 與 YouTube 聊天室模組，加測試檔。
 
+## 第 3 步做法（2026-10-14）
+
+- yt_chat.py：**在程式內呼叫 yt-dlp**（同一個程序的背景執行緒，`yt_dlp.YoutubeDL` 只下載 `live_chat`），不另開 python 程序。
+  yt-dlp 寫到系統暫存資料夾 `直播摘要_YT聊天室_…/chat.live_chat.json.part`，讀取端記住位置只讀新增的部分；每一輪結束（含出錯、停止）刪掉整個資料夾。
+- 停止：yt-dlp 在兩批之間會 `time.sleep(timeoutMs)`（實測 10 秒），安靜的聊天室進度回呼可能很久才來 →
+  把 `yt_dlp.downloader.youtube_live_chat.time` 換成「我們的下載執行緒收到停止就中斷」的版本（別的執行緒照原本 sleep），
+  加上進度回呼丟例外，實測按停止後 0 秒結束。網路卡住時讀取端最多等 4 秒就收尾（不再寫存檔、不送事件），yt-dlp 是背景執行緒，
+  暫存資料夾等它結束時刪。⚠ Windows：yt-dlp 被中斷時 .part 還開著（內部循環參照），要 `gc.collect()` 後才刪得掉。
+- 時間：`時軸.發送時刻轉直播秒`（有開播：發送 − 開播；+ 模式：發送 − 第一段PDT；都沒有：發送 + 估計延遲 − 基準）。
+  + 模式還沒收到音訊時留言先等（最多 30 秒）。開播超過 24 小時當作連續直播 → + 模式。
+- 機器人：YouTube 另一份名單（Nightbot、Fossabot、StreamElements、Streamlabs，2026-10-14 查有支援 YouTube 的；Moobot 查不到支援 YouTube，沒加），
+  Twitch 的名單不動。會員加入（含里程碑留言）、置頂、系統通知、刪除留言都不算留言。
+
 ## 實測結果（2026-10-14）
 
 | 項目 | 結果 |
@@ -137,7 +150,7 @@ YouTube 的 HLS 播放清單只在第一段標 `#EXT-X-PROGRAM-DATE-TIME`，後�
 
 ## 失效時使用者會看到什麼
 
-- **聊天室壞了**：重試 3 次後顯示「聊天室連不上…之後只用語音稿運作」，摘要與字幕照常；建議改成「YouTube 聊天室暫時抓不到（可能是 YouTube 改版），摘要照常；更新程式後會恢復」。
+- **聊天室壞了**：重試 3 次後主控台與膠囊旁顯示「YouTube 聊天室暫時抓不到（可能是 YouTube 改版），摘要和字幕照常；更新程式後可能會恢復。」（第 3 步已做；Twitch 維持原本的訊息）。
 - **開播時間抓不到**：改「從開始擷取起算」，時間前加 +（現有機制）。
 - **頻道 ID 抓不到**：這一場不用詞庫，印一行說明；名詞清單按鈕停用並寫白話原因。
 - **streamlink 壞了或被判定是機器人**：按開始就失敗，啟動面板顯示白話說明。使用者自己無法排除。

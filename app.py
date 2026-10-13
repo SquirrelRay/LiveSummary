@@ -1712,6 +1712,8 @@ class 主控台(QMainWindow):
         elif 種類 == "info":
             if not self.結束中:          # 結束中一直顯示「正在產生最後一個話題的摘要…」
                 self._訊息((內容.get("印出") or "").strip())
+            if 內容.get("膠囊") and not self.要結束:     # 直播中途要讓收著主控台的人也看到（例如 YouTube 聊天室抓不到）
+                self.膠囊.小提示(內容["膠囊"], 10, 錯誤=True)
         elif 種類 == "error":
             if self.話題字.text() == "準備中…":
                 self.話題字.setText("已停止")

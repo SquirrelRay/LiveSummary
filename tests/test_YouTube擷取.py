@@ -216,24 +216,34 @@ def 開始環境(monkeypatch, tmp_path, 事件們):
     return 紀
 
 
-def test_YouTube_讀觀看頁_延遲用YouTube的_聊天室停用並說一行(開始環境):
-    s = 開始環境["開"](YT網址, {"開播": 1000.0, "直播主": "Lofi Girl", "標題": "t", "遊戲": "Music", "來源": "YouTube網頁"})
+def test_YouTube_讀觀看頁_延遲用YouTube的_聊天室用yt_chat(開始環境, monkeypatch):
+    import yt_chat
+    monkeypatch.setattr(lc, "time", SimpleNamespace(time=lambda: 1000.0 + 3600))     # 開播一小時（不是連續直播）
+    s = 開始環境["開"](YT網址, {"開播": 1000.0, "直播主": "Lofi Girl", "標題": "t", "遊戲": "Music", "來源": "YouTube網頁",
+                               "影片ID": "abcdefghijk"})
     assert s.平台 == platforms.YOUTUBE
     assert 開始環境["查詢"] == [(YT網址, si.查YouTube直播)]           # 用網址查 YouTube 觀看頁，不查 Twitch
     網址, 查詢 = 開始環境["檢查"][0]
     assert 網址 == YT網址 and 查詢 is not None                       # 開播檢查拿得到觀看頁資訊（寫白話原因用）
     assert s.時軸.延遲 == sc.YouTube延遲秒 and s.時軸.開播 == 1000.0
-    assert s.聊天 is None and 開始環境["聊天室"] == []                 # 不能拿 YouTube 網址去連 Twitch
-    印出 = [c.get("印出") for k, c in 開始環境["事件"] if k == "info"]
-    assert "YouTube 聊天室尚未支援（開發中）" in 印出
+    assert 開始環境["聊天室"] == []                                    # 不能拿 YouTube 網址去連 Twitch
+    assert isinstance(s.聊天, yt_chat.聊天室) and s.聊天.網址 == "https://www.youtube.com/watch?v=abcdefghijk"
+    assert s.聊天.存檔路徑.endswith("_聊天室.txt")
+    印出 = [c.get("印出") or "" for k, c in 開始環境["事件"] if k == "info"]
+    assert not any("尚未支援" in x for x in 印出)
     內容 = next(c for k, c in 開始環境["事件"] if k == "stream_info")
     assert (內容["直播主"], 內容["遊戲"], 內容["來源"]) == ("Lofi Girl", "Music", "YouTube網頁")
 
 
-def test_YouTube_沒開聊天室就不說(開始環境, tmp_path):
+def test_YouTube_沒開聊天室就不建(開始環境, tmp_path):
     開始環境["結果"] = None
-    lc.live_session(YT網址, 稿目錄=str(tmp_path), 用聊天室=False, 存音訊=False)
-    assert "YouTube 聊天室尚未支援（開發中）" not in [c.get("印出") for k, c in 開始環境["事件"] if k == "info"]
+    s = lc.live_session(YT網址, 稿目錄=str(tmp_path), 用聊天室=False, 存音訊=False)
+    assert s.聊天 is None
+
+
+def test_YouTube_讀不到影片ID_聊天室用原網址(開始環境):
+    s = 開始環境["開"](YT網址, None)
+    assert s.聊天.網址 == YT網址
 
 
 def test_Twitch_流程不變(開始環境):
