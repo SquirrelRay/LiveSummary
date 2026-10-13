@@ -22,7 +22,9 @@ MAX_TOKENS = 4000                 # 思考也會佔用額度，留大一點避�
 翻譯用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
 # 聊天室翻譯（chat_translate.py）也另外算
 聊天翻譯用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0}
-_用量名 = {"摘要": "用量", "翻譯": "翻譯用量", "聊天翻譯": "聊天翻譯用量"}     # 類別 → 用哪一份用量（用名字查，測試換掉整份也照樣記）
+# 上網查證詞庫（web_verify.py）也另外算；多記實際搜尋次數（搜尋另外計費）
+查證用量 = {"次數": 0, "輸入": 0, "輸出": 0, "缺token": 0, "搜尋": 0}
+_用量名 = {"摘要": "用量", "翻譯": "翻譯用量", "聊天翻譯": "聊天翻譯用量", "查證": "查證用量"}     # 類別 → 用哪一份用量（用名字查，測試換掉整份也照樣記）
 翻譯類 = ("翻譯", "聊天翻譯")       # 關閉延伸思考、限制輸出長度的類別
 摘要_思考 = config.出廠預設()["summary_thinking"]      # False = 摘要相關呼叫關閉延伸思考（config.json 的 summary_thinking）
 最後停止原因 = ""     # 最近一次摘要或逐句翻譯回答的停止原因（max_tokens = 被截斷），翻譯失敗時寫進紀錄；聊天室翻譯不寫這裡
@@ -97,7 +99,7 @@ def _連線訊息():
 
 def _記用量(輸入, 輸出, 類別="摘要"):
     u = 用量表(類別)
-    標 = f"[{類別} token 用量]" if 類別 in 翻譯類 else "[token 用量]"
+    標 = f"[{類別} token 用量]" if 類別 in (*翻譯類, "查證") else "[token 用量]"
     u["次數"] += 1
     if 輸入 is None or 輸出 is None:
         u["缺token"] += 1
@@ -189,6 +191,88 @@ def _問_openai相容(提示詞, 模型, 類別):
         return resp.choices[0].message.content or ""
     except Exception:
         return ""
+
+
+# ---- 上網查證（只有 anthropic 有官方的上網搜尋工具）----
+# 官方文件（2026-10-13 查證）：web_search 工具每 1,000 次搜尋 10 美元，另加 token（搜尋結果算輸入 token）；搜尋出錯不收費。
+上網搜尋工具 = "web_search_20250305"      # 基本版（不需要 code execution，所有支援上網搜尋的模型都能用）
+每次搜尋美元 = 10 / 1000
+查證_MAX_TOKENS = 2000
+查證逾時秒 = 60
+最多續問 = 2                              # 回答被暫停（pause_turn）時最多再接著問幾次
+
+
+class 查證失敗(Exception):
+    """上網查證「沒查成」：逾時、API 錯誤、速率限制、回答被截斷等。不代表查無，之後可以再查。"""
+
+
+def 支援上網查證():
+    return PROVIDER == "anthropic"
+
+
+def 上網搜尋(提示詞, 模型, 最多搜尋=2):
+    """帶上網搜尋工具問一次模型。回傳 {"文字", "網址們"(搜尋結果與引用裡真的出現過的網址), "搜尋成功", "搜尋錯誤"(錯誤碼清單), "搜尋次數"}。
+    沒查成（逾時、連線、API 錯誤、截斷、拒答）丟出 查證失敗；金鑰錯誤照樣丟出 金鑰錯誤。用量記在 查證用量。"""
+    if not 支援上網查證():
+        raise 查證失敗("目前的模型服務沒有支援的上網搜尋工具")
+    import anthropic
+    參數 = {"timeout": 查證逾時秒, "max_retries": 1}
+    if API_KEY_ENV:
+        參數["api_key"] = _金鑰()
+    if BASE_URL:
+        參數["base_url"] = BASE_URL
+    client = anthropic.Anthropic(**參數)
+    訊息們 = [{"role": "user", "content": 提示詞}]
+    額外 = {} if 摘要_思考 else {"thinking": {"type": "disabled"}}
+    區塊們 = []
+    u = 查證用量
+    for _ in range(1 + 最多續問):
+        try:
+            resp = client.messages.create(
+                model=模型, max_tokens=查證_MAX_TOKENS, messages=訊息們,
+                tools=[{"type": 上網搜尋工具, "name": "web_search", "max_uses": 最多搜尋}], **額外)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
+            raise 金鑰錯誤(_金鑰訊息()) from None
+        except anthropic.APIError as e:            # 逾時、連線、速率限制、伺服器錯誤：沒查成
+            raise 查證失敗(f"{type(e).__name__}") from None
+        用 = getattr(resp, "usage", None)
+        _記用量(getattr(用, "input_tokens", None), getattr(用, "output_tokens", None), "查證")
+        u["搜尋"] += int(getattr(getattr(用, "server_tool_use", None), "web_search_requests", 0) or 0)
+        區塊們 += list(resp.content)
+        停止 = str(getattr(resp, "stop_reason", ""))
+        if 停止 != "pause_turn":
+            break
+        訊息們 = 訊息們 + [{"role": "assistant", "content": resp.content}]
+    if 停止 != "end_turn":
+        raise 查證失敗(f"回答沒有正常結束（{停止}）")
+    網址們, 成功, 錯誤們, 文字們 = set(), 0, [], []
+    for b in 區塊們:
+        類 = getattr(b, "type", "")
+        if 類 == "web_search_tool_result":
+            內容 = getattr(b, "content", None)
+            if isinstance(內容, list):          # 成功是結果清單（可能是空的）；出錯是一個錯誤物件
+                成功 += 1
+                網址們 |= {r.url for r in 內容 if getattr(r, "url", "")}
+            else:
+                錯誤們.append(str(getattr(內容, "error_code", "unknown")))
+        elif 類 == "text":
+            文字們.append(b.text)
+            for c in getattr(b, "citations", None) or []:
+                if getattr(c, "url", ""):
+                    網址們.add(c.url)
+    return {"文字": "".join(文字們), "網址們": 網址們, "搜尋成功": 成功, "搜尋錯誤": 錯誤們,
+            "搜尋次數": sum(1 for b in 區塊們 if getattr(b, "type", "") == "server_tool_use")}
+
+
+def 查證用量文字(單價_輸入, 單價_輸出):
+    """結束時「上網查證」那一行後面的用量與費用（token 和搜尋費分開列）。"""
+    u = 查證用量
+    搜尋費 = u["搜尋"] * 每次搜尋美元
+    if u["缺token"]:
+        return f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，token：無法計算；搜尋費約 {搜尋費:.3f} 美元"
+    token費 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
+    return (f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token；"
+            f"估算費用約 {token費 + 搜尋費:.3f} 美元（token {token費:.3f}，單價未查證；搜尋 {搜尋費:.3f}，每次 0.01 美元）")
 
 
 def call_llm(提示詞, 模型, 類別="摘要"):

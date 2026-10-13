@@ -17,6 +17,7 @@ import config           # 設定檔 config.json 的預設、檢查、讀取都�
 import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
 import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
+import web_verify       # 上網查證詞庫的候選名詞（預設關）
 
 # ---- 可以調整的設定 ----
 # 下面三個由 執行() 依設定改寫，起始值 = config.py 的出廠預設
@@ -348,9 +349,10 @@ def 結果檔名(基底, 要分鐘):
     return 名字(後綴)
 
 
-def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None):
+def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None, 查證=None):
     """詞庫：這一場的直播主詞庫（沒有就傳 None）。有詞庫時提示詞附上詞庫，並請模型在最後一行列出【名詞】；
-    【名詞】那一行從顯示與存檔的內文拿掉，新的名詞自動加進詞庫。"""
+    【名詞】那一行從顯示與存檔的內文拿掉，新的名詞自動加進詞庫。
+    查證：上網查證（web_verify.背景查證，開關關著就是 None）；新加入的候選丟給它在背景查，不等結果。"""
     起, 訖 = 秒轉字(話題["開始"]), 秒轉字(話題["最後"])
     支線文字 = "\n".join(f"- [{秒轉字(s)}] {n}" for s, n in 話題["支線"]) or "（無）"
     聊天們 = [字 for _, 字 in 話題["聊天"]]
@@ -374,6 +376,8 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None):
             events.送出("info", 印出=f"詞庫存檔失敗：{e}")
         if 新的:
             events.送出("info", 印出="詞庫新增：" + "、".join(x.顯示() for x in 新的))
+            if 查證 is not None:
+                查證.加入(新的, 話題["行們"])
     候選 = {轉秒(l) for l in 話題["行們"]} - {None}     # 內文裡的時間：補回漏掉的小時、格式統一
     內文 = timefmt.換內文時間(內文, lambda 秒: 秒轉字(對齊時間(秒, 候選)))
     區塊 = f"=== {秒轉字(結束秒)} 話題結束 ===\n{內文}\n"
@@ -450,19 +454,20 @@ def 輸出分鐘摘要(分鐘, 支線們, 秒, 有聊天, 分鐘檔):
     統計["分鐘摘要"] += 1
 
 
-def 引擎(行來源, check_min, 輸出檔, 聊天=None, 分鐘檔=None, 修正=True, 詞庫=None):
+def 引擎(行來源, check_min, 輸出檔, 聊天=None, 分鐘檔=None, 修正=True, 詞庫=None, 查證=None):
     """行來源：一個會一直吐出 (秒數, 文字行) 的東西（檔案重播或真正的直播都可以）。
-    聊天：聊天室物件（沒有就傳 None，引擎照舊只用語音稿）。詞庫：直播主詞庫（沒有就傳 None，不讀不寫）。"""
+    聊天：聊天室物件（沒有就傳 None，引擎照舊只用語音稿）。詞庫：直播主詞庫（沒有就傳 None，不讀不寫）。
+    查證：上網查證（沒開就是 None）。"""
     迭代 = iter(行來源)
     try:
-        return _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫)
+        return _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫, 查證)
     except (Exception, KeyboardInterrupt):    # 任何錯誤都要先關掉音訊擷取，不留下 ffmpeg
         if hasattr(迭代, "close"):
             迭代.close()           # 關掉音訊擷取（ffmpeg、streamlink）與聊天室
         raise
 
 
-def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None):
+def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None, 查證=None):
     話題 = 新話題()
     待處理 = []          # 還沒判斷過的新行
     上次檢查 = None
@@ -534,7 +539,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
             加聊天(話題, [x for x in 本輪聊天 if x[0] < 切時間])
             加參考詞(話題, 本輪詞)
             if 話題["行們"]:
-                輸出話題摘要(話題, 秒, 輸出檔, 詞庫)
+                輸出話題摘要(話題, 秒, 輸出檔, 詞庫, 查證)
                 送狀態()
                 話題數 += 1
             話題 = 新話題()
@@ -557,7 +562,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
             # 太久強制結束，下一輪重新開始
             if 話題["最後"] - 話題["開始"] > MAX_TOPIC_MIN * 60:
                 events.送出("info", 印出=f"（話題超過 {MAX_TOPIC_MIN} 分鐘，強制結束）")
-                輸出話題摘要(話題, 秒, 輸出檔, 詞庫)
+                輸出話題摘要(話題, 秒, 輸出檔, 詞庫, 查證)
                 送狀態()
                 話題數 += 1
                 話題 = 新話題()
@@ -573,7 +578,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
     # 文字稿讀完：剩下的也要輸出
     加入(話題, 待處理)
     if 話題["行們"]:
-        輸出話題摘要(話題, 現在, 輸出檔, 詞庫)
+        輸出話題摘要(話題, 現在, 輸出檔, 詞庫, 查證)
         送狀態()
         話題數 += 1
     return 話題數
@@ -596,6 +601,8 @@ def main():
     ap.add_argument("--fix", action=argparse.BooleanOptionalAction, default=None,
                     help="是否用聊天室參考詞修正摘要裡的詞（--fix / --no-fix）")
     ap.add_argument("--chat-file", help="（測試用）文字稿模式下，一併讀取已存的聊天室檔")
+    ap.add_argument("--web", action=argparse.BooleanOptionalAction, default=None,
+                    help="是否上網查證詞庫的候選名詞（--web / --no-web，只支援 anthropic，另外計費）")
     ap.add_argument("--streamer", help="文字稿模式：指定直播主名字，讀寫 詞庫/名字.txt（沒給就不用詞庫）；直播網址模式自動用頻道名稱")
     ap.add_argument("--show-config", action="store_true", help="印出目前實際生效的設定與來源，然後結束")
     args = ap.parse_args()
@@ -604,6 +611,7 @@ def main():
     設定, 來源, 警告們 = config.載入設定({
         "chat": args.chat, "minute_summary": args.minute, "save_audio": args.save_audio,
         "fix_with_chat": args.fix, "check_minutes": args.check, "language": args.lang,
+        "web_verify": args.web,
     })
     for w in 警告們:
         print("警告：" + w)
@@ -631,11 +639,30 @@ def 載入詞庫(直播主):
         events.送出("info", 印出=f"詞庫讀不到（{詞庫.讀錯誤}），這一場不使用也不寫入：{詞庫.路徑}")
         return None
     用, 候選 = 詞庫.數量()
-    行 = f"已載入詞庫：{名字}，手動 {用} 個" + (f"（另有候選 {候選} 個，這一場不使用）" if 候選 else "")
+    上網 = sum(1 for e in 詞庫.條目們 if e.來源 == "上網")
+    行 = (f"已載入詞庫：{名字}，手動 {用 - 上網} 個" + (f"、上網 {上網} 個" if 上網 else "")
+         + (f"（另有候選 {候選} 個，這一場不使用）" if 候選 else ""))
     if 詞庫.格式錯:
         行 += f"（{詞庫.格式錯} 行格式不對，已略過，檔案裡保留原樣）"
     events.送出("info", 印出=行)
     return 詞庫
+
+
+def 開始查證(設定, 詞庫, 直播主):
+    """開關打開又有詞庫時，建立這一場的背景查證；provider 不支援時印一句說明，其他照常（回傳 None）。"""
+    if not 設定.get("web_verify"):
+        return None
+    if not llm.支援上網查證():
+        events.送出("info", 印出=f"上網查證無法使用：目前的模型服務（{設定['provider']}）沒有支援的上網搜尋工具，"
+                                 "這一場不查證，其他功能照常。")
+        return None
+    if 詞庫 is None:
+        events.送出("info", 印出="上網查證：這一場沒有使用詞庫（文字稿模式沒給 --streamer），不查證。")
+        return None
+    資訊 = stream_clock.資訊() or {}
+    脈絡 = {"直播主": 資訊.get("直播主") or 直播主, "分類": 資訊.get("遊戲", ""), "標題": 資訊.get("標題", "")}
+    events.送出("info", 印出=f"上網查證：開啟（只查這一場新加入的候選，最多 {web_verify.每場上限} 個，另外計費）")
+    return web_verify.背景查證(詞庫, 脈絡, 設定["model"])
 
 
 def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=None):
@@ -647,6 +674,8 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
     stream_clock.清除()      # 直播網址模式由 live_capture 建立這一場的時軸；文字稿模式沒有時軸
     for k in llm.用量:
         llm.用量[k] = 0
+    for k in llm.查證用量:
+        llm.查證用量[k] = 0
     統計["分鐘摘要"] = 0
     統計["JSON失敗"] = 0
     單價["輸入"], 單價["輸出"] = 設定["price_input"], 設定["price_output"]
@@ -699,21 +728,32 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
                 分鐘=os.path.abspath(分鐘檔) if 分鐘檔 and 存檔["摘要"] else None,
                 話題=os.path.abspath(輸出檔) if 存檔["摘要"] else None)
     詞庫 = 載入詞庫(直播主)
+    查證 = 開始查證(設定, 詞庫, 直播主)
     送狀態()
     try:
-        話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"], 詞庫=詞庫)
+        話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"], 詞庫=詞庫,
+                    查證=查證)
     except llm.模型錯誤 as e:
         if 聊天:
             聊天.關閉()
+        if 查證:
+            查證.收尾(0)
         events.送出("error", 訊息=str(e), 印出="\n" + str(e))
         return False
     except KeyboardInterrupt:          # 整理最後話題時又按了一次 Ctrl+C
         if 聊天:
             聊天.關閉()
+        if 查證:
+            查證.收尾(0)
         events.送出("error", 訊息="已中斷。", 印出="\n已中斷。")
         return False
     if 聊天:
         聊天.關閉()
+    查證行 = None
+    if 查證:
+        if 查證.進行中():
+            events.送出("info", 印出=f"等待上網查證收尾（最多 {web_verify.收尾等待秒} 秒）...")
+        查證行 = 查證.收尾() + "；" + llm.查證用量文字(設定["price_input"], 設定["price_output"])
 
     行們 = ["\n完成：切出 " + str(話題數) + " 個話題，" + llm.用量文字(設定["price_input"], 設定["price_output"])]
     音訊行 = 行來源.音訊統計() if hasattr(行來源, "音訊統計") else None
@@ -721,6 +761,8 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
         行們.append(音訊行)
     if 分鐘檔:
         行們.append(f"分鐘摘要：共產出 {統計['分鐘摘要']} 則")
+    if 查證行:
+        行們.append(查證行)
     if 聊天:
         行們.append(f"聊天室：收到 {聊天.收到} 則，過濾掉 {聊天.過濾} 則"
                   + ("" if 聊天.收到 else "（沒收到留言，可能沒連上）"))

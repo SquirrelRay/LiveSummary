@@ -30,5 +30,6 @@
   "capsule_show_usage": false,
   "chat_translate": false,
   "chat_translate_max_per_min": 30,
-  "time_display": "stream"
+  "time_display": "stream",
+  "web_verify": false
 }

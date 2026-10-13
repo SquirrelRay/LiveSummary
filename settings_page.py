@@ -112,6 +112,8 @@ class 設定頁(QScrollArea):
         e["fix_with_chat"] = QCheckBox("用聊天室參考詞修正專有名詞")
         e["summary_thinking"] = QCheckBox("摘要使用延伸思考：較準但較貴")
         e["chat_translate"] = QCheckBox("聊天室翻譯：外語直播時把留言翻成繁體中文（聊天室面板開著才翻，另外計費）")
+        e["web_verify"] = QCheckBox("上網查證詞庫的候選名詞：查到台灣通行寫法就寫回詞庫並附來源網址（只支援 Claude，另外計費）")
+        e["web_verify"].setToolTip("每場只查這一場新加入的候選，最多 10 個；查無的標「已查」不再重查。搜尋每次 0.01 美元＋token")
         e["chat_translate_max_per_min"] = QSpinBox()
         e["chat_translate_max_per_min"].setRange(1, 600)
         e["chat_translate_max_per_min"].setSuffix(" 則")
@@ -136,7 +138,7 @@ class 設定頁(QScrollArea):
             e["subtitle_speed"].addItem(subtitle_speed.取得(代碼)["名稱"], 代碼)
         e["subtitle_speed"].currentIndexChanged.connect(self._更新段位說明)
         e["subtitle_mode"].currentIndexChanged.connect(self._更新段位說明)
-        for k in ("chat", "minute_summary", "summary_thinking", "chat_translate"):
+        for k in ("chat", "minute_summary", "summary_thinking", "chat_translate", "web_verify"):
             e[k].toggled.connect(self._更新段位說明)
         e["minute_sentences"].valueChanged.connect(self._更新段位說明)
         e["chat_translate_max_per_min"].valueChanged.connect(self._更新段位說明)
@@ -147,6 +149,7 @@ class 設定頁(QScrollArea):
         e["provider"] = QComboBox()
         e["provider"].addItem("Claude（anthropic）", "anthropic")
         e["provider"].addItem("OpenAI 相容（openai_compatible）", "openai_compatible")
+        e["provider"].currentIndexChanged.connect(self._更新段位說明)       # 上網查證只支援 anthropic：費用表跟著變
         e["model"] = QLineEdit()
         self.金鑰字 = QLabel()
 
@@ -161,7 +164,7 @@ class 設定頁(QScrollArea):
             列 += 1
 
         加("逐句字幕模式", e["subtitle_mode"], True)
-        for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking"):
+        for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking", "web_verify"):
             加("", e[k], True)
         加("", e["chat_translate"])                 # 按「儲存」當場生效（膠囊選單也可以直接切換）
         加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
@@ -268,7 +271,8 @@ class 設定頁(QScrollArea):
                     minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
                     minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1],
                     chat_translate=e["chat_translate"].isChecked(),
-                    chat_translate_max_per_min=e["chat_translate_max_per_min"].value())
+                    chat_translate_max_per_min=e["chat_translate_max_per_min"].value(),
+                    web_verify=e["web_verify"].isChecked(), provider=e["provider"].currentData())
 
     def _更新費用表(self):
         代碼 = self.欄["subtitle_speed"].currentData()
@@ -307,6 +311,7 @@ class 設定頁(QScrollArea):
             **{k: e[k].isChecked() for k, _ in self.存檔項目},
             "summary_thinking": e["summary_thinking"].isChecked(),
             "chat_translate": e["chat_translate"].isChecked(),
+            "web_verify": e["web_verify"].isChecked(),
             "chat_translate_max_per_min": e["chat_translate_max_per_min"].value(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),
