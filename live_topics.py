@@ -16,6 +16,7 @@ import subtitle_speed   # 字幕速度段位：分段秒數與翻譯批次
 import config           # 設定檔 config.json 的預設、檢查、讀取都在這裡
 import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
+import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
 
 # ---- 可以調整的設定 ----
 # 下面三個由 執行() 依設定改寫，起始值 = config.py 的出廠預設
@@ -229,11 +230,12 @@ def 單一主題(字):
     return 字
 
 
-def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 參考詞=None):
+def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 參考詞=None, 詞庫段=""):
     """問模型話題有沒有換。主題：這個話題開始時定下的「一件事」（之後不改寫，判斷一律跟它比對，避免簡述每輪漂移）。
     回傳 (decision, new_topic_start, brief, side_notes, minute, topic)；解析失敗就當 same。
     brief 是給介面顯示的簡述；topic 是模型認定的「目前這一題的那一件事」（new_topic 時是新的那件事）。
-    minute 是 (summary, audience)，沒有或失敗就是 None。聊天們：聊天室代表留言的字串清單，沒有就傳 None。"""
+    minute 是 (summary, audience)，沒有或失敗就是 None。聊天們：聊天室代表留言的字串清單，沒有就傳 None。
+    詞庫段：直播主詞庫的提示段落（glossary.詞庫.提示段()）；沒有詞庫或詞庫是空的就是空字串，提示詞不變。"""
     句數字 = "1 句" if MINUTE_SENTENCES == 1 else f"1 到 {MINUTE_SENTENCES} 句"
     聊天段 = ""
     if 聊天們:
@@ -244,6 +246,7 @@ def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
         換話題規則 +
         "另外，請把新文字裡的短支線記錄下來（不影響上面的 same / new_topic 判斷）。" + 支線標準 + "\n\n"
         + summarize.語言說明
+        + 詞庫段
         + (分鐘規則.replace("{句數}", 句數字) if 要分鐘 else "") +
         f"目前話題（開始時定下的一件事，不會改寫）：{主題 or '（剛開始，還沒有定下；用最後幾行判斷）'}\n\n"
         "目前話題最後幾行：\n" + ("\n".join(最後幾行) or "（無）") + "\n\n"
@@ -345,7 +348,9 @@ def 結果檔名(基底, 要分鐘):
     return 名字(後綴)
 
 
-def 輸出話題摘要(話題, 結束秒, 輸出檔):
+def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None):
+    """詞庫：這一場的直播主詞庫（沒有就傳 None）。有詞庫時提示詞附上詞庫，並請模型在最後一行列出【名詞】；
+    【名詞】那一行從顯示與存檔的內文拿掉，新的名詞自動加進詞庫。"""
     起, 訖 = 秒轉字(話題["開始"]), 秒轉字(話題["最後"])
     支線文字 = "\n".join(f"- [{秒轉字(s)}] {n}" for s, n in 話題["支線"]) or "（無）"
     聊天們 = [字 for _, 字 in 話題["聊天"]]
@@ -353,9 +358,22 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔):
     if 聊天們:     # 聊天室沒抓到時，整個【觀眾反應】欄位省略
         格式 = 格式.replace("每一項的標籤", 觀眾反應格式 + "每一項的標籤", 1)
     參考段 = 參考詞規則.replace("{詞們}", "、".join(話題["參考詞"])) if 話題["參考詞"] else ""
+    詞庫段 = ""
+    if 詞庫 is not None:
+        詞庫段 = 詞庫.提示段("\n".join(話題["行們"]))
+        格式 = 格式.replace("每一項的標籤", glossary.名詞格式 + "每一項的標籤", 1)
     內文 = summarize.summarize_chunk(
-        參考段 + "已知支線：\n" + 支線文字 + "\n\n以下是文字稿：\n" + "\n".join(話題["行們"]), 類型="chat",
+        詞庫段 + 參考段 + "已知支線：\n" + 支線文字 + "\n\n以下是文字稿：\n" + "\n".join(話題["行們"]), 類型="chat",
         聊天室紀錄=聊天們 or None, 格式=格式)
+    內文, 名詞們 = glossary.拆名詞(內文)     # 【名詞】只給詞庫用，不顯示、不存檔
+    if 詞庫 is not None and 名詞們:
+        try:
+            新的 = 詞庫.自動加入(名詞們, 原稿="\n".join(話題["行們"]))
+        except OSError as e:             # 詞庫存檔失敗不影響摘要
+            新的 = []
+            events.送出("info", 印出=f"詞庫存檔失敗：{e}")
+        if 新的:
+            events.送出("info", 印出="詞庫新增：" + "、".join(x.顯示() for x in 新的))
     候選 = {轉秒(l) for l in 話題["行們"]} - {None}     # 內文裡的時間：補回漏掉的小時、格式統一
     內文 = timefmt.換內文時間(內文, lambda 秒: 秒轉字(對齊時間(秒, 候選)))
     區塊 = f"=== {秒轉字(結束秒)} 話題結束 ===\n{內文}\n"
@@ -432,19 +450,19 @@ def 輸出分鐘摘要(分鐘, 支線們, 秒, 有聊天, 分鐘檔):
     統計["分鐘摘要"] += 1
 
 
-def 引擎(行來源, check_min, 輸出檔, 聊天=None, 分鐘檔=None, 修正=True):
+def 引擎(行來源, check_min, 輸出檔, 聊天=None, 分鐘檔=None, 修正=True, 詞庫=None):
     """行來源：一個會一直吐出 (秒數, 文字行) 的東西（檔案重播或真正的直播都可以）。
-    聊天：聊天室物件（沒有就傳 None，引擎照舊只用語音稿）。"""
+    聊天：聊天室物件（沒有就傳 None，引擎照舊只用語音稿）。詞庫：直播主詞庫（沒有就傳 None，不讀不寫）。"""
     迭代 = iter(行來源)
     try:
-        return _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正)
+        return _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫)
     except (Exception, KeyboardInterrupt):    # 任何錯誤都要先關掉音訊擷取，不留下 ffmpeg
         if hasattr(迭代, "close"):
             迭代.close()           # 關掉音訊擷取（ffmpeg、streamlink）與聊天室
         raise
 
 
-def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
+def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None):
     話題 = 新話題()
     待處理 = []          # 還沒判斷過的新行
     上次檢查 = None
@@ -486,10 +504,11 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
             聊天起 = 秒
             if 修正:     # 從最近幾分鐘的聊天室找參考詞（沒有聊天室就整項略過）
                 本輪詞 = 找參考詞(聊天.取出(max(0, 秒 - REF_WINDOW_MIN * 60), 秒))
+        詞庫段 = 詞庫.提示段("\n".join(話題["行們"][-10:] + [l for _, l in 待處理])) if 詞庫 is not None else ""
         try:
             決定, 切點字, 簡述, 支線們, 分鐘, 主題 = 問話題(
                 話題["主題"], 話題["行們"][-10:], [l for _, l in 待處理],
-                [字 for _, 字 in 本輪聊天] or None, 要分鐘=bool(分鐘檔), 參考詞=本輪詞 or None)
+                [字 for _, 字 in 本輪聊天] or None, 要分鐘=bool(分鐘檔), 參考詞=本輪詞 or None, 詞庫段=詞庫段)
         except KeyboardInterrupt:      # 等模型回答時按 Ctrl+C：照一般的 Ctrl+C 流程收尾
             events.送出("info", 印出="\n已中斷，正在整理最後一個話題...")
             if hasattr(迭代, "close"):
@@ -515,7 +534,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
             加聊天(話題, [x for x in 本輪聊天 if x[0] < 切時間])
             加參考詞(話題, 本輪詞)
             if 話題["行們"]:
-                輸出話題摘要(話題, 秒, 輸出檔)
+                輸出話題摘要(話題, 秒, 輸出檔, 詞庫)
                 送狀態()
                 話題數 += 1
             話題 = 新話題()
@@ -538,7 +557,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
             # 太久強制結束，下一輪重新開始
             if 話題["最後"] - 話題["開始"] > MAX_TOPIC_MIN * 60:
                 events.送出("info", 印出=f"（話題超過 {MAX_TOPIC_MIN} 分鐘，強制結束）")
-                輸出話題摘要(話題, 秒, 輸出檔)
+                輸出話題摘要(話題, 秒, 輸出檔, 詞庫)
                 送狀態()
                 話題數 += 1
                 話題 = 新話題()
@@ -554,7 +573,7 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正):
     # 文字稿讀完：剩下的也要輸出
     加入(話題, 待處理)
     if 話題["行們"]:
-        輸出話題摘要(話題, 現在, 輸出檔)
+        輸出話題摘要(話題, 現在, 輸出檔, 詞庫)
         送狀態()
         話題數 += 1
     return 話題數
@@ -577,6 +596,7 @@ def main():
     ap.add_argument("--fix", action=argparse.BooleanOptionalAction, default=None,
                     help="是否用聊天室參考詞修正摘要裡的詞（--fix / --no-fix）")
     ap.add_argument("--chat-file", help="（測試用）文字稿模式下，一併讀取已存的聊天室檔")
+    ap.add_argument("--streamer", help="文字稿模式：指定直播主名字，讀寫 詞庫/名字.txt（沒給就不用詞庫）；直播網址模式自動用頻道名稱")
     ap.add_argument("--show-config", action="store_true", help="印出目前實際生效的設定與來源，然後結束")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -596,13 +616,31 @@ def main():
         print("用法：python live_topics.py 文字稿.txt   或   python live_topics.py --live 直播網址")
         sys.exit(1)
     events.接收者們.append(events.印到終端機)    # 命令列：事件直接印到終端機
-    if not 執行(設定, 檔案=args.檔案, 網址=args.live, speed=args.speed, 聊天檔=args.chat_file):
+    if not 執行(設定, 檔案=args.檔案, 網址=args.live, speed=args.speed, 聊天檔=args.chat_file,
+                直播主=args.streamer):
         sys.exit(1)
 
 
-def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
+def 載入詞庫(直播主):
+    """讀入直播主詞庫並印一行說明；沒有直播主（文字稿模式沒給 --streamer）回傳 None。"""
+    名字 = glossary.檔名安全(直播主)
+    if not 名字:
+        return None
+    詞庫 = glossary.詞庫(名字)
+    if 詞庫.讀錯誤:
+        events.送出("info", 印出=f"詞庫讀不到（{詞庫.讀錯誤}），這一場不使用也不寫入：{詞庫.路徑}")
+        return None
+    行 = f"已載入詞庫：{名字}，{len(詞庫.條目們)} 個名詞"
+    if 詞庫.格式錯:
+        行 += f"（{詞庫.格式錯} 行格式不對，已略過，檔案裡保留原樣）"
+    events.送出("info", 印出=行)
+    return 詞庫
+
+
+def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=None):
     """跑一整場（命令列與介面共用）。結果都用事件送出。成功回傳 True，出錯回傳 False。
-    設定：config.載入設定() 的結果（llm.套用設定 要先做好）。"""
+    設定：config.載入設定() 的結果（llm.套用設定 要先做好）。
+    直播主：文字稿模式用來指定詞庫（沒給就不讀不寫詞庫）；直播網址模式一律用頻道名稱，這個參數不用。"""
     global MIN_TOPIC_MIN, MAX_TOPIC_MIN, MINUTE_SENTENCES
     # 這一場重新計算（介面可以連續跑好幾場）
     stream_clock.清除()      # 直播網址模式由 live_capture 建立這一場的時軸；文字稿模式沒有時軸
@@ -642,6 +680,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
             events.送出("error", 訊息=str(e), 印出=str(e))
             return False
         基底 = os.path.splitext(行來源.稿路徑)[0]
+        直播主 = live_capture.頻道名稱(網址)
     else:
         行來源 = stream_lines(檔案, speed)
         基底 = os.path.splitext(檔案)[0]
@@ -658,9 +697,10 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None):
                      else os.path.abspath(聊天檔) if 聊天檔 and not 網址 and 設定["save_chat"] else None),
                 分鐘=os.path.abspath(分鐘檔) if 分鐘檔 and 存檔["摘要"] else None,
                 話題=os.path.abspath(輸出檔) if 存檔["摘要"] else None)
+    詞庫 = 載入詞庫(直播主)
     送狀態()
     try:
-        話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"])
+        話題數 = 引擎(行來源, 設定["check_minutes"], 輸出檔, 聊天, 分鐘檔, 修正=設定["fix_with_chat"], 詞庫=詞庫)
     except llm.模型錯誤 as e:
         if 聊天:
             聊天.關閉()
