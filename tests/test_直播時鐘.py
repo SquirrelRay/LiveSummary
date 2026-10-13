@@ -278,7 +278,7 @@ def test_支線與分鐘摘要漏了小時也補回(monkeypatch):
     回答 = {"decision": "same", "side_notes": [{"time": "23:45", "note": "漏小時的支線"}],
           "minute_summary": {"summary": "[23:45] 漏小時的摘要", "audience": ""}}
     monkeypatch.setattr(summarize, "call_llm", lambda 提示: json.dumps(回答, ensure_ascii=False))
-    _, _, _, 支線們, 分鐘 = lt.問話題("", [], ["[1:23:45] 甲", "[1:24:00] 乙"], 要分鐘=True)
+    _, _, _, 支線們, 分鐘, _ = lt.問話題("", [], ["[1:23:45] 甲", "[1:24:00] 乙"], 要分鐘=True)
     assert 支線們 == [(5025, "漏小時的支線")]
     assert 分鐘[0] == "[1:23:45] 漏小時的摘要"
 

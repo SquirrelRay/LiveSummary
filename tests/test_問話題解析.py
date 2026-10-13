@@ -35,9 +35,9 @@ def test_提示詞包含簡述_最後幾行_新文字(問):
     assert "[01:00] 新行甲" in 提示 and "[01:30] 新行乙" in 提示
 
 
-def test_沒有簡述時寫剛開始(問):
+def test_沒有主題時寫剛開始(問):
     _, 提示 = 問({"decision": "same"}, 簡述="", 最後=())
-    assert "剛開始，還沒有簡述" in 提示 and "（無）" in 提示
+    assert "剛開始，還沒有定下" in 提示 and "（無）" in 提示
 
 
 def test_沒聊天沒參考詞時提示詞沒有那兩段(問):
@@ -84,7 +84,7 @@ def test_缺少簡述時沿用舊簡述(問):
 
 def test_回答壞掉當作same並計入JSON失敗(問):
     結果, _ = 問("這不是 JSON")
-    assert 結果 == ("same", "", "舊簡述", [], None)
+    assert 結果 == ("same", "", "舊簡述", [], None, "舊簡述")
     assert lt.統計["JSON失敗"] == 1
 
 
@@ -145,3 +145,19 @@ def test_分鐘摘要缺欄位或空白就略過(問):
     for 壞 in ({"audience": "x"}, {"summary": "   "}, "字串", None):
         結果, _ = 問({"decision": "same", "minute_summary": 壞}, 要分鐘=True)
         assert 結果[4] is None
+
+
+# ---------- 換話題標準：一件事一題、跟固定的主題比對 ----------
+def test_提示詞有粒度與new_topic條件_主題標明不會改寫(問):
+    _, 提示 = 問({"decision": "same"}, 簡述="聊午餐吃什麼")
+    assert "一個話題＝一件事" in 提示 and "「、」" in 提示 and "2 分鐘就是 2 分鐘一題" in 提示
+    assert "【算 new_topic】" in 提示 and "【算 same】" in 提示 and "離題一兩句又回來" in 提示
+    assert "目前話題（開始時定下的一件事，不會改寫）：聊午餐吃什麼" in 提示
+    assert '"topic"' in 提示
+
+
+def test_回傳模型認定的那一件事_沒給就用簡述頂替(問):
+    結果, _ = 問({"decision": "new_topic", "new_topic_start": "01:30", "topic": "週末要看的電影", "topic_brief": "改聊電影"})
+    assert 結果[5] == "週末要看的電影"
+    結果, _ = 問({"decision": "same", "topic_brief": "還在聊午餐"})
+    assert 結果[5] == "還在聊午餐"

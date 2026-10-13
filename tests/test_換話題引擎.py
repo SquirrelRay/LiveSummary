@@ -1,6 +1,7 @@
 """安全網測試：live_topics._引擎（換話題核心邏輯）。
 假模型依測試腳本回傳 same 或 new_topic；假的 summarize_chunk 只記下被呼叫時收到的內容。不花 API、不連網、不寫專案資料夾。"""
 import json
+import re
 
 import pytest
 
@@ -157,3 +158,33 @@ def test_模型錯誤會直接丟出而不是當成話題沒變(環境, monkeypa
     monkeypatch.setattr(summarize, "call_llm", 壞)
     with pytest.raises(llm.金鑰錯誤):
         環境.跑(range(0, 301, 60))
+
+
+# ---------- 判斷一律跟話題開始時定下的「那一件事」比對，不跟每輪改寫的簡述比 ----------
+def 主題們(e):
+    return [re.search(r"目前話題（開始時定下的一件事，不會改寫）：(.*)", p).group(1) for p in e.提示們]
+
+
+def test_主題在話題開始時定下_之後不隨簡述漂移(環境):
+    環境.回覆們 = [{"decision": "same", "topic": "午餐吃什麼", "topic_brief": "聊午餐"},
+               {"decision": "same", "topic": "午餐與晚餐", "topic_brief": "聊到晚餐"},
+               {"decision": "same", "topic": "晚餐與電影", "topic_brief": "又聊到電影"}]
+    環境.跑(range(0, 241, 60))
+    assert 主題們(環境) == ["（剛開始，還沒有定下；用最後幾行判斷）", "午餐吃什麼", "午餐吃什麼", "午餐吃什麼"]
+    assert [c["簡述"] for c in 種類們(環境, "current_topic")][:3] == ["聊午餐", "聊到晚餐", "又聊到電影"]   # 介面的簡述照常更新
+
+
+def test_換話題後換成新的那一件事(環境):
+    環境.回覆們 = [{"decision": "same", "topic": "午餐吃什麼"}] * 4 + [
+        {"decision": "new_topic", "new_topic_start": "05:00", "topic": "週末要看的電影", "topic_brief": "改聊電影"},
+        {"decision": "same", "topic": "電影與爆米花"}]
+    環境.跑(range(0, 421, 60))
+    assert 主題們(環境)[1:5] == ["午餐吃什麼"] * 4 and 主題們(環境)[5:] == ["週末要看的電影"] * 2
+
+
+def test_強制結束後下一輪重新定下主題(環境):
+    環境.回覆們 = [{"decision": "same", "topic": "很長的一件事"}] * 16 + [{"decision": "same", "topic": "下一件事"}] * 3
+    環境.跑(range(0, 1141, 60))
+    主 = 主題們(環境)
+    i = 主.index("（剛開始，還沒有定下；用最後幾行判斷）", 1)      # 強制結束後的第一輪
+    assert set(主[1:i]) == {"很長的一件事"} and 主[i + 1:] and set(主[i + 1:]) == {"下一件事"}
