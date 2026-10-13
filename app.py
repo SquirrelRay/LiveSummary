@@ -1361,6 +1361,8 @@ class 主控台(QMainWindow):
             return self._錯誤框("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱")
         if 直播 and "/videos/" in 網址.lower():
             return self._錯誤框(launcher.VOD提示)
+        if 直播 and (擋 := launcher.YouTube不支援(網址)):
+            return self._錯誤框(擋)
         if not 直播 and not os.path.isfile(檔案 or ""):
             return self._錯誤框("找不到這個文字稿檔案，請重新選擇。")
 
@@ -1571,7 +1573,7 @@ class 主控台(QMainWindow):
     def 名詞清單目標(self):
         """回傳 (直播主, 這一場的詞庫物件或 None, 停用原因)。停用原因是空字串＝可以打開。
         直播中：這一場的頻道（引擎載入詞庫後就用它那一個物件）；文字稿重播沒有直播主 → 停用。
-        待命：啟動面板網址欄的頻道；不是有效的 Twitch 頻道網址 → 停用。"""
+        待命：啟動面板網址欄的頻道；不是有效的 Twitch／YouTube 網址、YouTube 頻道查詢中或查不到 → 停用。"""
         if self.執行中():
             if glossary.本場詞庫 is not None:
                 return glossary.本場詞庫.直播主, glossary.本場詞庫, ""
@@ -1587,7 +1589,7 @@ class 主控台(QMainWindow):
         if 原因:
             self.膠囊.小提示("名詞清單：" + 原因, 秒=6, 錯誤=True)
             return
-        詞庫 = 本場 or glossary.詞庫(glossary.檔名安全(名))
+        詞庫 = 本場 or glossary.詞庫(glossary.檔名安全(名), 標示=names_page.詞庫標示(名))
         if self.名詞清單框 is None:
             self.名詞清單框 = names_page.名詞清單框()
         elif 本場 is None and self.名詞清單框.詞庫 is not None and self.名詞清單框.詞庫.路徑 == 詞庫.路徑:

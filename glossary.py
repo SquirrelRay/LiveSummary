@@ -222,8 +222,10 @@ def 解析名詞(字):
 
 
 class 詞庫:
-    def __init__(self, 直播主, 資料夾路徑=None):
+    def __init__(self, 直播主, 資料夾路徑=None, 標示=None):
+        """直播主：詞庫名（決定檔名；YouTube 是 YT_頻道ID）。標示：新建檔案時開頭寫的直播主名稱，沒給就用 直播主。"""
         self.直播主 = 直播主
+        self.標示 = 標示 or 直播主
         self.路徑 = os.path.join(資料夾路徑 or 資料夾, 檔名安全(直播主) + ".txt")
         self.條目們 = []
         self.格式錯 = 0
@@ -318,7 +320,7 @@ class 詞庫:
         self._本場 |= {e.鍵() for e in 新的}
         if not 新的:
             return []
-        行們 = 原始 if 原始 else 檔頭.replace("{直播主}", self.直播主).rstrip("\n").split("\n")
+        行們 = 原始 if 原始 else 檔頭.replace("{直播主}", self.標示).rstrip("\n").split("\n")
         文字 = "\n".join(行們 + [e.存檔行() for e in 新的]) + "\n"
         安全寫入(self.路徑, 文字)      # 失敗丟出例外，由呼叫的人提示（摘要照常）
         self.條目們, _, _ = 讀檔(self.路徑)      # 重讀：條目的「原行」要和檔案一致（名詞清單靠它比對）
@@ -466,7 +468,7 @@ class 詞庫:
                 if e is None or e.來源 != "忽略" or e.鍵() != 新.鍵():
                     行們.append(行)                 # 被忽略過的同一個名詞：拿掉，以這次新增的手動為準
             if not any(行.strip() for 行 in 行們):
-                行們 = 檔頭.replace("{直播主}", self.直播主).rstrip("\n").split("\n")
+                行們 = 檔頭.replace("{直播主}", self.標示).rstrip("\n").split("\n")
             self._寫(行們 + [新.存檔行()])
 
 

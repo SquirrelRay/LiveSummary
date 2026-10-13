@@ -23,12 +23,19 @@ import config
 import first_run
 import llm
 import names_page
+import platforms
 import subtitle_speed
 from launch_state import 啟動狀態
 
 語言選項 = config.語言選項(自動在前=True)      # 自動偵測、中文、日文、英文、韓文
 寬 = 480
 VOD提示 = "目前只支援直播網址，直播檔（VOD）之後才會支援"
+
+
+def YouTube不支援(網址):
+    """YouTube 但不是支援的直播網址格式（例如 /shorts/）→ 白話原因；其他（含 Twitch，交給開播檢查）回傳空字串。"""
+    資 = platforms.判斷(網址)
+    return 資.原因 if 資.平台 == platforms.YOUTUBE and not 資.支援 else ""
 
 
 def 段位樣式(圓角):
@@ -164,6 +171,7 @@ class 啟動面板(QWidget):
         名詞列.addWidget(self.名詞原因, 1)
         版.addLayout(名詞列)
         self.網址框.textChanged.connect(lambda _: self._更新名詞鈕())
+        names_page.頻道查詢().查完.connect(self._更新名詞鈕)     # YouTube 頻道 ID 在背景查完：重新判斷
         self._更新名詞鈕()
 
         列 = QHBoxLayout()
@@ -326,10 +334,11 @@ class 啟動面板(QWidget):
             self.windowHandle().startSystemMove()
 
     def _更新名詞鈕(self):
-        """網址欄還不是有效的 Twitch 頻道網址時，名詞清單按鈕停用，旁邊寫出原因。"""
+        """網址欄還看不出是哪位直播主時（不是有效的 Twitch／YouTube 網址、YouTube 頻道查詢中或查不到），
+        名詞清單按鈕停用，旁邊寫出原因。"""
         名, 原因 = names_page.頻道(self.網址框.text())
         self.名詞鈕.setEnabled(bool(名))
-        self.名詞原因.setText(原因 or f"直播主：{名}")
+        self.名詞原因.setText(原因 or f"直播主：{names_page.顯示名(名)}")
 
     # ---------- API 金鑰提示 ----------
     def 缺金鑰(self):
@@ -448,6 +457,8 @@ class 啟動面板(QWidget):
             return self.設狀態("請先輸入直播網址，例如 https://www.twitch.tv/頻道名稱", 錯誤=True)
         if not self.測試檔案 and "/videos/" in 網址.lower():
             return self.設狀態(VOD提示, 錯誤=True)
+        if not self.測試檔案 and (擋 := YouTube不支援(網址)):
+            return self.設狀態(擋, 錯誤=True)
         # 和主控台的「開始」完全相同：把網址、語言填進主控台，再呼叫主控台的 開始
         if self.測試檔案:
             台.檔案鈕.setChecked(True)

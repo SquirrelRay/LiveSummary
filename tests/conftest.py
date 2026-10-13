@@ -165,3 +165,14 @@ def 假第一次使用偵測(monkeypatch):
     monkeypatch.setattr(first_run, "找得到ffmpeg", lambda: True)
     monkeypatch.setattr(first_run, "找得到streamlink", lambda: True)
     monkeypatch.setattr(first_run, "_顯示卡快取", {})
+
+
+@pytest.fixture(autouse=True)
+def 不查YouTube(monkeypatch):
+    """測試不連網：名詞清單的 YouTube 頻道查詢一律換成假的（回答「連不上」），每個測試清空快取。
+    要測查詢結果的測試自己再換 names_page.頻道查詢()._查。"""
+    import names_page
+    查詢 = names_page.頻道查詢()
+    monkeypatch.setattr(查詢, "_查", lambda 資: (None, "連線"))
+    monkeypatch.setattr(查詢, "_結果", {})
+    return 查詢

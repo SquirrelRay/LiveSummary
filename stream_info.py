@@ -1,4 +1,5 @@
 # 直播資訊：開播時間、直播標題、遊戲分類、直播主名稱（不需要任何金鑰）
+# YouTube：查YouTube() 讀觀看頁（頻道 ID、直播主、@帳號、標題、分類、開播時間、是否直播中），見下面的 YouTube 段。
 # 來源順序：Twitch 網頁公開 GQL（和 Twitch 網頁、streamlink 用的是同一個公開 Client-ID）→ 頻道網頁的 ld+json（備援）→ 都失敗回傳 None。
 # 每個請求 3 秒逾時；背景查詢和 streamlink 的開播檢查並行，按「結束」（events.停止）就不再等。
 # 只用標準函式庫；不用 yt-dlp、不用第三方服務。測試用 取得= 注入假回應，不連網。
@@ -6,10 +7,13 @@ import html
 import json
 import re
 import threading
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 
 import events
+import platforms  # 網址 → 平台、要讀的 YouTube 觀看頁
 
 GQL網址 = "https://gql.twitch.tv/gql"
 網頁ClientID = "kimne78kx3ncx6brgo4mv6wki5h1ko"    # Twitch 網頁本身用的公開 Client-ID（不是個人金鑰）
@@ -18,7 +22,7 @@ GQL網址 = "https://gql.twitch.tv/gql"
 
 
 def _http(網址, 資料=None, 標頭=None, 逾時=逾時秒):
-    # 網址只會是程式內固定的 https（GQL 與 twitch.tv 頻道網頁）
+    # 網址只會是程式內組出來的 https（GQL、twitch.tv 頻道網頁、youtube.com 觀看頁）
     請求 = urllib.request.Request(網址, data=資料, headers=標頭 or {})    # noqa: S310
     with urllib.request.urlopen(請求, timeout=逾時) as 回應:   # noqa: S310
         return 回應.read()
@@ -93,6 +97,114 @@ def 查詢(頻道, 取得=_http, 停止=None):
         except Exception:     # noqa: S112, BLE001 任何失敗都改走下一個來源，最後退回「從開始起算」
             continue
     return None
+
+
+# ---------- YouTube：讀觀看頁（不需要金鑰）----------
+# 觀看頁裡有兩段 JSON：ytInitialPlayerResponse（影片：videoDetails、microformat 的 liveBroadcastDetails）
+# 與 ytInitialData（頻道頁：metadata.channelMetadataRenderer）。頻道沒在直播時 /live 會是頻道頁，只拿得到頻道資訊。
+# 讀不到、格式變了：一律回傳「不知道」（None 或空字串），不丟例外。
+YouTube逾時秒 = 6       # 觀看頁約 1 MB，比 Twitch 的請求慢
+YouTube標頭 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"}
+YouTube頻道ID = re.compile(r"^UC[\w-]{22}$")
+
+
+def _頁內JSON(文, 名稱):
+    """「var 名稱 = {…};」→ dict；找不到或讀不懂回傳 None。"""
+    m = re.search(re.escape(名稱) + r"\s*=\s*\{", 文)
+    if not m:
+        return None
+    try:
+        物件, _ = json.JSONDecoder().raw_decode(文, m.end() - 1)
+    except ValueError:
+        return None
+    return 物件 if isinstance(物件, dict) else None
+
+
+def _取(物件, *路徑):
+    """一層一層往下拿；任何一層不是 dict 或沒有這個鍵就回傳 None。"""
+    for 鍵 in 路徑:
+        if not isinstance(物件, dict):
+            return None
+        物件 = 物件.get(鍵)
+    return 物件
+
+
+def _字(值):
+    return 值.strip() if isinstance(值, str) else ""
+
+
+def _帳號(網址字):
+    m = re.search(r"youtube\.com/(@[^/?#\s\"]+)", _字(網址字))
+    return urllib.parse.unquote(m.group(1)) if m else ""
+
+
+def 解析YouTube頁(文):
+    """觀看頁（或頻道頁）的 HTML → {頻道ID, 直播主, 帳號, 標題, 分類, 開播(epoch), 直播中(True/False/None), 影片ID}；
+    每一項讀不到就是空字串／None。整頁都看不出是哪個頻道時回傳 None。"""
+    播放 = _頁內JSON(文, "ytInitialPlayerResponse") or {}
+    細節 = _取(播放, "videoDetails") or {}
+    微 = _取(播放, "microformat", "playerMicroformatRenderer") or _取(播放, "microformat", "microformatDataRenderer") or {}
+    直播 = _取(微, "liveBroadcastDetails") or {}
+    頻道 = _取(_頁內JSON(文, "ytInitialData"), "metadata", "channelMetadataRenderer") or {}
+    頻道ID = next((x for x in (_字(_取(細節, "channelId")), _字(_取(微, "externalChannelId")), _字(_取(頻道, "externalId")))
+                 if YouTube頻道ID.match(x)), "")
+    if not 頻道ID:
+        m = re.search(r'<link rel="canonical" href="https://www\.youtube\.com/channel/(UC[\w-]{22})"', 文)
+        頻道ID = m.group(1) if m else ""
+    if not 頻道ID:
+        return None
+    直播中 = 直播.get("isLiveNow") if isinstance(直播.get("isLiveNow"), bool) else 細節.get("isLive")
+    return {
+        "頻道ID": 頻道ID,
+        "直播主": _字(_取(細節, "author")) or _字(_取(微, "ownerChannelName")) or _字(_取(頻道, "title")),
+        "帳號": _帳號(_取(微, "ownerProfileUrl")) or _帳號(_取(頻道, "vanityChannelUrl")),
+        "標題": _字(_取(細節, "title")),
+        "分類": _字(_取(微, "category")),
+        "開播": 解析時間(直播.get("startTimestamp")) if 直播.get("startTimestamp") else None,
+        "直播中": 直播中 if isinstance(直播中, bool) else None,
+        "影片ID": _字(_取(細節, "videoId")),
+    }
+
+
+def _讀頁(網址, 取得):
+    """讀一頁並解析 → (資訊 或 None, 原因)。"""
+    try:
+        文 = 取得(網址, None, YouTube標頭, YouTube逾時秒).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return None, "找不到" if e.code in (400, 404) else "連線"
+    except Exception:      # noqa: BLE001  連不上、逾時、其他 HTTP 錯誤：都算「連線」
+        return None, "連線"
+    try:
+        結果 = 解析YouTube頁(文)
+    except Exception:      # noqa: BLE001  格式變了：當作不知道
+        結果 = None
+    return 結果, "" if 結果 else "格式"
+
+
+def 查YouTube詳細(網址, 取得=_http):
+    """YouTube 網址 → (資訊 或 None, 原因)。原因：""＝讀到了；"網址"＝不是支援的 YouTube 直播網址；
+    "連線"＝連不上或逾時；"找不到"＝YouTube 回應沒有這一頁（帳號或影片不存在）；
+    "格式"＝頁面讀到了但看不出是哪個頻道（YouTube 改版等）。不丟例外。
+    頻道網址（/@帳號/live 等）有些版本的頁面缺開播時間：看得出影片 ID 時再讀一次那部影片的觀看頁補齊。"""
+    資 = platforms.判斷(網址)
+    if 資.平台 != platforms.YOUTUBE or not 資.支援:
+        return None, "網址"
+    結果, 原因 = _讀頁(platforms.觀看頁網址(資), 取得)
+    if 結果 is None:
+        return None, 原因
+    if not 資.影片 and 結果["影片ID"] and (結果["開播"] is None or not 結果["分類"] or not 結果["帳號"]):
+        補, _ = _讀頁(f"https://www.youtube.com/watch?v={結果['影片ID']}", 取得)
+        if 補 and 補["頻道ID"] == 結果["頻道ID"]:
+            結果.update({k: v for k, v in 補.items() if v not in ("", None)})
+    if not 結果["帳號"] and 資.帳號:
+        結果["帳號"] = 資.帳號
+    結果["來源"] = "YouTube網頁"
+    return 結果, ""
+
+
+def 查YouTube(網址, 取得=_http):
+    """YouTube 網址 → 資訊 dict；不知道回傳 None。"""
+    return 查YouTube詳細(網址, 取得)[0]
 
 
 class 背景查詢:
