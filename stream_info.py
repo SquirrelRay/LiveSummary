@@ -138,10 +138,21 @@ def _帳號(網址字):
     return urllib.parse.unquote(m.group(1)) if m else ""
 
 
+def _時刻(值):
+    """epoch 秒（字串或數字）→ float；讀不懂回傳 None。"""
+    try:
+        return float(值) if 值 not in (None, "", True, False) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def 解析YouTube頁(文):
-    """觀看頁（或頻道頁）的 HTML → {頻道ID, 直播主, 帳號, 標題, 分類, 開播(epoch), 直播中(True/False/None), 影片ID}；
+    """觀看頁（或頻道頁）的 HTML → {頻道ID, 直播主, 帳號, 標題, 分類, 開播(epoch), 直播中(True/False/None), 影片ID,
+    狀態, 原因, 預定開始(epoch), 即將開始(True/False), 直播內容(True/False/None)}；
+    狀態／原因是 playabilityStatus（OK、LIVE_STREAM_OFFLINE、LOGIN_REQUIRED…），開播檢查失敗時拿來寫白話訊息。
     每一項讀不到就是空字串／None。整頁都看不出是哪個頻道時回傳 None。"""
     播放 = _頁內JSON(文, "ytInitialPlayerResponse") or {}
+    可播 = _取(播放, "playabilityStatus") or {}
     細節 = _取(播放, "videoDetails") or {}
     微 = _取(播放, "microformat", "playerMicroformatRenderer") or _取(播放, "microformat", "microformatDataRenderer") or {}
     直播 = _取(微, "liveBroadcastDetails") or {}
@@ -163,6 +174,12 @@ def 解析YouTube頁(文):
         "開播": 解析時間(直播.get("startTimestamp")) if 直播.get("startTimestamp") else None,
         "直播中": 直播中 if isinstance(直播中, bool) else None,
         "影片ID": _字(_取(細節, "videoId")),
+        "狀態": _字(_取(可播, "status")),
+        "原因": _字(_取(可播, "reason")) or _字(_取(可播, "reason", "simpleText")),
+        "預定開始": _時刻(_取(可播, "liveStreamability", "liveStreamabilityRenderer", "offlineSlate",
+                             "liveStreamOfflineSlateRenderer", "scheduledStartTime")),
+        "即將開始": _取(細節, "isUpcoming") is True,
+        "直播內容": 細節.get("isLiveContent") if isinstance(細節.get("isLiveContent"), bool) else None,
     }
 
 
@@ -207,16 +224,32 @@ def 查YouTube(網址, 取得=_http):
     return 查YouTube詳細(網址, 取得)[0]
 
 
+def 查YouTube直播(網址, 取得=_http, 停止=None):
+    """開始擷取用（背景查詢的 查法）：查YouTube 的結果加上時軸要的欄位（遊戲＝分類）；查不到回傳 None。
+    還沒開始的直播，頁面的 startTimestamp 是「預定」開始時間，不能當開播時間：開播改成 None、放到 預定開始。"""
+    if 停止 is not None and 停止.is_set():
+        return None
+    結果 = 查YouTube(網址, 取得)
+    if not 結果:
+        return None
+    if 結果["即將開始"] or 結果["直播中"] is False:
+        結果["預定開始"] = 結果["預定開始"] or (結果["開播"] if 結果["即將開始"] else None)
+        結果["開播"] = None
+    結果["遊戲"] = 結果["分類"]
+    return 結果
+
+
 class 背景查詢:
     """開始擷取前在背景查直播資訊，和 streamlink 的開播檢查並行；用 等() 取結果。"""
 
-    def __init__(self, 頻道, 取得=_http):
+    def __init__(self, 頻道, 取得=_http, 查法=None):
+        """查法：查詢（Twitch，預設；頻道是頻道名稱）或 查YouTube直播（頻道是網址）。"""
         self.結果 = None
         self._完成 = threading.Event()
 
         def 跑():
             try:
-                self.結果 = 查詢(頻道, 取得, events.停止)
+                self.結果 = (查法 or 查詢)(頻道, 取得, events.停止)
             finally:
                 self._完成.set()
 

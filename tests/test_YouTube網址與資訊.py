@@ -144,7 +144,8 @@ def test_觀看頁一次拿齊():
     資訊, 原因 = si.查YouTube詳細(f"https://youtu.be/{影片}", 取得)
     assert 原因 == ""
     assert 資訊 == {"頻道ID": 頻道ID, "直播主": "Lofi Girl", "帳號": "@LofiGirl", "標題": "lofi 直播 🎃", "分類": "Music",
-                  "開播": 1790874026.0, "直播中": True, "影片ID": 影片, "來源": "YouTube網頁"}
+                  "開播": 1790874026.0, "直播中": True, "影片ID": 影片, "來源": "YouTube網頁",
+                  "狀態": "", "原因": "", "預定開始": None, "即將開始": False, "直播內容": None}
     assert 取得.呼叫 == [f"https://www.youtube.com/watch?v={影片}"]      # 影片網址只讀一頁
 
 

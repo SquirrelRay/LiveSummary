@@ -1,5 +1,6 @@
-# Twitch 直播即時轉錄：把直播聲音一段一段轉成文字，一句一句吐給 live_topics.py
+# Twitch／YouTube 直播即時轉錄：把直播聲音一段一段轉成文字，一句一句吐給 live_topics.py
 # 流程：streamlink（抓音訊）→ ffmpeg（轉 16kHz 單聲道）→ 每段 8～20 秒（依字幕速度段位）→ faster-whisper
+# YouTube：streamlink 改經過 yt_audio.py（多回報第一個片段的 PDT，用來對齊時間）；直播資訊讀觀看頁；聊天室尚未支援。
 import os
 import re
 import sys
@@ -22,6 +23,8 @@ import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
 import first_run     # 轉錄模型下載過沒有、下載進度（第一次使用）
 import stream_info   # 開播時間、標題、分類、直播主（不需要金鑰）
 import stream_clock  # 音訊秒數、收到時刻 → 直播實際進行時間
+import platforms     # 網址 → Twitch／YouTube
+import yt_audio      # YouTube 音訊（streamlink ＋ 第一個片段的 PDT）
 
 段秒數 = 20          # 每次開始時由字幕速度段位覆蓋（設定分段），一場直播中固定不變
 取樣率 = 16000
@@ -87,20 +90,28 @@ def 頻道名稱(網址):
     return re.sub(r"[^\w\-]", "", 網址.rstrip("/").split("/")[-1]) or "頻道"
 
 
-def 檢查直播(網址):
-    """確認頻道有開播、能抓到音訊。有問題就丟出中文提示。回傳要用的串流名稱。"""
-    events.送出("stage", 階段="連線直播、確認有開播")
-    子 = subprocess.Popen([sys.executable, "-m", "streamlink_cli", "--json", 網址],
+def _跑streamlink(參數):
+    """跑一次 streamlink（不抓音訊），回傳 (stdout, stderr)。等的時候每 0.2 秒看一次有沒有按「結束」，
+    按了就殺掉子程序、丟出「已取消啟動」，不會卡住、也不留下背景程序。"""
+    子 = subprocess.Popen([sys.executable, "-m", "streamlink_cli", *參數],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
-    while True:              # 等結果的同時每 0.2 秒看一次有沒有要結束，按「結束」時才不會卡住、也不留下背景程序
+    while True:
         try:
-            輸出, _ = 子.communicate(timeout=0.2)
-            break
+            return 子.communicate(timeout=0.2)
         except subprocess.TimeoutExpired:
             if events.停止.is_set():
                 子.kill()
                 子.communicate()
                 raise 直播錯誤("已取消啟動。") from None
+
+
+def 檢查直播(網址, 查詢=None):
+    """確認頻道有開播、能抓到音訊。有問題就丟出中文提示。回傳要用的串流名稱。
+    查詢：YouTube 用（stream_info.背景查詢 的觀看頁資訊），失敗時拿來寫預定開始時間、判斷是不是錄好的影片。"""
+    events.送出("stage", 階段="連線直播、確認有開播")
+    輸出, _ = _跑streamlink(["--json", 網址])
+    if platforms.判斷(網址).平台 == platforms.YOUTUBE:
+        return _檢查YouTube(網址, 輸出, 查詢)
     try:
         資料 = json.loads(輸出)
     except Exception:
@@ -117,6 +128,95 @@ def 檢查直播(網址):
     if not 串流:
         raise 直播錯誤("頻道目前沒有開播。")
     return "audio_only" if "audio_only" in 串流 else "worst"
+
+
+# ---------- YouTube 開播檢查的白話訊息 ----------
+# streamlink 的 --json 只說「No playable streams」，真正的原因（YouTube 的 playabilityStatus）只寫在一般模式的錯誤紀錄：
+#   [plugins.youtube][error] Could not get video info - LOGIN_REQUIRED: Sign in to confirm you're not a bot
+# 所以失敗時再跑一次一般模式讀這一行；觀看頁（背景查詢）的狀態與原因當補充（中文介面，原因是中文）。
+YouTube訊息 = {
+    "機器人": "YouTube 要求登入驗證（把這台電腦的連線判定成機器人），這台電腦目前無法擷取 YouTube 直播。"
+             "請稍後再試，或換一個網路（例如手機熱點）再試。",
+    "還沒開始": "這場直播還沒開始，請等開播後再按開始。",
+    "會員": "這是會員限定的直播。第一版只支援公開直播，無法擷取。",
+    "年齡": "這個直播有年齡限制（要登入確認年齡）。第一版只支援公開直播，無法擷取。",
+    "登入": "這個直播需要登入才能看（例如私人直播）。第一版只支援公開直播，無法擷取。",
+    "影片": "這是錄好的影片，不是正在進行的直播。目前只支援直播，請改用正在直播的網址。",
+    "沒開播": "這個頻道目前沒有在直播，或網址有誤。",
+    "網址": "網址看起來不對，請確認是 YouTube 直播網址（例如 https://www.youtube.com/@帳號/live）。",
+    "無法檢查": "無法檢查直播，請確認網址正確（例如 https://www.youtube.com/@帳號/live）。",
+}
+_原因行 = re.compile(r"Could not get video info - ([A-Z_]+):\s*(.*)")
+
+
+def YouTube原因種類(狀態, 原因):
+    """playabilityStatus 的狀態與原因（英文或中文）→ YouTube訊息 的鍵；看不出來回傳 None。"""
+    小 = (原因 or "").lower()
+    if "not a bot" in 小 or "機器人" in 小:
+        return "機器人"
+    if 狀態 == "LIVE_STREAM_OFFLINE" or "will begin" in 小 or "後開始" in 小:
+        return "還沒開始"
+    if "member" in 小 or "會員" in 小:
+        return "會員"
+    if 狀態 == "AGE_CHECK_REQUIRED" or any(k in 小 for k in ("your age", "age-restricted", "inappropriate", "年齡", "不適合")):
+        return "年齡"
+    if 狀態 == "LOGIN_REQUIRED" or any(k in 小 for k in ("sign in", "private", "登入", "私人")):
+        return "登入"
+    return None
+
+
+def YouTube錯誤訊息(種類, 預定開始=None):
+    """種類 → 白話訊息；還沒開始而且讀得到預定時間就附上（本機時間）。"""
+    if 種類 == "還沒開始" and 預定開始:
+        時間字 = datetime.fromtimestamp(預定開始).strftime("%Y-%m-%d %H:%M")
+        return f"這場直播還沒開始（預定 {時間字} 開始，本機時間），請等開播後再按開始。"
+    return YouTube訊息[種類]
+
+
+def _頁資訊(查詢):
+    try:
+        return (查詢.等() if 查詢 is not None else None) or {}
+    except Exception:      # noqa: BLE001  只是補充說明，讀不到就當沒有
+        return {}
+
+
+def _是錄好的影片(頁):
+    """觀看頁看得出是一部影片，而且不是正在直播、也不是預定的直播。"""
+    if not 頁.get("影片ID") or 頁.get("即將開始") or 頁.get("狀態") == "LIVE_STREAM_OFFLINE":
+        return False
+    return 頁.get("直播中") is False or (頁.get("直播中") is None and 頁.get("直播內容") is False)
+
+
+def _檢查YouTube(網址, 輸出, 查詢):
+    try:
+        資料 = json.loads(輸出)
+    except ValueError:
+        raise 直播錯誤(YouTube訊息["無法檢查"]) from None
+    錯誤 = str(資料.get("error", ""))
+    小寫 = 錯誤.lower()
+    if 錯誤:
+        if "no plugin" in 小寫 or "unable to open url" in 小寫:
+            raise 直播錯誤(YouTube訊息["網址"])
+        if "vod" in 小寫:
+            raise 直播錯誤(YouTube訊息["影片"])
+        if "protected" in 小寫:
+            raise 直播錯誤(YouTube訊息["登入"])
+        _, 紀錄 = _跑streamlink(["--loglevel", "error", 網址])     # 一般模式才看得到 YouTube 給的原因
+        m = _原因行.search(紀錄 or "")
+        頁 = _頁資訊(查詢)
+        種類 = (YouTube原因種類(*m.groups()) if m else None) or YouTube原因種類(頁.get("狀態"), 頁.get("原因"))
+        if 種類 is None and 頁.get("即將開始"):
+            種類 = "還沒開始"
+        if 種類 is None and _是錄好的影片(頁):
+            種類 = "影片"
+        raise 直播錯誤(YouTube錯誤訊息(種類 or "沒開播", 頁.get("預定開始")))
+    串流 = 資料.get("streams") or {}
+    if not 串流:
+        raise 直播錯誤(YouTube訊息["沒開播"])
+    # 直播一定是 HLS；只有一般 http 檔（360p 等）就是錄好的影片（streamlink 對影片也會回傳串流）
+    if not any((v or {}).get("type") == "hls" for v in 串流.values()) or _是錄好的影片(_頁資訊(查詢)):
+        raise 直播錯誤(YouTube訊息["影片"])
+    return "audio_only" if "audio_only" in 串流 else "worst"     # YouTube 沒有 audio_only：最低畫質（144p）也有音軌
 
 
 def 載入模型(語言):
@@ -221,12 +321,18 @@ class 偵測緩存:
         return None
 
 
-def 取得時軸(查詢):
-    """等背景查詢的結果，建立這一場的時軸並送出 stream_info 事件。按了「結束」就丟出 直播錯誤。"""
+def 取得時軸(查詢, 平台=platforms.TWITCH):
+    """等背景查詢的結果，建立這一場的時軸並送出 stream_info 事件。按了「結束」就丟出 直播錯誤。
+    YouTube：延遲先用備援值，收到第一個音訊片段時再用 PDT 對齊（live_session.__iter__）。"""
     資訊 = 查詢.等()
     if events.停止.is_set():
         raise 直播錯誤("已取消啟動。")
-    軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None)
+    if 平台 == platforms.YOUTUBE:
+        軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None, 延遲=stream_clock.平台延遲(平台),
+                             說明="依 YouTube 串流片段的時間戳對齊；讀不到時間戳才扣除約 "
+                                  f"{stream_clock.平台延遲(平台):.0f} 秒估計的串流延遲")
+    else:
+        軸 = stream_clock.時軸(開播=資訊["開播"] if 資訊 else None)
     stream_clock.設定目前(軸, 資訊)
     資訊 = 資訊 or {}
     events.送出("stream_info", 有開播=軸.有開播, 開播=軸.開播, 延遲=軸.延遲, 來源=資訊.get("來源"),
@@ -235,19 +341,59 @@ def 取得時軸(查詢):
     return 軸
 
 
+class 片段時刻讀取:
+    """在背景一直讀 yt_audio 的 stderr（不讀完管線會塞住），記下第一個片段的 PDT。"""
+
+    def __init__(self, 管線):
+        self.值 = None
+        self._有了 = threading.Event()
+        threading.Thread(target=self._讀, args=(管線,), daemon=True).start()
+
+    def _讀(self, 管線):
+        try:
+            for 位元組 in 管線:
+                值 = yt_audio.解析PDT行(位元組.decode("utf-8", "replace").strip())
+                if 值 is not None and self.值 is None:
+                    self.值 = 值
+                    self._有了.set()
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._有了.set()      # 管線結束（串流斷了）也不要讓人一直等
+
+    def 等(self, 最久=3.0):
+        """第一個位元組已經出來時，PDT 通常早就印了；最多等 最久 秒，讀不到回傳 None。"""
+        self._有了.wait(最久)
+        return self.值
+
+
+def 對齊YouTube(軸, 片段時刻):
+    """用第一個片段的 PDT 對齊時間，並在主控台說一行用了哪一種算法。"""
+    if 軸.對齊串流時刻(片段時刻):
+        events.送出("info", 印出=f"YouTube：時間依串流片段的時間戳對齊（這次實際串流延遲約 {軸.延遲:.1f} 秒）。")
+    elif 軸.有開播:
+        events.送出("info", 印出=f"YouTube：讀不到串流片段的時間戳，改用估計的串流延遲（約 {軸.延遲:.0f} 秒），時間可能差幾秒。")
+
+
 class live_session:
     """用法：s = live_session(網址)；s.稿路徑 是直播稿檔；for 秒, 行 in s: 一句一句吐出
     (直播秒數, "[h:mm:ss] 文字")，同時即時存成直播稿。秒數是直播實際進行時間（抓不到開播時間就從開始擷取起算，行首加 +）。"""
 
     時軸 = None      # 這一場的 stream_clock.時軸（__init__ 建立；測試可以直接指定）
+    平台 = platforms.TWITCH     # __init__ 依網址判斷；測試可以直接指定
 
     def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
         self.網址 = 網址
         self.語言 = 語言
-        查詢 = stream_info.背景查詢(頻道名稱(網址))     # 和 streamlink 的開播檢查並行
-        串流名 = 檢查直播(網址)
+        self.平台 = platforms.判斷(網址).平台 or platforms.TWITCH
+        if self.平台 == platforms.YOUTUBE:      # 讀觀看頁，和 streamlink 的開播檢查並行；失敗時也拿來寫白話原因
+            查詢 = stream_info.背景查詢(網址, 查法=stream_info.查YouTube直播)
+            串流名 = 檢查直播(網址, 查詢)
+        else:
+            查詢 = stream_info.背景查詢(頻道名稱(網址))     # 和 streamlink 的開播檢查並行
+            串流名 = 檢查直播(網址)
         里程碑.標記(里程碑.直播檢查完成)
-        self.時軸 = 取得時軸(查詢)
+        self.時軸 = 取得時軸(查詢, self.平台)
         events.送出("stage", 階段="尋找 ffmpeg")
         self.ffmpeg = 找ffmpeg()
         try:                     # 這次要用的轉錄模型還沒下載：先告訴啟動面板（等下載完才收起）
@@ -264,7 +410,9 @@ class live_session:
         self.存了位元組 = 0
         self._警告過 = False
         self.聊天 = None     # 有聊天室時，這裡是 chat_capture.聊天室 物件
-        if 用聊天室:
+        if 用聊天室 and self.平台 == platforms.YOUTUBE:     # 第 3 步才做；不能拿 YouTube 網址去連 Twitch
+            events.送出("info", 印出="YouTube 聊天室尚未支援（開發中）")
+        elif 用聊天室:
             import chat_capture
             events.送出("stage", 階段="準備聊天室")
             self.聊天 = chat_capture.聊天室(
@@ -303,10 +451,16 @@ class live_session:
         model = 載入模型(self.語言)
         events.送出("model", 狀態="就緒")
         里程碑.標記(里程碑.模型載入完成)
-        p1 = subprocess.Popen(
-            [sys.executable, "-m", "streamlink_cli", "--loglevel", "error", "--stdout",
-             self.網址, self.串流名],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        片段時刻 = None
+        if self.平台 == platforms.YOUTUBE:
+            p1 = subprocess.Popen([sys.executable, yt_audio.__file__, self.網址, self.串流名],     # noqa: S603  自己的 yt_audio.py
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            片段時刻 = 片段時刻讀取(p1.stderr)
+        else:
+            p1 = subprocess.Popen(
+                [sys.executable, "-m", "streamlink_cli", "--loglevel", "error", "--stdout",
+                 self.網址, self.串流名],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p2 = subprocess.Popen(
             [self.ffmpeg, "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1",
              "-ar", str(取樣率), "-f", "s16le", "pipe:1"],
@@ -325,6 +479,8 @@ class live_session:
             if hasattr(p2.stdout, "peek"):
                 p2.stdout.peek(1)          # 等到第一個位元組出現（不取走），這個時刻當作音訊第 0 秒
             軸.開始()
+            if 片段時刻 is not None:
+                對齊YouTube(軸, 片段時刻.等())
             while True:
                 資料 = p2.stdout.read(每段位元組)
                 if not 資料:

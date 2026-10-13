@@ -21,6 +21,13 @@
    開始擷取時用 stream_info 的 YouTube 讀法；stream_clock 依平台用不同的串流延遲（**要實測 YouTube 的延遲**）。
 3. **聊天室**：新增 YouTube 聊天室模組（yt-dlp live_chat，邊寫邊讀 JSON；過濾連上前的舊留言；Super Chat 加「【SC】」）；
    chat_capture 抽出共同介面（開始／取出／關閉／訊息們／存檔路徑／收到／過濾）。
+   ⚠ **時間換算和 Twitch 不同**：yt-dlp 給的是每則留言的「**發送時刻**」（`timestampUsec`），Twitch 用的是「收到時刻」。
+   Twitch：直播秒 = 收到時刻 − 開播 − 延遲（留言要經過串流延遲才和畫面對上）。
+   YouTube：發送時刻本身就是直播端的實際時刻，和 PDT 同一種時間 → **直播秒 = 發送時刻 − 開播**，**不要再扣延遲**
+   （第 2 步的時軸用 PDT 對齊後，`時軸.延遲` 是「這台電腦收到 − PDT」的實測值，只適用「收到時刻」；
+   YouTube 聊天要另寫一個「發送時刻 → 直播秒」的換算，例如 `時軸.開播` 有值時用 發送時刻 − 開播；抓不到開播時間（+ 模式）時，
+   用「第一段音訊的 PDT 對應音訊第 0 秒」換算：直播秒 = 發送時刻 − `時軸.第一段PDT`（+ 模式偏移是 0）；兩者都沒有才退回收到時刻）。
+   觀眾是看著約 20 秒前的畫面留言，所以留言時間會比它回應的那句話晚約一個延遲，這是正常的（Twitch 也一樣）。
 4. **詞庫與檔名**：引擎的詞庫改用 YT_頻道ID（live_topics.執行 目前用 頻道名稱(網址)）；直播稿等輸出檔名用 @帳號；
    查不到頻道 ID 時這一場不用詞庫並印一行說明（避免分裂出第二份詞庫）。
 5. **文字**：首次引導、網址欄提示文字（launcher、app）、時間藥丸的「Twitch 公開資料」字樣、README；
@@ -38,6 +45,31 @@ names_page、onboarding、README，新增 platforms.py 與 YouTube 聊天室模�
 | 免金鑰開播時間 | ✓ 觀看頁 `ytInitialPlayerResponse.microformat.playerMicroformatRenderer.liveBroadcastDetails.startTimestamp`（例：2026-10-01T17:00:26+00:00），同頁有 videoDetails.channelId、author、category、ownerProfileUrl（@帳號） |
 | yt-dlp live_chat | ✓ 免登入，30 秒收到 77 則，約每 10 秒一批；每則有 `timestampUsec`（發送時刻）與 `@帳號`；剛連上會先送一批舊留言 |
 | yt-dlp 警告 | 沒有 JS 執行環境（deno）→「部分格式可能缺少」；Python 3.10 已不建議使用。聊天室照樣成功 |
+
+## 串流延遲實測（第 2 步，2026-10-14）
+
+方法：用和程式一樣的管線（yt_audio.py → ffmpeg）抓 worst，記「ffmpeg 吐出第一個位元組的時刻 − 第一個寫出片段的 PDT」。
+YouTube 的 HLS 播放清單只在第一段標 `#EXT-X-PROGRAM-DATE-TIME`，後面的片段用「PDT + 片段長度」往下推（yt_audio.推算片段時刻）。
+
+| 直播 | 片段長 | 延遲（秒） |
+|---|---|---|
+| Sky News（2 次） | 5 秒 | 21.17、20.98（真實擷取時 19.63） |
+| Al Jazeera English | 5 | 21.63 |
+| TVBS 新聞 | 5 | 23.96 |
+| DW News | 5 | 18.68 |
+| 東森新聞 | 5 | 20.12 |
+| LiveNOW from FOX | 5 | 18.58 |
+| ABC News Live | 5 | 18.53 |
+| NBC News NOW | 5 | 18.77 |
+| ウェザーニュース（低延遲） | 2 | 10.36 |
+
+- 一般延遲模式 18.5～24.0 秒，低延遲模式約 10 秒；10 次中位數 19.4 秒 → 備援常數 `stream_clock.YouTube延遲秒 = 20`。
+- **PDT 準不準**：ウェザーニュース畫面右下有秒數時鐘，抓 3 個片段的第一格畫面比對，PDT 都比畫面時鐘晚 0.03～1.03 秒（時鐘只顯示到秒）→ PDT 誤差約 1 秒以內。
+- **兩種算法差多少**：差 = 這次實際延遲 − 20 秒，量到 −9.6～+4.0 秒（真實擷取那次 −0.37 秒）。所以 YouTube 主要用 PDT，常數只在讀不到 PDT 時用。
+- ⚠ PDT − startTimestamp 和「段號 × 片段長」（大約是 YouTube 重播的時間軸）在 4 個直播差 3～6 秒，ABC／NBC 差 136～290 秒（推測中途斷過、重連）。
+  也就是說時間對齊的是「開播時間起算」，不保證和 YouTube 重播進度條完全一致；24 小時不停的頻道 startTimestamp 是好幾年前，時間會是幾萬小時。
+- 開播檢查時 streamlink 的 `--json` 不會給 YouTube 的原因（log 被關掉），失敗時要再跑一次一般模式讀
+  `Could not get video info - 狀態: 原因`；streamlink 對「錄好的影片」會回傳一般 http 串流（不是錯誤），用「沒有 HLS 串流」判斷。
 
 ## 1. 抓音訊
 
