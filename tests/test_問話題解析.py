@@ -161,3 +161,31 @@ def test_回傳模型認定的那一件事_沒給就用簡述頂替(問):
     assert 結果[5] == "週末要看的電影"
     結果, _ = 問({"decision": "same", "topic_brief": "還在聊午餐"})
     assert 結果[5] == "還在聊午餐"
+
+
+# ---------- 說話者規則（人名是被提到的人，看不出誰說的用中性說法） ----------
+@pytest.mark.parametrize("要分鐘", [False, True])
+def test_問話題提示詞一律含說話者規則(問, 要分鐘):
+    _, 提示 = 問({"decision": "same"}, 要分鐘=要分鐘)
+    assert lt.說話者規則 in 提示
+    assert "被提到、被呼喊的人" in 提示 and "有人提到" in 提示
+
+
+def test_分鐘規則不再預設語音稿是實況主說的():
+    assert "不可把語音稿裡的話寫成聊天室說的" in lt.分鐘規則
+    assert "不可把實況主自己說的話" not in lt.分鐘規則
+
+
+def test_話題摘要提示詞含說話者規則(monkeypatch):
+    提示們 = []
+    monkeypatch.setattr(summarize, "call_llm", lambda 提示詞: (提示們.append(提示詞), "【話題標題】假\n【摘要】假")[1])
+    monkeypatch.setitem(lt.存檔, "摘要", False)
+    monkeypatch.setattr(lt.events, "送出", lambda *a, **k: None)
+    話題 = lt.新話題()
+    lt.加入(話題, [(0, "[00:00] 甲"), (60, "[01:00] 乙")])
+    lt.輸出話題摘要(話題, 60, "不會寫入.md")
+    assert lt.說話者規則 in 提示們[0]
+
+
+def test_支線標準含說話者規則():
+    assert "【說話者】" in lt.支線標準 and "中性說法" in lt.支線標準
