@@ -433,13 +433,18 @@ class 面板(QWidget):
         overlay.user32.SetWindowLongPtrW(h, overlay.GWL_EXSTYLE, 樣式)
         overlay.user32.SetWindowPos(h, overlay.HWND_TOPMOST if self.設["置頂"] else HWND_NOTOPMOST,
                                     0, 0, 0, 0, overlay.SWP_旗標)
+        前 = self.管理.前一個視窗(self) if self.設["置頂"] else 0
+        if 前:                                # 置頂面板排在膠囊（與前面的置頂面板）下面：膠囊永遠在面板之上
+            overlay.user32.SetWindowPos(h, 前, 0, 0, 0, 0, overlay.SWP_旗標)
         self.置頂計時.start() if self.設["置頂"] else self.置頂計時.stop()
 
     def _保持置頂(self):
-        """只有前景是全螢幕程式（例如瀏覽器全螢幕播放）才重新拉到最上層；
-        截圖工具、工作管理員、開始選單等系統視窗出現時不去蓋它們。"""
+        """只有前景是全螢幕程式（例如瀏覽器全螢幕播放）才重新拉上來；截圖工具、工作管理員、開始選單等系統視窗不算，出現時不去蓋它們。
+        拉上來時不搶最上層，而是放在「膠囊 → 置頂面板們」固定順序裡自己的位置（緊接在前一個的下面）：
+        每次都放回同一個位置，膠囊永遠在面板之上，面板之間也不會互搶而閃動。"""
         if self.isVisible() and self.設["置頂"] and overlay.前景是全螢幕程式():
-            overlay.user32.SetWindowPos(int(self.winId()), overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
+            overlay.user32.SetWindowPos(int(self.winId()), self.管理.前一個視窗(self) or overlay.HWND_TOPMOST,
+                                        0, 0, 0, 0, overlay.SWP_旗標)
 
     def 視窗旗標(self):
         """測試用：(是否置頂, 是否穿透)，直接讀 Windows 的視窗樣式。"""
@@ -661,6 +666,23 @@ class 面板管理(QObject):
             面.收掉()
         self.面板們 = {}
 
+    def 膠囊視窗(self):
+        """浮動膠囊的視窗代號（沒有或沒顯示 = 0）：置頂面板一律放在它下面。"""
+        管 = getattr(self.台, "膠囊", None)
+        膠 = getattr(管, "膠囊", None)
+        return int(膠.winId()) if 膠 is not None and 膠.isVisible() else 0
+
+    def 前一個視窗(self, 面):
+        """固定順序「膠囊 → 置頂面板（依 種類們）」裡，排在 面 前面的那個視窗代號（沒有 = 0）。"""
+        前 = self.膠囊視窗()
+        for k in 種類們:
+            其他 = self.面板們.get(k)
+            if 其他 is 面:
+                return 前
+            if 其他 is not None and 其他.isVisible() and 其他.設["置頂"]:
+                前 = int(其他.winId())
+        return 前
+
     def 要翻譯(self):
         return "逐句翻譯" in self.面板們
 
@@ -689,6 +711,8 @@ class 面板管理(QObject):
         台.聊天翻譯器.面板開著 = self.聊天面板開著()     # 聊天室翻譯：聊天室面板開著才翻（當場生效）
         台._更新翻譯註()
         self._同步註()
+        if hasattr(台, "更新啟動面板費用"):        # 有沒有逐句翻譯、聊天室面板會改變費用估算
+            台.更新啟動面板費用()
 
     def _同步註(self):
         註 = self.台.翻譯頁.註.text() if self.台.翻譯頁.註.isVisible() or self.台.翻譯頁.註.text() else ""

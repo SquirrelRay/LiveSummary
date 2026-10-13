@@ -90,3 +90,32 @@ def 前景是全螢幕程式(hwnd=None):
         return r.left <= a.left and r.top <= a.top and r.right >= a.right and r.bottom >= a.bottom
     except Exception:
         return False
+
+
+# ---------- 視窗前後順序（膠囊永遠在面板之上；沒被蓋到就不動，避免兩個視窗互搶最上層而閃動）----------
+user32.GetWindow.restype = wintypes.HWND
+user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+GW_HWNDPREV = 3            # 前後順序裡，正上方的那個視窗
+
+
+def _值(h):
+    h = getattr(h, "value", h)
+    return int(h) if h else 0
+
+
+def 上方視窗(hwnd):
+    """前後順序裡正上方的視窗（0 = 已經在最上面）。"""
+    return _值(user32.GetWindow(hwnd, GW_HWNDPREV))
+
+
+def 在上方的(hwnd, 候選們, 上限=5000):
+    """候選們裡，前後順序在 hwnd 之上的視窗，由下往上排（最後一個最高）。"""
+    候選們 = {_值(h) for h in 候選們 if h}
+    結果, h = [], _值(hwnd)
+    for _ in range(上限):
+        h = 上方視窗(h)
+        if not h:
+            break
+        if h in 候選們:
+            結果.append(h)
+    return 結果

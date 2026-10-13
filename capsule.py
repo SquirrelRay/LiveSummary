@@ -10,14 +10,15 @@
 #   錯誤提示：直播中途的錯誤、config.json 的警告，也用同一個提示泡顯示在膠囊旁（主控台常收著看不到）。
 # 膠囊不另外跑引擎，也不改主控台的行為：停止、結束都直接呼叫主控台原本的停止與關閉流程。
 
-from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QObject, QPropertyAnimation
+from PySide6.QtCore import Qt, QTimer, QPoint, QRect, QObject, QPropertyAnimation, QEvent
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap, QIcon, QCursor, QGuiApplication
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QMenu, QMessageBox, QSystemTrayIcon, QToolTip
 
 import overlay          # 置頂規則（Windows 原生）
 import panel            # 面板選單（直接重用 建立面板選單）
 import ui_state         # 膠囊位置
 import config
+import stream_clock     # 滑鼠提示裡跳動的直播時間
 
 灰, 綠, 黃, 紅 = "#8a91a5", "#3ecf8e", "#f5b84a", "#ff5c7a"
 狀態們 = {    # 狀態 → (燈色, 文字)
@@ -156,9 +157,21 @@ class 膠囊(QWidget):
         overlay.user32.SetWindowPos(h, overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
 
     def _保持置頂(self):
-        """只有前景是全螢幕程式才重新拉到最上層；截圖工具、工作管理員、開始選單等系統視窗出現時不去蓋它們。"""
-        if self.isVisible() and overlay.前景是全螢幕程式():
-            overlay.user32.SetWindowPos(int(self.winId()), overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
+        """每 0.5 秒檢查一次：
+        1. 前景是全螢幕程式 → 拉到最上層（和以前一樣；面板拉上來時會排在膠囊下面，不會互搶）。
+           截圖工具、工作管理員、開始選單等系統視窗不算全螢幕程式，不去蓋它們。
+        2. 否則只在有面板蓋在膠囊上面時（例如剛點過、拖過面板）才動：移到最高那個面板的正上方
+           （不跳過截圖畫面等其他置頂視窗）。沒被蓋就完全不動前後順序。"""
+        if not self.isVisible():
+            return
+        h = int(self.winId())
+        if overlay.前景是全螢幕程式():
+            overlay.user32.SetWindowPos(h, overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
+            return
+        蓋著 = overlay.在上方的(h, self.管.面板視窗們())
+        if 蓋著:
+            上 = overlay.上方視窗(蓋著[-1])
+            overlay.user32.SetWindowPos(h, 上 or overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
 
     def 視窗旗標(self):
         """測試用：(是否置頂, 是否穿透)。"""
@@ -227,6 +240,13 @@ class 膠囊(QWidget):
     def 重設位置(self):
         self.move(self.預設位置())
         self.存位置()
+
+    # ---------- 滑鼠提示：開著時每秒更新（直播時間會跳）----------
+    def event(self, e):
+        if e.type() == QEvent.ToolTip:
+            self.管.顯示提示(e.globalPos())
+            return True
+        return super().event(e)
 
     # ---------- 滑鼠：拖曳 / 點一下 ----------
     def mousePressEvent(self, e):
@@ -376,6 +396,7 @@ class 膠囊管理(QObject):
         台.橋.收到.connect(self.收事件)        # 和主控台同一條事件
         self.計時 = QTimer(self, interval=150, timeout=self.更新)
         self.閃計時 = QTimer(self, interval=450, timeout=self._閃)
+        self.提示計時 = QTimer(self, interval=1000, timeout=self._刷新提示)     # 只在膠囊的滑鼠提示開著時跑
 
     # ---------- 顯示 / 收掉 ----------
     def 顯示(self):
@@ -388,6 +409,7 @@ class 膠囊管理(QObject):
     def 收掉(self):
         self.計時.stop()
         self.閃計時.stop()
+        self.提示計時.stop()
         self.選單.close()
         self.系統匣.hide()
         self.膠囊.收掉()
@@ -440,6 +462,11 @@ class 膠囊管理(QObject):
         self.膠囊.update()
         self.系統匣.更新()
 
+    def 面板視窗們(self):
+        """目前開著的面板的視窗代號（膠囊要一直在它們上面）。"""
+        面板 = getattr(self.台, "面板", None)
+        return [int(面.winId()) for 面 in (面板.面板們.values() if 面板 else []) if 面.isVisible()]
+
     def 語言警示(self):
         """這一場進行中、而且自動偵測語言不確定或失敗。停止後（語言狀態回到閒置）一定是 False，不會殘留。"""
         s = self.台.語言狀態
@@ -458,18 +485,45 @@ class 膠囊管理(QObject):
         總 = self.總費用()
         return "$—" if 總 is None else f"${總:.2f}"
 
+    def 時間字(self):
+        """滑鼠提示的直播時間：直播中用直播時鐘算「現在」（每秒都會變）；沒在直播、收尾中、還算不出來就用狀態列藥丸的字。"""
+        台 = self.台
+        軸 = stream_clock.目前()
+        if 台.執行中() and not 台.結束中 and 軸 is not None:
+            秒 = 軸.現在直播秒()
+            if 秒 is not None:
+                return 台._時間藥丸字(軸.字(秒))
+        return 台.時間藥丸.text()
+
     def 提示文字(self):
         台 = self.台
         行們 = ["直播摘要：" + 狀態們[self.狀態][1],
-              台.時間藥丸.text(), 台.轉錄藥丸.text(), "摘要：" + 台.費用藥丸.text(), 台.翻譯藥丸.text(),
+              self.時間字(), 台.轉錄藥丸.text(), "摘要：" + 台.費用藥丸.text(), 台.翻譯藥丸.text(),
               *([台.聊天翻譯藥丸.text()] if not 台.聊天翻譯藥丸.isHidden() else []),
-              "（費用依 config.json 的單價估算）"]
+              "（金額為估算，實際以 API 帳單為準）"]
         if self.語言字():
             行們.insert(1, ("⚠ " if self.語言警示() else "") + self.語言字())
         資 = 台.直播資訊          # 直播主、標題、分類只顯示在這裡（不放狀態列、不送給模型）
         if 資:
             行們[1:1] = [f"{名}：{資[鍵]}" for 名, 鍵 in (("直播主", "直播主"), ("標題", "標題"), ("分類", "遊戲")) if 資.get(鍵)]
         return "\n".join(行們)
+
+    def 顯示提示(self, 點):
+        """滑鼠停在膠囊上（Qt 的 ToolTip 事件）：顯示提示，並開始每秒更新。"""
+        QToolTip.showText(點, self.提示文字(), self.膠囊)
+        self.提示計時.start()
+
+    def 提示開著(self):
+        """膠囊的提示還開著：提示框可見、而且滑鼠還在膠囊上。"""
+        膠 = self.膠囊
+        return QToolTip.isVisible() and 膠.isVisible() and 膠.frameGeometry().contains(膠.游標位置())
+
+    def _刷新提示(self):
+        """每秒一次：提示關了（或滑鼠離開）就停掉計時器，不在背景空跑；還開著就換成最新的文字。"""
+        if not self.提示開著():
+            self.提示計時.stop()
+            return
+        QToolTip.showText(self.膠囊.游標位置(), self.提示文字(), self.膠囊)
 
     # ---------- 選單 ----------
     def 開選單(self):

@@ -93,7 +93,7 @@ def _金鑰訊息():
 
 def _連線訊息():
     網址 = BASE_URL or "該服務的預設網址"
-    return (f"連不上模型伺服器（{網址}），已停止。請確認網路與 config.json 的 base_url；"
+    return (f"連不上模型伺服器（{網址}），已停止。請確認網路連線與模型伺服器網址設定；"
             "用 Ollama 的話，請先把 Ollama 打開。")
 
 
@@ -164,7 +164,7 @@ def _問_openai相容(提示詞, 模型, 類別):
     try:
         import openai
     except ImportError:
-        raise 模型錯誤("provider 設成 openai_compatible，但還沒安裝 openai 套件，請先執行：pip install openai") from None
+        raise 模型錯誤("模型服務選了「OpenAI 相容服務」，但還沒安裝 openai 套件，請先執行：pip install openai") from None
     # openai 套件一定要有金鑰字串；Ollama 不檢查金鑰，隨便填一個就好
     額外 = {"max_retries": 0} if 類別 == "聊天翻譯" else {}
     client = openai.OpenAI(api_key=_金鑰() or "ollama", base_url=BASE_URL or None, **額外)
@@ -274,7 +274,7 @@ def 查證用量文字(單價_輸入, 單價_輸出):
         return f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，token：無法計算；搜尋費約 {搜尋費:.3f} 美元"
     token費 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
     return (f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token；"
-            f"估算費用約 {token費 + 搜尋費:.3f} 美元（token {token費:.3f}，依 config.json 的單價；搜尋 {搜尋費:.3f}，每次 0.01 美元）")
+            f"估算費用約 {token費 + 搜尋費:.3f} 美元（token {token費:.3f}，搜尋 {搜尋費:.3f}，每次 0.01 美元；金額為估算，實際以 API 帳單為準）")
 
 
 def call_llm(提示詞, 模型, 類別="摘要"):
@@ -292,4 +292,4 @@ def 用量文字(單價_輸入, 單價_輸出):
         return f"共呼叫 {u['次數']} 次，token：無法計算，估算費用：無法計算"
     費用 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
     return (f"共呼叫 {u['次數']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token，"
-            f"估算費用約 {費用:.3f} 美元（依 config.json 的單價）")
+            f"估算費用約 {費用:.3f} 美元（金額為估算，實際以 API 帳單為準）")

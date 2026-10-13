@@ -282,7 +282,8 @@ def test_config警告_膠囊旁顯示(環境, monkeypatch):
     環境["設定檔"].write_text(json.dumps(內容, ensure_ascii=False), encoding="utf-8")
     從啟動面板開始(台, monkeypatch, 假引擎())
     泡 = 台.膠囊.提示泡
-    assert 泡.錯誤 is True and "config.json 設定有問題" in 泡.text() and "chat" in 泡.text()
+    assert 泡.錯誤 is True and 泡.text() == "設定有問題：「抓聊天室」的值不正確，已改用預設值。請到設定檢查。"
+    assert "config" not in 泡.text() and "chat" not in 泡.text()      # 不出現檔名與欄位名
     停止並等完(台)
 
 

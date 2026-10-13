@@ -1221,11 +1221,11 @@ class 主控台(QMainWindow):
         self.時間藥丸 = QLabel("直播時間 --:--")
         self.轉錄藥丸 = QLabel("轉錄：等待中")
         self.費用藥丸 = QLabel("呼叫 0 次 · 估算 $0.000")
-        self.費用藥丸.setToolTip("費用依 config.json 的單價估算，僅供參考")
+        self.費用藥丸.setToolTip("摘要的呼叫次數與費用（金額為估算，實際以 API 帳單為準）")
         self.翻譯藥丸 = QLabel("翻譯 0 次 · $0.000")
-        self.翻譯藥丸.setToolTip("逐句字幕翻譯的呼叫次數與估算費用（和摘要分開算，依 config.json 的單價）")
+        self.翻譯藥丸.setToolTip("逐句字幕翻譯的呼叫次數與估算費用（和摘要分開算；金額為估算，實際以 API 帳單為準）")
         self.聊天翻譯藥丸 = QLabel("聊天翻譯 0 次 · $0.000")
-        self.聊天翻譯藥丸.setToolTip("聊天室翻譯的呼叫次數與估算費用（和摘要、逐句翻譯分開算，依 config.json 的單價）")
+        self.聊天翻譯藥丸.setToolTip("聊天室翻譯的呼叫次數與估算費用（和摘要、逐句翻譯分開算；金額為估算，實際以 API 帳單為準）")
         self.語言藥丸 = QLabel("")            # 目前語言；放在狀態列，一眼看得到
         self.語言藥丸.setToolTip("目前使用的語言。自動偵測可能判錯，按「重新偵測」或在設定裡手動選語言。")
         self.重偵鈕 = QPushButton("重新偵測")
@@ -1358,7 +1358,7 @@ class 主控台(QMainWindow):
         覆蓋 = {"language": self.語言選.currentData()}
         if self.本次段位:
             覆蓋["subtitle_speed"], self.本次段位 = self.本次段位, None
-        設定, _, 警告們 = config.載入設定(覆蓋)
+        設定, _, 警告們, 問題們 = config.載入設定詳細(覆蓋)
         段位 = subtitle_speed.取得(設定["subtitle_speed"])
         llm.套用設定(設定)
 
@@ -1407,8 +1407,8 @@ class 主控台(QMainWindow):
         self._待記網址 = 網址           # 成功開始擷取（收到 files 事件）才寫進網址紀錄
         self._更新翻譯註()
         self._訊息("　".join("警告：" + w for w in 警告們) or ("正在檢查直播…" if 直播 else "開始重播文字稿…"))
-        if 警告們:                       # config.json 的警告：主控台常收著，膠囊旁也顯示
-            self.膠囊.錯誤提示("config.json 設定有問題：" + "　".join(警告們))
+        if 問題們:                       # 設定檔的警告：主控台常收著，膠囊旁也顯示（白話，不出現檔名與欄位名）
+            self.膠囊.錯誤提示(config.介面警告字(問題們))
         self._設燈(綠)
 
         events.停止.clear()
@@ -1662,7 +1662,11 @@ class 主控台(QMainWindow):
         self._更新聊天藥丸()
         if self.設定框:
             self.設定框.頁.同步聊天翻譯(bool(開))
-        if self.啟動面板.isVisible():         # 啟動面板的每小時總費用跟著變
+        self.更新啟動面板費用()               # 啟動面板的每小時總費用跟著變
+
+    def 更新啟動面板費用(self):
+        """設定框儲存、膠囊選單切換聊天室翻譯、面板開關或套用版面之後呼叫：啟動面板開著就重算每小時總費用。"""
+        if hasattr(self, "啟動面板") and self.啟動面板.isVisible():
             self.啟動面板._更新段位註()
 
     def _更新聊天藥丸(self):

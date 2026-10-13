@@ -161,10 +161,16 @@ def _句數(v):
 def 載入設定(命令列=None):
     """命令列：{設定名: 值或 None}（None 代表沒有在命令列指定）。
     回傳 (設定, 來源, 警告們)。config.json 不存在、欄位缺漏、值不合法都不會崩潰。"""
+    return 載入設定詳細(命令列)[:3]
+
+
+def 載入設定詳細(命令列=None):
+    """同 載入設定，多回傳 問題們：[(種類, 欄位)]，給介面組白話警告用（介面警告字）。
+    種類：讀不懂、不認得、不合法、話題長度、命令列。"""
     預設 = 出廠預設()
     設定 = dict(預設)
     來源 = {k: "內建預設" for k in 預設}
-    警告們 = []
+    警告們, 問題們 = [], []
     內容 = None
     if os.path.exists(設定檔路徑):
         try:
@@ -174,18 +180,22 @@ def 載入設定(命令列=None):
                 raise ValueError("最外層不是欄位清單")
         except Exception as e:
             警告們.append(f"設定檔 config.json 讀不懂（{e}），全部改用內建預設。")
+            問題們.append(("讀不懂", None))
             內容 = None
     for k, v in (內容 or {}).items():
         if k in 已停用欄位:
             continue
         if k not in 預設:
             警告們.append(f"設定檔裡有不認得的欄位「{k}」，已忽略。")
+            問題們.append(("不認得", k))
         elif 檢查[k](v):
             設定[k], 來源[k] = v, "config.json"
         else:
             警告們.append(f"設定檔的 {k} 值不合法（{v!r}），改用預設值 {預設[k]!r}。")
+            問題們.append(("不合法", k))
     if 設定["min_topic_min"] >= 設定["max_topic_min"]:
         警告們.append("設定檔的 min_topic_min 必須小於 max_topic_min，兩個都改用預設值。")
+        問題們.append(("話題長度", None))
         for k in ("min_topic_min", "max_topic_min"):
             設定[k], 來源[k] = 預設[k], "內建預設"
     for k, v in (命令列 or {}).items():
@@ -193,9 +203,39 @@ def 載入設定(命令列=None):
             continue
         if k in 檢查 and not 檢查[k](v):
             警告們.append(f"命令列的 {k} 值不合法（{v!r}），已忽略。")
+            問題們.append(("命令列", k))
             continue
         設定[k], 來源[k] = v, "命令列"
-    return 設定, 來源, 警告們
+    return 設定, 來源, 警告們, 問題們
+
+
+def 中文名稱(k):
+    """欄位的中文名稱（從 設定說明 取：去掉「介面：」、括號說明與冒號後的值說明）；沒有說明回傳 None。"""
+    說明 = 設定說明.get(k)
+    if not 說明:
+        return None
+    名 = 說明.removeprefix("介面：").split("（")[0]
+    if not 名.startswith("存檔："):
+        名 = 名.split("：")[0]
+    return 名.strip() or None
+
+
+def 介面警告字(問題們):
+    """膠囊紅框用的白話警告：不出現檔名與欄位名。沒有問題回傳空字串。"""
+    句們 = []
+    for 種類, k in 問題們:
+        名 = 中文名稱(k) if 種類 == "不合法" else None
+        if 種類 == "讀不懂":
+            句 = "設定檔讀不懂，全部改用預設值"
+        elif 種類 == "話題長度":
+            句 = f"「{中文名稱('min_topic_min')}」必須小於「{中文名稱('max_topic_min')}」，兩個都改用預設值"
+        elif 名:
+            句 = f"「{名}」的值不正確，已改用預設值"
+        else:
+            句 = "有一項設定的值不正確，已改用預設值"
+        if 句 not in 句們:
+            句們.append(句)
+    return ("設定有問題：" + "；".join(句們) + "。請到設定檢查。") if 句們 else ""
 
 
 def 目前設定():

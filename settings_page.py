@@ -49,7 +49,7 @@ class 設定頁(QScrollArea):
         版.setSpacing(12)
 
         上 = QHBoxLayout()
-        說明 = QLabel("按「儲存」才會寫回 config.json（會先備份成 config.backup.json）。")
+        說明 = QLabel("按「儲存」才會套用並記住這些設定（會先備份舊的設定）。")
         說明.setObjectName("小標")
         說明.setWordWrap(True)
         上.addWidget(說明, 1)
@@ -147,8 +147,8 @@ class 設定頁(QScrollArea):
         self.段位說明.setWordWrap(True)
         self._單價 = (config.出廠預設()["price_input"], config.出廠預設()["price_output"])   # 估算費用用的單價，載入時從 config.json 讀
         e["provider"] = QComboBox()
-        e["provider"].addItem("Claude（anthropic）", "anthropic")
-        e["provider"].addItem("OpenAI 相容（openai_compatible）", "openai_compatible")
+        e["provider"].addItem("Claude", "anthropic")
+        e["provider"].addItem("OpenAI 相容服務", "openai_compatible")
         e["provider"].currentIndexChanged.connect(self._更新段位說明)       # 上網查證只支援 anthropic：費用表跟著變
         e["model"] = QLineEdit()
         self.金鑰字 = QLabel()
@@ -297,7 +297,7 @@ class 設定頁(QScrollArea):
     def 更新金鑰(self):
         環境變數 = config.目前設定()["api_key_env"].strip()
         if not 環境變數:
-            self.金鑰字.setText("不需要（api_key_env 留空）")
+            self.金鑰字.setText("不需要（設定裡沒有指定金鑰）")
         else:
             self.金鑰字.setText(("已設定" if os.environ.get(環境變數) else "未設定") + f"（環境變數 {環境變數}）")
 
@@ -355,7 +355,8 @@ class 設定頁(QScrollArea):
         self.主._更新聊天藥丸()
         if 一般["time_display"] != self.主.時間顯示:          # 時間顯示當場生效（和膠囊選單一樣）
             self.主.設時間顯示(一般["time_display"], 寫回=False)
-        字 = "已儲存到 config.json（舊的設定備份在 config.backup.json）。"
+        self.主.更新啟動面板費用()                             # 啟動面板開著：每小時總費用照新設定重算
+        字 = "已儲存（舊的設定已備份）。"
         if self.主.執行中():
             字 += "標示「下次開始生效」的項目，要等下次按「開始」才會用新的設定。"
         self._提示(字)
@@ -363,7 +364,7 @@ class 設定頁(QScrollArea):
     def 還原預設(self):
         self.載入(config.出廠預設())          # 一律用出廠預設，不受上一場改寫的全域值影響
         self.主.設方向(bool(self.欄["newest_on_top"].currentData()))
-        self._提示("已還原成預設值。按「儲存」才會寫入 config.json。")
+        self._提示("已還原成預設值。按「儲存」才會套用並記住。")
 
     def _提示(self, 字, 錯=False):
         self.狀態字.setStyleSheet(f"color: {'#ff5c7a' if 錯 else '#3ecf8e'};")
