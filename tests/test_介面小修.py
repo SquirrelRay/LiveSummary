@@ -134,8 +134,8 @@ def test_設定框_啟動面板_狀態列_膠囊提示_系統匣_沒有內部名
     頁.還原預設()
     _沒有內部字([頁.狀態字.text()])
     assert [頁.服務選.itemText(i) for i in range(頁.服務選.count())] == [
-        "Claude", "OpenRouter（一把金鑰用多家模型）", "OpenAI", "DeepSeek", "Google Gemini", "Ollama（本機，不用金鑰）",
-        "其他相容服務（自己填網址）"]
+        "Claude", "OpenRouter（一把金鑰用多家模型）", "DeepSeek", "Google Gemini", "Ollama（本機，不用金鑰）",
+        "其他相容服務（自己填網址）"]           # OpenAI 直連暫時不列（呼叫方式未驗證）
     monkeypatch.setattr(config, "目前設定", lambda: dict(config.出廠預設(), api_key_env=""))
     頁.更新金鑰()
     assert 頁.金鑰字.text() == "Claude：這個服務不需要金鑰"

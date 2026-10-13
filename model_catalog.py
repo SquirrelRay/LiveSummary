@@ -7,6 +7,8 @@ import api_key
 未知 = "單價未知"                    # 費用的特別值：單價未知（和 None =「拿不到 token 數」分開）
 未知字 = "單價未知，無法估算"
 其他 = "其他"                        # 服務：其他相容服務（自己填網址）
+OpenAI直連顯示在選單 = False         # OpenAI 直連的呼叫方式（官方模型頁寫 Responses API，本工具用 chat completions）還沒驗證：
+#                                    暫時不列在「模型服務」選單；目錄、金鑰、單價都保留，改成 True 就恢復。舊設定照常能讀、能用。
 自訂 = "__自訂__"                    # 模型選單：「其他（自己輸入）」那一項的值
 實驗說明 = ("實驗性：本工具的提示詞是用 Claude 調整的，其他模型的摘要格式與翻譯品質可能不穩定"
           "（例如格式跑掉、漏翻）。")
@@ -28,15 +30,18 @@ def 模型項(代號, 名稱, 說明, 輸入, 輸出, 建議=False, 備註=""):
     # 來源：openrouter.ai/docs/quickstart（網址）、openrouter.ai/docs/api-keys（金鑰）、
     #       openrouter.ai/api/v1/models（模型代號與單價；官方說明 pricing 是「每 token 美元」）
     {"代號": "openrouter", "名稱": "OpenRouter", "說明": "一把金鑰用多家模型", "provider": "openai_compatible",
+     "提示": "想用 GPT 等其他家的模型，可以透過 OpenRouter。",
      "網址": "https://openrouter.ai/api/v1", "金鑰": "openrouter", "實驗性": True, "模型們": [
          模型項("anthropic/claude-haiku-5.5", "Claude Haiku 5.5", "便宜、快", 0.10, 0.50, 建議=True),
          模型項("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5", "較準、較貴", 2.0, 10.0),
          模型項("google/gemini-3.8-flash", "Gemini 3.8 Flash", "Google 的模型", 0.75, 3.75),
-         模型項("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "非常便宜", 0.0438, 0.1752),
+         模型項("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "便宜", 0.30, 1.20,
+                備註="OpenRouter 上有三十幾家供應商，價格差很多（輸入 0.044～0.60）；這裡用多數供應商與 DeepSeek 官方尖峰價的 0.30／1.20，"
+                     "不會低估。最便宜的活動價（0.0438／0.1752）要看實際用到哪一家"),
      ]},
     # 來源：developers.openai.com/api/docs/models、/api/docs/pricing（Standard、short context）
     {"代號": "openai", "名稱": "OpenAI", "說明": "", "provider": "openai_compatible",
-     "網址": "https://api.openai.com/v1", "金鑰": "openai", "實驗性": True, "模型們": [
+     "網址": "https://api.openai.com/v1", "金鑰": "openai", "實驗性": True, "選單顯示": OpenAI直連顯示在選單, "模型們": [
          模型項("gpt-6-luna", "GPT-6 Luna", "便宜、快", 0.10, 0.50, 建議=True),
          模型項("gpt-6.1-sol", "GPT-6.1 Sol", "較準、較貴", 2.0, 10.0),
          模型項("gpt-6-astra", "GPT-6 Astra", "最準、最貴", 10.0, 50.0),
@@ -51,8 +56,10 @@ def 模型項(代號, 名稱, 說明, 輸入, 輸出, 建議=False, 備註=""):
     # 來源：ai.google.dev/gemini-api/docs/openai（網址、金鑰）、/docs/models、/docs/pricing（付費方案標準價）
     {"代號": "gemini", "名稱": "Google Gemini", "說明": "", "provider": "openai_compatible",
      "網址": "https://generativelanguage.googleapis.com/v1beta/openai/", "金鑰": "gemini", "實驗性": True, "模型們": [
-         模型項("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", "便宜、快", 0.30, 2.50, 建議=True),
-         模型項("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", "最便宜", 0.25, 1.50),
+         模型項("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", "便宜、快", 0.30, 2.50, 建議=True,
+                備註="官方標示為目前的快又省的 3.5 款，也是 3.1 Flash Lite 公告的接替模型"),
+         模型項("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", "更便宜，但 2027-05 停用", 0.25, 1.50,
+                備註="官方停用公告（ai.google.dev/gemini-api/docs/deprecations）：2027-05-07 停用，建議改用 gemini-3.5-flash-lite"),
          模型項("gemini-3.8-flash", "Gemini 3.8 Flash", "較準、較貴", 0.75, 3.75,
              備註="官方公告 2027-01-01 起漲為輸入 1.50／輸出 7.50"),
      ]},
@@ -67,6 +74,11 @@ _依代號 = {s["代號"]: s for s in 服務們}
 
 def 服務(代號):
     return _依代號[代號]
+
+
+def 選單服務們():
+    """「模型服務」下拉選單列出的服務（OpenAI 直連暫時隱藏，見 OpenAI直連顯示在選單）。"""
+    return [s for s in 服務們 if s.get("選單顯示", True)]
 
 
 def 服務顯示名(代號):
@@ -98,8 +110,9 @@ def 單價字(輸入, 輸出, 日期=查證日期):
 
 
 # ---- 設定 ⇄ 服務 ----
-def 對應服務(provider, base_url=""):
-    """舊設定（provider＋base_url）→ 服務代號。對不到就是「其他相容服務」，不會出錯。"""
+def 對應服務(provider, base_url="", 含隱藏=False):
+    """舊設定（provider＋base_url）→ 服務代號。對不到就是「其他相容服務」，不會出錯。
+    選單隱藏的服務（OpenAI 直連）：設定框當成「其他相容服務」（帶入原網址）；含隱藏=True 時（單價、金鑰）仍認得它。"""
     網址 = (base_url or "").strip()
     鑰 = api_key.服務代號(provider, 網址)
     if provider != "openai_compatible":
@@ -107,7 +120,7 @@ def 對應服務(provider, base_url=""):
     if 鑰 == api_key.本機:
         return "ollama" if ":11434" in 網址 else 其他
     if 鑰 in ("openai", "deepseek", "openrouter", "gemini"):
-        return 鑰
+        return 鑰 if (含隱藏 or 服務(鑰).get("選單顯示", True)) else 其他
     return 其他
 
 
@@ -136,7 +149,7 @@ def 單價(設定):
     模型 = 設定.get("model", "")
     if 設定.get("price_model") == 模型 and 模型 and _是數字(設定.get("price_input")) and _是數字(設定.get("price_output")):
         return float(設定["price_input"]), float(設定["price_output"])
-    代號 = 設定的服務(設定)
+    代號 = 對應服務(設定.get("provider", ""), 設定.get("base_url", ""), 含隱藏=True)    # 隱藏的 OpenAI 直連也要算得出單價
     m = 找模型(代號, 模型)
     if m and m["輸入"] is not None and m["輸出"] is not None:
         return m["輸入"], m["輸出"]

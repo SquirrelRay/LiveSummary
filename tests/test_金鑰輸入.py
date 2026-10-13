@@ -268,16 +268,16 @@ def test_設定框_切換服務後金鑰欄顯示對應狀態(環境, monkeypatc
     assert not 頁.清除鈕.isEnabled()
 
     api_key.儲存("claude", 甲金鑰)
-    monkeypatch.setenv("OPENAI_API_KEY", 乙金鑰)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", 乙金鑰)
     頁.更新金鑰()
     assert 頁.金鑰字.text() == "Claude：已儲存在這台電腦"
     assert 頁.清除鈕.isEnabled() and "已儲存" in 頁.金鑰欄.placeholderText()
 
-    _選服務(頁, "openai")                                # 換到 OpenAI：顯示 OpenAI 的狀態與連結
-    assert 頁.金鑰字.text() == "OpenAI：使用系統環境變數"
-    assert "platform.openai.com/api-keys" in 頁.取得連結.text()
-    assert "OPENAI_API_KEY" in 頁.金鑰進階.text()
-    assert not 頁.清除鈕.isEnabled()                      # 這台電腦沒存 OpenAI 的金鑰，沒東西可清
+    _選服務(頁, "deepseek")                              # 換到 DeepSeek：顯示 DeepSeek 的狀態與連結
+    assert 頁.金鑰字.text() == "DeepSeek：使用系統環境變數"
+    assert "platform.deepseek.com/api_keys" in 頁.取得連結.text()
+    assert "DEEPSEEK_API_KEY" in 頁.金鑰進階.text()
+    assert not 頁.清除鈕.isEnabled()                      # 這台電腦沒存 DeepSeek 的金鑰，沒東西可清
 
     _選服務(頁, "claude")                                # 換回 Claude：原本存的還在
     assert 頁.金鑰字.text() == "Claude：已儲存在這台電腦"
@@ -318,10 +318,10 @@ def test_設定框_按儲存才存金鑰_不按就不存(環境):
 
 def test_設定框_換服務後儲存_金鑰存到選的那一家(環境):
     頁 = _設定頁(環境["台"])
-    _選服務(頁, "openai")
+    _選服務(頁, "gemini")
     頁.金鑰欄.setText(乙金鑰)
     頁.儲存()
-    assert api_key.讀取已儲存("openai") == 乙金鑰 and api_key.讀取已儲存("claude") is None
+    assert api_key.讀取已儲存("gemini") == 乙金鑰 and api_key.讀取已儲存("claude") is None
 
 
 def test_設定框_測試連線成功才存_失敗絕不存(環境, 假服務):
@@ -368,10 +368,10 @@ def test_設定框_背景執行緒測試連線(環境, 假服務):
 def test_設定框_清除(環境, monkeypatch):
     頁 = _設定頁(環境["台"])
     api_key.儲存("claude", 甲金鑰)
-    api_key.儲存("openai", 乙金鑰)
+    api_key.儲存("deepseek", 乙金鑰)
     頁.更新金鑰()
     頁.清除金鑰()
-    assert api_key.讀取已儲存("claude") is None and api_key.讀取已儲存("openai") == 乙金鑰
+    assert api_key.讀取已儲存("claude") is None and api_key.讀取已儲存("deepseek") == 乙金鑰
     assert 頁.金鑰訊息.text() == "已清除這台電腦儲存的 Claude 金鑰。"
     assert 頁.金鑰字.text() == "Claude：尚未設定" and not 頁.清除鈕.isEnabled()
     monkeypatch.setenv("ANTHROPIC_API_KEY", 環境金鑰)

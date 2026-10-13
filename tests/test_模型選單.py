@@ -120,8 +120,8 @@ def test_每個服務都有推薦模型與建議_單價都有():
     ("anthropic", "", "claude"),
     ("anthropic", "https://api.anthropic.com", "claude"),
     ("anthropic", "https://api.deepseek.com/anthropic", mc.其他),          # Claude 寫法接別家：當成其他相容服務
-    ("openai_compatible", "", "openai"),
-    ("openai_compatible", "https://api.openai.com/v1", "openai"),
+    ("openai_compatible", "", mc.其他),                                     # OpenAI 直連暫時不列在選單：設定框當成其他相容服務
+    ("openai_compatible", "https://api.openai.com/v1", mc.其他),
     ("openai_compatible", "https://api.deepseek.com", "deepseek"),
     ("openai_compatible", "https://openrouter.ai/api/v1", "openrouter"),
     ("openai_compatible", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini"),
@@ -150,7 +150,6 @@ def test_單價規則():
 @pytest.mark.parametrize("服務,provider,網址,建議,連結", [
     ("claude", "anthropic", "", "claude-haiku-5-5", "https://platform.claude.com/settings/keys"),
     ("openrouter", "openai_compatible", "https://openrouter.ai/api/v1", "anthropic/claude-haiku-5.5", "https://openrouter.ai/keys"),
-    ("openai", "openai_compatible", "https://api.openai.com/v1", "gpt-6-luna", "https://platform.openai.com/api-keys"),
     ("deepseek", "openai_compatible", "https://api.deepseek.com", "deepseek-flash", "https://platform.deepseek.com/api_keys"),
     ("gemini", "openai_compatible", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-3.5-flash-lite",
      "https://aistudio.google.com/apikey"),
@@ -159,7 +158,7 @@ def test_選服務自動帶入網址_建議模型_金鑰欄位_取得金鑰連�
     _寫設定(環境, price_model="")                       # 冒煙測試的設定檔把 Haiku 的單價改成 1／5；這裡要看官方單價
     頁 = _頁(環境["台"])
     if 服務 == "claude":
-        _選服務(頁, "openai")
+        _選服務(頁, "gemini")
     _選服務(頁, 服務)
     全 = 頁.讀全部()
     assert (全["provider"], 全["base_url"], 全["model"]) == (provider, 網址, 建議)
@@ -213,9 +212,9 @@ def test_切換服務時網址與模型不殘留_切回來還原記住的(環境
     _選服務(頁, mc.其他)
     頁.網址欄.setText("https://my.server/v1")
     頁.自訂模型欄.setText("my-model")
-    _選服務(頁, "openai")
+    _選服務(頁, "gemini")
     全 = 頁.讀全部()
-    assert (全["base_url"], 全["model"]) == ("https://api.openai.com/v1", "gpt-6-luna")
+    assert (全["base_url"], 全["model"]) == (mc.服務("gemini")["網址"], "gemini-3.5-flash-lite")
     assert 頁.自訂模型欄.text() == "" and not 頁.網址欄.isVisibleTo(頁)
     _選服務(頁, mc.其他)
     assert 頁.網址欄.text() == "" and 頁.自訂模型欄.text() == ""          # 剛才打的網址、模型不殘留
@@ -299,7 +298,7 @@ def test_選非Claude時上網查證停用並寫原因_切回Claude還原(環境
     頁 = _頁(環境["台"])
     w = 頁.欄["web_verify"]
     assert w.isChecked() and w.isEnabled() and not 頁.查證原因.isVisibleTo(頁)
-    for 服務 in ("openrouter", "openai", "deepseek", "gemini", "ollama", mc.其他):
+    for 服務 in ("openrouter", "deepseek", "gemini", "ollama", mc.其他):
         _選服務(頁, 服務)
         assert not w.isEnabled() and not w.isChecked(), 服務
         assert 頁.查證原因.isVisibleTo(頁)
@@ -331,8 +330,8 @@ def test_透過OpenRouter或別家網址的Claude都不支援上網查證(monkey
     ({"provider": "anthropic", "base_url": "", "model": "claude-haiku-4-5"}, "claude", mc.自訂, "claude-haiku-4-5"),
     ({"provider": "openai_compatible", "base_url": "https://api.deepseek.com", "model": "deepseek-flash"},
      "deepseek", "deepseek-flash", ""),
-    ({"provider": "openai_compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4o"}, "openai", mc.自訂, "gpt-4o"),
-    ({"provider": "openai_compatible", "base_url": "", "model": "gpt-6-luna"}, "openai", "gpt-6-luna", ""),
+    ({"provider": "openai_compatible", "base_url": "https://api.openai.com/v1", "model": "gpt-4o"}, mc.其他, mc.自訂, "gpt-4o"),
+    ({"provider": "openai_compatible", "base_url": "", "model": "gpt-6-luna"}, mc.其他, mc.自訂, "gpt-6-luna"),
     ({"provider": "openai_compatible", "base_url": "https://my.server/v1", "model": "foo"}, mc.其他, mc.自訂, "foo"),
     ({"provider": "anthropic", "base_url": "https://api.deepseek.com/anthropic", "model": "deepseek-flash"},
      mc.其他, mc.自訂, "deepseek-flash"),
@@ -373,7 +372,7 @@ def test_設定檔裡的服務種類不認得_改用預設不出錯(環境):
 # ================= 5. 各家金鑰互不影響 =================
 def test_各家金鑰互不影響_含OpenRouter與Gemini(環境):
     頁 = _頁(環境["台"])
-    金鑰們 = {"claude": "k-claude", "openrouter": "k-or", "openai": "k-oa", "deepseek": "k-ds", "gemini": "k-gm"}
+    金鑰們 = {"claude": "k-claude", "openrouter": "k-or", "deepseek": "k-ds", "gemini": "k-gm"}
     for 服務, 金鑰 in 金鑰們.items():
         _選服務(頁, 服務)
         頁.金鑰欄.setText(金鑰)
@@ -425,18 +424,18 @@ def mc_上限():
 
 def test_載入可用模型_沒有金鑰_金鑰無效_連不上_白話說明(環境, 假服務):
     頁 = _頁(環境["台"])
-    _選服務(頁, "openai")
+    _選服務(頁, "deepseek")
     頁.載入可用模型()
     assert 頁.載入訊息.text() == "還沒有這個服務的 API 金鑰：請先在下面貼上金鑰，再按「載入可用模型」。"
     assert 假服務.乙.建立參數 is None                                    # 沒有金鑰就不連線
-    api_key.儲存("openai", "k-oa")
+    api_key.儲存("deepseek", "k-ds")
     假服務.乙.例外 = 造例外(openai.AuthenticationError)
     頁.載入可用模型()
     assert 頁.載入訊息.text().startswith("金鑰無效或沒有權限")
     假服務.乙.例外 = 造例外(openai.APIConnectionError)
     頁.載入可用模型()
-    assert 頁.載入訊息.text() == "連不上 OpenAI。請確認網路連線，稍後再試一次。"
-    assert _模型們(頁) == [*[m["代號"] for m in mc.推薦("openai")], mc.自訂]          # 失敗不動選單
+    assert 頁.載入訊息.text() == "連不上 DeepSeek。請確認網路連線，稍後再試一次。"
+    assert _模型們(頁) == [*[m["代號"] for m in mc.推薦("deepseek")], mc.自訂]        # 失敗不動選單
     _選服務(頁, mc.其他)
     頁.載入可用模型()
     assert 頁.載入訊息.text() == "請先填「服務網址」，再按「載入可用模型」。"
@@ -545,3 +544,71 @@ def test_記住的大小超出目前螢幕_自動縮回螢幕內(環境):
 def test_記住的大小壞掉就用預設(環境):
     ui_state._更新介面設定(設定框大小=["寬", -1])
     assert ui_state.讀設定框大小() is None
+
+
+# ================= 修正：OpenAI 直連暫時隱藏、OpenRouter 說明、DeepSeek 單價、Gemini 建議 =================
+def test_模型服務選單不列OpenAI_目錄與開關保留(環境, monkeypatch):
+    頁 = _頁(環境["台"])
+    名們 = [頁.服務選.itemText(i) for i in range(頁.服務選.count())]
+    assert not any("OpenAI" in 名 and "OpenRouter" not in 名 and "相容" not in 名 for 名 in 名們)
+    assert 頁.服務選.findData("openai") < 0
+    assert mc.服務("openai")["模型們"] and mc.服務("openai")["金鑰"] == "openai"           # 目錄資料保留
+    assert mc.OpenAI直連顯示在選單 is False
+    monkeypatch.setitem(mc.服務("openai"), "選單顯示", True)                              # 開關：改成 True 就恢復
+    頁2 = type(頁)(頁.主)
+    assert 頁2.服務選.findData("openai") >= 0
+    頁2.deleteLater()
+
+
+def test_OpenRouter說明提到可以透過它用GPT等其他家模型(環境):
+    頁 = _頁(環境["台"])
+    assert not 頁.服務說明.isVisibleTo(頁)
+    _選服務(頁, "openrouter")
+    assert 頁.服務說明.isVisibleTo(頁) and "想用 GPT 等其他家的模型，可以透過 OpenRouter" in 頁.服務說明.text()
+    _選服務(頁, "deepseek")
+    assert not 頁.服務說明.isVisibleTo(頁)
+
+
+@pytest.mark.parametrize("網址", ["https://api.openai.com/v1", ""])
+def test_舊設定已是OpenAI_照常能讀能用_設定框顯示其他相容服務並帶入原網址(環境, 網址):
+    _寫設定(環境, provider="openai_compatible", base_url=網址, model="gpt-6-luna", api_key_env="OPENAI_API_KEY",
+          price_model="", price_input=9.0, price_output=9.0)
+    api_key.儲存("openai", "k-oa")
+    設定 = config.目前設定()
+    assert mc.對應服務(設定["provider"], 設定["base_url"]) == mc.其他                      # 設定框當成其他相容服務
+    assert mc.對應服務(設定["provider"], 設定["base_url"], 含隱藏=True) == "openai"         # 但金鑰與單價還認得
+    assert mc.單價(設定) == (0.10, 0.50)                                                   # 費用估算照常（官方單價，不是舊的 9／9）
+    llm.套用設定(設定)
+    assert llm._金鑰() == "k-oa" and llm.檢查金鑰() is None                                # 呼叫模型用的金鑰照常讀得到
+    頁 = _頁(環境["台"])
+    assert 頁.目前服務() == mc.其他 and 頁.網址欄.text() == 網址 and 頁.網址欄.isVisibleTo(頁)
+    assert 頁.目前模型() == "gpt-6-luna" and 頁.金鑰字.text() == "OpenAI：已儲存在這台電腦"
+    assert "0.1" in 頁.單價字.text() and 未知字 not in 頁.單價字.text()                      # 設定框的單價與實際估算一致
+    assert not any(列[1] == 未知字 for 列 in 頁.費用表)
+    頁.儲存()                                                                              # 儲存不出錯、網址與模型照舊
+    存 = config.目前設定()
+    assert (存["provider"], 存["base_url"], 存["model"]) == ("openai_compatible", 網址, "gpt-6-luna")
+    assert mc.單價(存) == (0.10, 0.50)
+
+
+def test_OpenRouter的DeepSeek單價不低估_備註說明供應商差異():
+    m = mc.找模型("openrouter", "deepseek/deepseek-v4.1-flash")
+    assert (m["輸入"], m["輸出"]) == (0.30, 1.20) and "三十幾家供應商" in m["備註"] and "0.0438" in m["備註"]
+    直連 = mc.找模型("deepseek", "deepseek-flash")
+    assert (直連["輸入"], 直連["輸出"]) == (0.30, 1.20)                                       # 尖峰價；離峰半價
+
+
+def test_OpenRouter清單價格提示是最便宜供應商_實際可能較高(環境, 假服務):
+    頁 = _頁(環境["台"])
+    _選服務(頁, "openrouter")
+    api_key.儲存("openrouter", "k-or")
+    假服務.乙.模型們 = [模("vendor/某模型", 0.0438, 0.1752)]
+    頁.載入可用模型()
+    _選模型(頁, "vendor/某模型")
+    assert "最便宜供應商的價格" in 頁.單價字.text() and "可能較高" in 頁.單價字.text()
+
+
+def test_Gemini建議是3點5_FlashLite_舊的3點1標明停用日期():
+    assert mc.建議模型("gemini") == "gemini-3.5-flash-lite"
+    舊 = mc.找模型("gemini", "gemini-3.1-flash-lite")
+    assert not 舊["建議"] and "2027-05" in 舊["說明"] and "2027-05-07" in 舊["備註"] and "gemini-3.5-flash-lite" in 舊["備註"]

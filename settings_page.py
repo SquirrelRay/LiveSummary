@@ -132,18 +132,28 @@ class 設定頁(QScrollArea):
         框, 格 = self._面板("模型服務與 API 金鑰")
         格.setColumnStretch(3, 0)            # 「下次開始生效」那一欄平常是空的：寬度都給下拉選單與金鑰欄
         self.服務選 = QComboBox()
-        for s in model_catalog.服務們:
+        for s in model_catalog.選單服務們():
             self.服務選.addItem(model_catalog.服務顯示名(s["代號"]), s["代號"])
             self.服務選.setItemData(self.服務選.count() - 1,
                                   model_catalog.實驗說明 if s["實驗性"] else "正式支援", Qt.ToolTipRole)
         self.實驗標 = QLabel("實驗性")
         self.實驗標.setStyleSheet("color: #f5b84a; font-weight: 700;")
         self.實驗標.setToolTip(model_catalog.實驗說明)
-        服務列 = QWidget()
-        橫 = QHBoxLayout(服務列)
+        服務橫 = QWidget()
+        橫 = QHBoxLayout(服務橫)
         橫.setContentsMargins(0, 0, 0, 0)
         橫.addWidget(self.服務選, 1)
         橫.addWidget(self.實驗標)
+        self.服務說明 = QLabel("")             # 服務的一句補充（例如 OpenRouter：想用 GPT 等其他家的模型，可以透過它）
+        self.服務說明.setObjectName("小標")
+        self.服務說明.setWordWrap(True)
+        self.服務說明.hide()
+        服務列 = QWidget()
+        直 = QVBoxLayout(服務列)
+        直.setContentsMargins(0, 0, 0, 0)
+        直.setSpacing(4)
+        直.addWidget(服務橫)
+        直.addWidget(self.服務說明)
 
         self.網址標 = 小標("服務網址")
         self.網址欄 = QLineEdit()
@@ -490,6 +500,9 @@ class 設定頁(QScrollArea):
             w.setVisible(服務 == model_catalog.其他)
         實驗 = model_catalog.服務(服務)["實驗性"]
         self.實驗標.setVisible(實驗)
+        提示 = model_catalog.服務(服務).get("提示", "")
+        self.服務說明.setText(提示)
+        self.服務說明.setVisible(bool(提示))
         self.服務選.setToolTip(model_catalog.實驗說明 if 實驗 else "")
         self.篩選欄.blockSignals(True)
         self.篩選欄.clear()
@@ -577,18 +590,19 @@ class 設定頁(QScrollArea):
         self._換模型()
 
     def _選的單價(self):
-        """目前選的模型的 (輸入, 輸出) 單價；自己輸入、清單外沒附價格 → None（不沿用舊單價）。"""
-        值, 服務 = self.模型選.currentData(), self.目前服務()
-        if not 值 or 值 == model_catalog.自訂:
+        """目前選的模型的 (輸入, 輸出) 單價；自己輸入的模型若剛好在官方價目表裡也算得出；其餘（清單外沒附價格）→ None（不沿用舊單價）。
+        順序和實際估算（model_catalog.單價）一致：設定裡註明是這個模型的單價 → 官方價目表（含暫時隱藏的 OpenAI）→ 本機 0 →
+        服務的模型清單附的單價。"""
+        模型, 服務 = self.目前模型(), self.目前服務()
+        if not 模型:
             return None
-        if 服務 == "ollama":
-            return 0.0, 0.0
-        if 服務 == self._設定服務:              # 設定裡註明是這個模型的單價（進階使用者自己填的）優先，和實際估算的規則一致
-            單 = model_catalog.單價({"model": 值, "price_model": self._設定單價[0],
-                                  "price_input": self._設定單價[1], "price_output": self._設定單價[2]})
-            if 單 and self._設定單價[0] == 值:
-                return 單
-        m = model_catalog.找模型(服務, 值) or next((x for x in self._清單(服務) or [] if x["代號"] == 值), None)
+        設 = dict(model_catalog.服務設定(服務, self.網址欄.text()), model=模型)
+        if 服務 == self._設定服務:
+            設.update(price_model=self._設定單價[0], price_input=self._設定單價[1], price_output=self._設定單價[2])
+        單 = model_catalog.單價(設)
+        if 單:
+            return 單
+        m = next((x for x in self._清單(服務) or [] if x["代號"] == 模型), None)
         if m and m["輸入"] is not None and m["輸出"] is not None:
             return m["輸入"], m["輸出"]
         return None
@@ -599,13 +613,17 @@ class 設定頁(QScrollArea):
             w.setVisible(自訂)
         單 = self._選的單價()
         值, 服務 = self.模型選.currentData(), self.目前服務()
+        設 = model_catalog.服務設定(服務, self.網址欄.text())
+        m = model_catalog.找模型(model_catalog.對應服務(設["provider"], 設["base_url"], 含隱藏=True), self.目前模型())
         if 服務 == "ollama" and 值 and not 自訂:
             字 = "本機模型，不花 API 費用"
         elif 單 is None:
             字 = model_catalog.未知字 + "（費用表、啟動面板、膠囊都會顯示無法估算）"
-        elif model_catalog.找模型(服務, 值):
-            m = model_catalog.找模型(服務, 值)
+        elif m and m["輸入"] == 單[0] and m["輸出"] == 單[1]:
             字 = model_catalog.單價字(*單) + (f"。{m['備註']}" if m["備註"] else "")
+        elif 服務 == "openrouter":
+            字 = (model_catalog.單價字(*單, 日期="") + "，服務的模型清單附的單價。OpenRouter 列的是最便宜供應商的價格，"
+                  "實際依路由到的供應商而定，可能較高")
         else:
             字 = model_catalog.單價字(*單, 日期="") + "，服務的模型清單附的單價"
         self.單價字.setText(字)
