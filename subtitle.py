@@ -15,6 +15,7 @@ import events
 import startup_timeline as 里程碑
 import stream_clock     # 存檔開頭的說明（直播主、標題、開播時間）
 import llm
+import model_catalog  # 單價未知時費用是 model_catalog.未知
 import config      # 語言清單（單一來源）
 
 批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由字幕速度段位覆蓋）
@@ -285,7 +286,7 @@ class 字幕器:
         u = llm.翻譯用量
         if u["缺token"]:
             return None
-        return u["輸入"] / 1e6 * self.單價[0] + u["輸出"] / 1e6 * self.單價[1]
+        return model_catalog.算費用(u["輸入"], u["輸出"], self.單價)     # 單價未知 → model_catalog.未知
 
     def 送狀態(self):
         u = llm.翻譯用量
@@ -300,5 +301,7 @@ class 字幕器:
         延遲 = f"，平均延遲約 {sum(self.延遲們) / len(self.延遲們):.1f} 秒" if self.延遲們 else ""
         if 費用 is None:
             return f"逐句翻譯（另計）：呼叫 {u['次數']} 次，token 與費用無法計算{延遲}"
+        if 費用 == model_catalog.未知:
+            return f"逐句翻譯（另計）：呼叫 {u['次數']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token，{model_catalog.未知字}{延遲}"
         return (f"逐句翻譯（另計）：呼叫 {u['次數']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token，"
                 f"估算 {費用:.3f} 美元（金額為估算，實際以 API 帳單為準）{延遲}")

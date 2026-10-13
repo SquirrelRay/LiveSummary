@@ -1,6 +1,6 @@
 # API 金鑰：整個專案只有這裡會讀寫金鑰（llm.py 呼叫模型、設定框、啟動面板都透過這裡）。
 # 存放：Windows 認證管理員（keyring 套件），每家服務各存一把，互不覆蓋：
-#   Claude → "claude"、OpenAI → "openai"、DeepSeek → "deepseek"、
+#   Claude → "claude"、OpenAI → "openai"、DeepSeek → "deepseek"、OpenRouter → "openrouter"、Google Gemini → "gemini"、
 #   其他 OpenAI 相容服務 → "相容:主機/路徑"（用服務網址區分）、本機服務（Ollama 等）→ 不需要金鑰。
 # 讀取順序：認證管理員 → 環境變數（保留給進階使用者與舊設定）。
 # 金鑰內容絕不印出、不寫 log、不寫進 config.json 或任何檔案；錯誤訊息只用白話。
@@ -19,8 +19,13 @@ from urllib.parse import urlsplit
                "取得網址": "https://platform.openai.com/api-keys"},
     "deepseek": {"名稱": "DeepSeek", "環境變數": "DEEPSEEK_API_KEY",
                  "取得網址": "https://platform.deepseek.com/api_keys"},
+    "openrouter": {"名稱": "OpenRouter", "環境變數": "OPENROUTER_API_KEY",            # openrouter.ai/docs/api-keys
+                   "取得網址": "https://openrouter.ai/keys"},
+    "gemini": {"名稱": "Google Gemini", "環境變數": "GEMINI_API_KEY",                 # ai.google.dev/gemini-api/docs/openai
+               "取得網址": "https://aistudio.google.com/apikey"},
 }
-已知主機 = {"api.anthropic.com": "claude", "api.openai.com": "openai", "api.deepseek.com": "deepseek"}
+已知主機 = {"api.anthropic.com": "claude", "api.openai.com": "openai", "api.deepseek.com": "deepseek",
+         "openrouter.ai": "openrouter", "generativelanguage.googleapis.com": "gemini"}
 本機主機們 = ("localhost", "127.0.0.1", "::1", "0.0.0.0")       # noqa: S104  只是比對網址的主機，不是開伺服器
 本機 = "本機"
 相容前綴 = "相容:"

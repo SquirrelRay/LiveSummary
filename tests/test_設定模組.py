@@ -92,11 +92,11 @@ def test_設定框還原預設值_跑過一場後仍是出廠預設(qapp, tmp_pa
     主 = SimpleNamespace(面板=SimpleNamespace(翻譯將啟用=lambda: True, 聊天將開啟=lambda: False), 設方向=lambda 置頂: None, 執行中=lambda: False)
     頁 = settings_page.設定頁(主)
     頁.載入()
-    assert 頁.欄["model"].text() == "上一場的模型" and 頁.欄["minute_sentences"].value() == 3     # 表單是 config.json 的值
+    assert 頁.目前模型() == "上一場的模型" and 頁.欄["minute_sentences"].value() == 3     # 表單是 config.json 的值
     頁.還原預設()
     出廠 = config.出廠預設()
     assert 頁.讀全部() == {k: 出廠[k] for k in 頁.讀全部()}
-    assert 頁.欄["model"].text() == "claude-haiku-5-5"
+    assert 頁.目前模型() == "claude-haiku-5-5"
     頁.deleteLater()
 
 

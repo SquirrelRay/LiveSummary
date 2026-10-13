@@ -25,7 +25,7 @@
   看目前實際生效的設定與來源：  python live_topics.py --show-config
   臨時覆蓋範例：  --no-chat / --chat、--no-minute / --minute、--no-save-audio / --save-audio、--fix / --no-fix
   注意：API 金鑰不要寫進 config.json。金鑰在設定框輸入（存在 Windows 認證管理員，見 api_key.py）；
-  讀取順序：認證管理員 → 環境變數（預設各家的 ANTHROPIC_API_KEY／OPENAI_API_KEY／DEEPSEEK_API_KEY，api_key_env 改過名字就照舊用那個）。
+  讀取順序：認證管理員 → 環境變數（預設各家的 ANTHROPIC_API_KEY／OPENAI_API_KEY／DEEPSEEK_API_KEY／OPENROUTER_API_KEY／GEMINI_API_KEY，api_key_env 改過名字就照舊用那個）。
   金鑰無效時，程式會用一句中文停下來，不會繼續空跑。
 
 外語直播（日文等）：
@@ -37,36 +37,38 @@
   文字稿模式跑外語稿：  python live_topics.py 日文稿.txt --lang ja
   --show-config 會顯示 language 目前的值與來源。
 
-切換語言模型（live_topics.py；config.json 改這幾欄）：
-  provider     ："anthropic"（預設，Claude）或 "openai_compatible"（OpenAI、DeepSeek、Ollama 等）
-  base_url     ：服務網址，空白 = 該家預設
-  api_key_env  ：進階／舊設定：金鑰放在哪個「環境變數名稱」（不是金鑰本身！）；留空 = 不需要金鑰。
-                 一般情況不用改：金鑰在設定框輸入；出廠值 ANTHROPIC_API_KEY 代表「用各家預設的環境變數名稱」。
-  金鑰怎麼區分服務：Claude、api.openai.com、api.deepseek.com 各一把；其他網址用「主機/路徑」各一把；
-                 localhost／127.0.0.1（Ollama 等本機服務）不需要金鑰。
-  model        ：模型名稱
-  price_input / price_output：每百萬 token 的美元單價，只用來估算費用。預設 0.10／0.50 是 Claude Haiku 5.5 的官方單價
-  （https://platform.claude.com/docs/en/about-claude/pricing，2026-10-13 查）；提示詞超過 10 萬 token 時官方是 0.50／2.50，這個階梯價沒有實作（話題摘要與判斷的提示詞遠低於 10 萬 token）；換模型要自己改單價
-  呼叫模型的程式都在 llm.py。summarize.py 單獨使用時仍固定用 Claude。
-  用 openai_compatible 前要先裝套件：pip install openai
-  金鑰無效、或連不上伺服器（例如 Ollama 沒開）時，程式會用一句中文說明並停止。
-  拿不到 token 數的服務，結束時會顯示「無法計算」。
+切換語言模型（設定框的「模型服務與 API 金鑰」）：
+  1. 「模型服務」下拉選單：Claude（正式支援）、OpenRouter（一把金鑰用多家模型）、OpenAI、DeepSeek、Google Gemini、
+     Ollama（本機，不用金鑰）、其他相容服務（自己填網址）。選了會自動帶入服務網址、對應的金鑰欄位與「如何取得金鑰」連結；
+     只有「其他相容服務」才顯示網址欄。Claude 以外都標「實驗性」：提示詞是用 Claude 調整的，其他模型的格式與品質可能不穩定。
+  2. 「模型」下拉選單：每個服務列 2～4 個推薦模型（白話名稱＋一句說明，預設選「建議」的那個），滑鼠停著顯示單價與查證日期。
+     最後一項「其他（自己輸入）」才出現文字欄，給進階使用者打模型代號。
+  3. 進階：「載入可用模型」用列出模型（不花錢）把服務實際提供的模型放進選單的進階區塊；清單很長（例如 OpenRouter）可以輸入關鍵字篩選。
+     Ollama 的推薦清單就是這台電腦已下載的模型（選了 Ollama 會自動讀；一個都沒有時會說明要先用「ollama pull 模型名稱」下載）。
+  4. 按「儲存」才寫入。換服務時服務網址、模型、單價一起換，舊服務的值不殘留；切回原本記住的服務會還原原本的模型。
+  上網查證只有直接連 Claude 時能用；選其他服務（包括透過 OpenRouter 用 Claude）時勾選會停用並寫原因。
+  呼叫模型的程式都在 llm.py；服務、推薦模型、單價的清單在 model_catalog.py。summarize.py 單獨使用時仍固定用 Claude。
+  用 Claude 以外的服務要先裝套件：pip install openai（requirements.txt 裡標為選用）。
+  金鑰無效、或連不上伺服器（例如 Ollama 沒開）時，程式會用一句中文說明並停止。拿不到 token 數的服務，結束時會顯示「無法計算」。
 
-  範例（2026-10-10 查官方文件；模型名稱常會更新，用之前請再到官網確認）：
-  OpenAI：（金鑰在設定框輸入；或進階：setx OPENAI_API_KEY "你的金鑰"）
-    "provider": "openai_compatible", "base_url": "https://api.openai.com/v1",
-    "api_key_env": "OPENAI_API_KEY", "model": "gpt-6-luna"
-    （base_url 是從官方範例網址推得的；gpt-6-luna 是官方列的小型便宜款，大型款 gpt-6-astra）
-  DeepSeek：（金鑰在設定框輸入；或進階：setx DEEPSEEK_API_KEY "你的金鑰"）
-    "provider": "openai_compatible", "base_url": "https://api.deepseek.com",
-    "api_key_env": "DEEPSEEK_API_KEY", "model": "deepseek-flash"
-    （另有 deepseek-v4-pro）
-  Ollama（本機，不用金鑰，先開 Ollama 並下載模型）：
-    "provider": "openai_compatible", "base_url": "http://localhost:11434/v1",
-    "api_key_env": "", "model": "gpt-oss:20b", "price_input": 0, "price_output": 0
-    （model 換成你自己用 ollama pull 下載的模型名稱）
-  換回 Claude：
-    "provider": "anthropic", "base_url": "", "api_key_env": "ANTHROPIC_API_KEY", "model": "claude-haiku-5-5"
+  費用估算的單價（每百萬 token 美元，2026-10-13 查各家官方定價頁，寫在 model_catalog.py）：
+    推薦模型都有官方單價；OpenRouter「載入可用模型」時清單裡附的單價會自動帶入。
+    「其他（自己輸入）」、清單外沒附價格的模型：單價未知，啟動面板、設定框費用表、膠囊、狀態列、結束訊息一律顯示
+    「單價未知，無法估算」，不會沿用之前別的模型的單價。DeepSeek 用尖峰價估算（離峰半價）；Ollama 本機不花錢（$0）。
+    Claude Haiku 5.5 提示詞超過 10 萬 token 時官方是 0.50／2.50，這個階梯價沒有實作（話題摘要與判斷的提示詞遠低於 10 萬 token）。
+
+  進階：直接改 config.json（設定框沒有要改的需求時不用碰）：
+    provider     ："anthropic"（Claude）或 "openai_compatible"（其他服務）
+    base_url     ：服務網址，空白 = 該家預設（各家網址見 model_catalog.py）
+    model        ：模型代號
+    api_key_env  ：金鑰放在哪個「環境變數名稱」（不是金鑰本身！）；留空 = 不需要金鑰。
+                   一般情況不用改：金鑰在設定框輸入；出廠值 ANTHROPIC_API_KEY 代表「用各家預設的環境變數名稱」。
+    price_input / price_output / price_model：自己指定單價。只有 price_model 等於目前的 model 時才採用；
+                   否則用內建價目表，查不到就顯示單價未知。設定框選模型時會自動填這三欄。
+    舊的 config.json（只有 provider＋base_url＋model）會自動對到服務與模型：模型不在推薦清單就顯示成「其他（自己輸入）」並帶入原本的代號；
+    網址對不到已知服務就當「其他相容服務」。
+    金鑰怎麼區分服務：Claude、OpenRouter、api.openai.com、api.deepseek.com、Gemini 各一把；其他網址用「主機/路徑」各一把；
+                   localhost／127.0.0.1（Ollama 等本機服務）不需要金鑰。
 
 舊的摘要框／字幕框與精簡模式已移除（由啟動面板 → 浮動膠囊 → 可自由擺放的面板取代）：
   全域快捷鍵（Ctrl+Shift+S／A／D／X）、主控台的「字幕」「面板」「精簡」按鈕、Ctrl+Shift+M 都沒有了。
@@ -74,19 +76,21 @@
   overlay_位置.json、介面設定.json 裡的「精簡」不再讀取，留著無妨。
 
 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」；主控台已沒有「設定」分頁）：
-  可調字幕模式、聊天室、分鐘摘要、參考詞修正、延伸思考、聊天室翻譯與每分鐘上限、分鐘摘要句數、內容顯示方向、各分頁顯示上限、字幕速度、模型服務與模型名稱、存檔。
+  可調字幕模式、聊天室、分鐘摘要、參考詞修正、延伸思考、聊天室翻譯與每分鐘上限、分鐘摘要句數、內容顯示方向、各分頁顯示上限、字幕速度、模型服務與模型（下拉選單，見上方「切換語言模型」）、存檔。
   按「儲存」才寫回 config.json，寫之前自動備份成 config.backup.json，先寫暫存檔再取代（寫到一半失敗原檔不會壞）；只改表單上的欄位，其他欄位原樣保留。
   膠囊選單的「顯示用量」也用同一套寫法。
   「還原預設值」會把表單變回出廠預設（config.py 的固定值，不受上一場影響；一樣要按「儲存」才寫入）。
   API 金鑰（模型服務下面）：輸入時遮蔽，眼睛按鈕暫時顯示剛輸入的字；已存的金鑰永遠不會再顯示出來。
     狀態：「已儲存在這台電腦」／「使用系統環境變數」／「尚未設定」；旁邊「如何取得金鑰」連到該服務的官方頁面
     （2026-10-13 查官方文件：Claude https://platform.claude.com/settings/keys、OpenAI https://platform.openai.com/api-keys、
-      DeepSeek https://platform.deepseek.com/api_keys）。
+      DeepSeek https://platform.deepseek.com/api_keys、OpenRouter https://openrouter.ai/keys、Google Gemini https://aistudio.google.com/apikey）。
     「測試連線」：只列出模型清單（不用 token、不產生費用）；成功才存，金鑰無效或連不上一律不存。
     按「儲存」也會把輸入框的金鑰存起來；只輸入、沒按這兩顆就關掉設定框，金鑰不會被存（和其他欄位一樣）。
     「清除」：刪掉這台電腦存的這個服務的金鑰（環境變數不動）。
     切換「模型服務」時，狀態與連結跟著換成那個服務的。
   執行中改到的功能、模型等項目會標「下次開始生效」。
+  視窗大小：第一次打開時依內容算到所有文字、按鈕都放得下（螢幕不夠大就用捲軸）；拉大或縮小後會記住（存在本機的 介面設定.json，不進 git），
+  下次打開用那個大小；記住的大小超出目前螢幕時自動縮回螢幕內。
 
 逐句翻譯（字幕模式 subtitle_mode："original" 原文、"translate" 一律翻譯、"auto" 中文原文其他語言翻譯）：
   語言選「自動偵測」時，偵測到外語後字幕會自動切成翻譯。

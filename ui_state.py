@@ -1,7 +1,7 @@
 # 介面的本機記憶（只存在這台電腦，不進 git）：
 #   網址紀錄.json  最近用過的直播網址（可釘選、可刪除）
 #   介面設定.json  並排欄數與每欄選的分頁
-# 介面設定.json 另外記著浮動膠囊的位置等小旗標（舊版留下的「精簡」欄位不再讀取，留著無妨）。兩個檔案壞了或讀不出來都不會讓程式出錯，當成沒有紀錄。
+# 介面設定.json 另外記著浮動膠囊的位置、設定框的大小等小旗標（舊版留下的「精簡」欄位不再讀取，留著無妨）。兩個檔案壞了或讀不出來都不會讓程式出錯，當成沒有紀錄。
 import os
 import re
 import json
@@ -161,6 +161,20 @@ def 讀膠囊位置():
 
 def 存膠囊位置(位置):
     _更新介面設定(膠囊位置=None if 位置 is None else [int(位置[0]), int(位置[1])])
+
+
+def 讀設定框大小():
+    """設定框上次的大小 (寬, 高)；沒有紀錄或壞掉回傳 None（超出螢幕的縮回由設定框自己處理）。"""
+    原始 = _讀(介面設定檔, {})
+    大小 = 原始.get("設定框大小") if isinstance(原始, dict) else None
+    if (isinstance(大小, list) and len(大小) == 2
+            and all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in 大小)):
+        return 大小[0], 大小[1]
+    return None
+
+
+def 存設定框大小(寬, 高):
+    _更新介面設定(設定框大小=[int(寬), int(高)])
 
 
 def 讀旗標(名):

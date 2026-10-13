@@ -132,8 +132,10 @@ def test_認證管理員壞掉_讀取當作沒存_存入給白話錯誤(假金�
     ("openai_compatible", "https://api.deepseek.com/v1/", "deepseek"),
     ("openai_compatible", "http://localhost:11434/v1", "本機"),
     ("openai_compatible", "http://127.0.0.1:1234/v1", "本機"),
-    ("openai_compatible", "https://openrouter.ai/api/v1", "相容:openrouter.ai/api/v1"),
-    ("openai_compatible", "https://openrouter.ai/api/v1/", "相容:openrouter.ai/api/v1"),
+    ("openai_compatible", "https://openrouter.ai/api/v1", "openrouter"),
+    ("openai_compatible", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini"),
+    ("openai_compatible", "https://example.com/api/v1", "相容:example.com/api/v1"),
+    ("openai_compatible", "https://example.com/api/v1/", "相容:example.com/api/v1"),
     ("openai_compatible", "https://example.com:8443/v1", "相容:example.com:8443/v1"),
 ])
 def test_服務代號(provider, 網址, 代號):
@@ -142,7 +144,7 @@ def test_服務代號(provider, 網址, 代號):
 
 def test_Claude_OpenAI_DeepSeek_其他相容服務各自存放互不影響():
     服務們 = [("anthropic", "", 甲金鑰), ("openai_compatible", "https://api.openai.com/v1", 乙金鑰),
-           ("openai_compatible", "https://api.deepseek.com", 丙金鑰), ("openai_compatible", "https://openrouter.ai/api/v1", 丁金鑰)]
+           ("openai_compatible", "https://api.deepseek.com", 丙金鑰), ("openai_compatible", "https://example.com/api/v1", 丁金鑰)]
     for provider, 網址, 金鑰 in 服務們:
         api_key.儲存(api_key.服務代號(provider, 網址), 金鑰)
     for provider, 網址, 金鑰 in 服務們:                     # 每家讀到自己的
@@ -151,7 +153,7 @@ def test_Claude_OpenAI_DeepSeek_其他相容服務各自存放互不影響():
     assert api_key.取得("openai_compatible", "https://api.openai.com/v1") is None
     assert api_key.取得("anthropic") == 甲金鑰
     assert api_key.取得("openai_compatible", "https://api.deepseek.com") == 丙金鑰
-    assert api_key.取得("openai_compatible", "https://openrouter.ai/api/v1") == 丁金鑰
+    assert api_key.取得("openai_compatible", "https://example.com/api/v1") == 丁金鑰
     assert api_key.取得("openai_compatible", "https://other.example.com/v1") is None    # 另一個相容服務是另一格
 
 
@@ -242,9 +244,9 @@ def _設定頁(台):
     return 頁
 
 
-def _選服務(頁, provider):
-    w = 頁.欄["provider"]
-    w.setCurrentIndex(w.findData(provider))
+def _選服務(頁, 服務):
+    w = 頁.服務選
+    w.setCurrentIndex(w.findData(服務))
 
 
 def test_設定框_金鑰欄遮蔽_眼睛暫時顯示(環境):
@@ -271,20 +273,20 @@ def test_設定框_切換服務後金鑰欄顯示對應狀態(環境, monkeypatc
     assert 頁.金鑰字.text() == "Claude：已儲存在這台電腦"
     assert 頁.清除鈕.isEnabled() and "已儲存" in 頁.金鑰欄.placeholderText()
 
-    _選服務(頁, "openai_compatible")                     # 換到 OpenAI：顯示 OpenAI 的狀態與連結
+    _選服務(頁, "openai")                                # 換到 OpenAI：顯示 OpenAI 的狀態與連結
     assert 頁.金鑰字.text() == "OpenAI：使用系統環境變數"
     assert "platform.openai.com/api-keys" in 頁.取得連結.text()
     assert "OPENAI_API_KEY" in 頁.金鑰進階.text()
     assert not 頁.清除鈕.isEnabled()                      # 這台電腦沒存 OpenAI 的金鑰，沒東西可清
 
-    _選服務(頁, "anthropic")                             # 換回 Claude：原本存的還在
+    _選服務(頁, "claude")                                # 換回 Claude：原本存的還在
     assert 頁.金鑰字.text() == "Claude：已儲存在這台電腦"
 
 
 def test_設定框_DeepSeek_其他相容服務_本機各自顯示(環境):
     台 = 環境["台"]
     for 網址, 預期字, 連結 in (("https://api.deepseek.com", "DeepSeek：尚未設定", "platform.deepseek.com/api_keys"),
-                          ("https://openrouter.ai/api/v1", "OpenAI 相容服務（openrouter.ai/api/v1）：尚未設定", ""),
+                          ("https://example.com/api/v1", "OpenAI 相容服務（example.com/api/v1）：尚未設定", ""),
                           ("http://localhost:11434/v1", "本機模型服務：這個服務不需要金鑰", "")):
         config.寫入設定({"provider": "openai_compatible", "base_url": 網址})
         頁 = _設定頁(台)
@@ -316,7 +318,7 @@ def test_設定框_按儲存才存金鑰_不按就不存(環境):
 
 def test_設定框_換服務後儲存_金鑰存到選的那一家(環境):
     頁 = _設定頁(環境["台"])
-    _選服務(頁, "openai_compatible")
+    _選服務(頁, "openai")
     頁.金鑰欄.setText(乙金鑰)
     頁.儲存()
     assert api_key.讀取已儲存("openai") == 乙金鑰 and api_key.讀取已儲存("claude") is None

@@ -34,6 +34,7 @@ import startup_timeline  # 啟動時間里程碑紀錄
 import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
 import language_state    # 目前語言（狀態列的語言藥丸與重新偵測）
 import config            # 設定檔 config.json 的讀取、語言清單
+import model_catalog     # 模型服務目錄與單價（單價未知 → 費用顯示「單價未知，無法估算」）
 import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
 import timefmt           # 時間格式與「幾分鐘前」
 
@@ -1396,12 +1397,13 @@ class 主控台(QMainWindow):
         self.語言狀態.開始(設定["language"], 直播)
         events.重新偵測.clear()
         self.更新語言顯示()
+        單價 = model_catalog.單價(設定) or (None, None)          # 查不到就是未知，不沿用舊單價
         self.字幕器.開始(設定["subtitle_mode"], 設定["language"], 設定["model"],
-                      設定["price_input"], 設定["price_output"],
+                      單價[0], 單價[1],
                       段位["批次秒"], 段位["批次句"])
         self.字幕器.啟用 = self.面板.要翻譯()     # 只有逐句翻譯面板開著才翻譯（省費用）
         self.聊天翻譯器.開始(設定["chat_translate"], 設定["language"], 設定["model"],
-                        設定["price_input"], 設定["price_output"], 設定["chat_translate_max_per_min"])
+                        單價[0], 單價[1], 設定["chat_translate_max_per_min"])
         self.聊天翻譯器.面板開著 = self.面板.聊天面板開著()
         self._更新聊天藥丸()
         startup_timeline.開始({
@@ -1658,14 +1660,14 @@ class 主控台(QMainWindow):
                 self._設藥丸(self.轉錄藥丸, "轉錄：跟得上" if 跟上 else "轉錄：跟不上直播")
                 self.轉錄藥丸.setStyleSheet(f"color: {綠 if 跟上 else 紅};")
             if "次數" in 內容:
-                費用 = "無法計算" if 內容["費用"] is None else f"${內容['費用']:.3f}"
+                費用 = model_catalog.費用字(內容["費用"])
                 self._設藥丸(self.費用藥丸, f"呼叫 {內容['次數']} 次 · 估算 {費用}")
             if "翻譯次數" in 內容:
-                費用 = "無法計算" if 內容["翻譯費用"] is None else f"${內容['翻譯費用']:.3f}"
+                費用 = model_catalog.費用字(內容["翻譯費用"])
                 延遲 = f" · 延遲約 {內容['翻譯延遲']:.0f} 秒" if 內容["翻譯延遲"] is not None else ""
                 self._設藥丸(self.翻譯藥丸, f"翻譯 {內容['翻譯次數']} 次 · {費用}{延遲}")
             if "聊天翻譯次數" in 內容:
-                費用 = "無法計算" if 內容["聊天翻譯費用"] is None else f"${內容['聊天翻譯費用']:.3f}"
+                費用 = model_catalog.費用字(內容["聊天翻譯費用"])
                 self._設藥丸(self.聊天翻譯藥丸, f"聊天翻譯 {內容['聊天翻譯次數']} 次 · {費用}")
                 self._更新聊天藥丸()
         elif 種類 == "info":

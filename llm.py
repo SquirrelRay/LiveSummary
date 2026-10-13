@@ -216,7 +216,8 @@ class 查證失敗(Exception):
 
 
 def 支援上網查證():
-    return PROVIDER == "anthropic"
+    """只有直接連 Claude 官方時（透過 OpenRouter 等轉接的 Claude 不算）。"""
+    return PROVIDER == "anthropic" and _服務代號() == "claude"
 
 
 def 上網搜尋(提示詞, 模型, 最多搜尋=2):
@@ -282,6 +283,9 @@ def 查證用量文字(單價_輸入, 單價_輸出):
     搜尋費 = u["搜尋"] * 每次搜尋美元
     if u["缺token"]:
         return f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，token：無法計算；搜尋費約 {搜尋費:.3f} 美元"
+    if 單價_輸入 is None or 單價_輸出 is None:           # 單價查不到：不估算，不沿用別的模型的單價
+        return (f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token；"
+                f"估算費用：單價未知，無法估算（搜尋費另計約 {搜尋費:.3f} 美元）")
     token費 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
     return (f"呼叫 {u['次數']} 次，搜尋 {u['搜尋']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token；"
             f"估算費用約 {token費 + 搜尋費:.3f} 美元（token {token費:.3f}，搜尋 {搜尋費:.3f}，每次 0.01 美元；金額為估算，實際以 API 帳單為準）")
@@ -292,9 +296,19 @@ def 查證用量文字(單價_輸入, 單價_輸出):
 測試成功, 測試金鑰無效, 測試連不上, 測試其他 = "成功", "金鑰無效", "連不上", "其他"
 
 
-def 測試連線(provider, base_url, 金鑰):
-    """用這把金鑰試著「列出模型」。回傳 (結果, 白話說明)；結果：成功／金鑰無效／連不上／其他。
-    說明不含金鑰、也不含伺服器回傳的原文（避免任何內容被帶出來）。"""
+def _模型資料(m):
+    """列出模型的一筆 → {"代號", "名稱", "輸入", "輸出"}（單價：OpenRouter 這類清單附價格的才有，每百萬 token 美元）。"""
+    import model_catalog
+    額外 = getattr(m, "model_extra", None) or {}
+    pricing = getattr(m, "pricing", None) or 額外.get("pricing")
+    輸入, 輸出 = model_catalog.解析單價(pricing) if pricing else (None, None)
+    名稱 = getattr(m, "display_name", None) or getattr(m, "name", None) or 額外.get("name") or ""
+    return {"代號": str(getattr(m, "id", "")), "名稱": str(名稱), "輸入": 輸入, "輸出": 輸出}
+
+
+def 列出模型(provider, base_url, 金鑰, 全部=True):
+    """「列出模型」（不用 token、不產生費用）。回傳 (結果, 白話說明, 模型們)；結果：成功／金鑰無效／連不上／其他。
+    全部=False 只拿一筆（測試連線用）。說明不含金鑰、也不含伺服器回傳的原文（避免任何內容被帶出來）。"""
     名稱 = api_key.服務名稱(api_key.服務代號(provider, base_url))
     網址 = (base_url or "").strip() or None
     try:
@@ -302,9 +316,9 @@ def 測試連線(provider, base_url, 金鑰):
             try:
                 import openai as 套件
             except ImportError:
-                return 測試其他, "還沒安裝 OpenAI 相容服務需要的套件（openai），無法測試。"
+                return 測試其他, "還沒安裝 OpenAI 相容服務需要的套件（openai），無法連線。", []
             client = 套件.OpenAI(api_key=金鑰 or "ollama", base_url=網址, max_retries=0, timeout=測試逾時秒)
-            client.models.list()
+            頁 = client.models.list()
         else:
             import anthropic as 套件
             參數 = {"max_retries": 0, "timeout": 測試逾時秒}
@@ -312,15 +326,33 @@ def 測試連線(provider, base_url, 金鑰):
                 參數["api_key"] = 金鑰
             if 網址:
                 參數["base_url"] = 網址
-            套件.Anthropic(**參數).models.list(limit=1)
+            頁 = 套件.Anthropic(**參數).models.list(limit=1000 if 全部 else 1)
+        模型們 = []
+        try:
+            迭代 = iter(頁)          # 官方套件的清單會自動翻頁
+        except TypeError:
+            迭代 = iter(getattr(頁, "data", None) or [])
+        for m in 迭代:
+            模型們.append(_模型資料(m))
+            if not 全部:
+                break
     except Exception as e:       # noqa: BLE001  任何錯誤都只回白話，不帶原文
         if isinstance(e, (套件.AuthenticationError, 套件.PermissionDeniedError)):
-            return 測試金鑰無效, "金鑰無效或沒有權限。請確認金鑰有完整複製（前後沒有多空白）。"
+            return 測試金鑰無效, "金鑰無效或沒有權限。請確認金鑰有完整複製（前後沒有多空白）。", []
         if isinstance(e, 套件.APIConnectionError):          # 含逾時
-            return 測試連不上, f"連不上 {名稱}。請確認網路連線，稍後再試一次。"
+            return 測試連不上, f"連不上 {名稱}。請確認網路連線，稍後再試一次。", []
         if isinstance(e, 套件.APIStatusError):
-            return 測試其他, f"{名稱} 回覆錯誤（代碼 {getattr(e, 'status_code', '?')}），請稍後再試一次。"
-        return 測試其他, "測試時發生問題，請再試一次。"
+            return 測試其他, f"{名稱} 回覆錯誤（代碼 {getattr(e, 'status_code', '?')}），請稍後再試一次。", []
+        return 測試其他, "連線時發生問題，請再試一次。", []
+    return 測試成功, "", [m for m in 模型們 if m["代號"]]
+
+
+def 測試連線(provider, base_url, 金鑰):
+    """用這把金鑰試著「列出模型」（只拿一筆）。回傳 (結果, 白話說明)；結果：成功／金鑰無效／連不上／其他。"""
+    結果, 說明, _ = 列出模型(provider, base_url, 金鑰, 全部=False)
+    if 結果 != 測試成功:
+        return 結果, 說明.replace("連線時發生問題", "測試時發生問題")
+    名稱 = api_key.服務名稱(api_key.服務代號(provider, base_url))
     return 測試成功, f"連線成功，{名稱} 的金鑰有效。（測試只列出模型清單，不會產生費用）"
 
 
@@ -337,6 +369,8 @@ def 用量文字(單價_輸入, 單價_輸出):
     u = 用量
     if u["缺token"]:
         return f"共呼叫 {u['次數']} 次，token：無法計算，估算費用：無法計算"
+    if 單價_輸入 is None or 單價_輸出 is None:           # 單價查不到：不估算，不沿用別的模型的單價
+        return f"共呼叫 {u['次數']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token，估算費用：單價未知，無法估算"
     費用 = u["輸入"] / 1e6 * 單價_輸入 + u["輸出"] / 1e6 * 單價_輸出
     return (f"共呼叫 {u['次數']} 次，輸入 {u['輸入']} / 輸出 {u['輸出']} token，"
             f"估算費用約 {費用:.3f} 美元（金額為估算，實際以 API 帳單為準）")

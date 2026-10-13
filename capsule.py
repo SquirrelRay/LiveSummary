@@ -18,6 +18,7 @@ import overlay          # 置頂規則（Windows 原生）
 import panel            # 面板選單（直接重用 建立面板選單）
 import ui_state         # 膠囊位置
 import config
+import model_catalog    # 單價未知時的費用字
 import stream_clock     # 滑鼠提示裡跳動的直播時間
 
 灰, 綠, 黃, 紅 = "#8a91a5", "#3ecf8e", "#f5b84a", "#ff5c7a"
@@ -495,12 +496,18 @@ class 膠囊管理(QObject):
         return s.文字() if s.顯示中() else ""
 
     def 總費用(self):
-        if self.費用 is None or self.翻譯費用 is None or self.聊天翻譯費用 is None:
+        """三份費用加總；有單價未知就是 model_catalog.未知，有拿不到 token 數就是 None。"""
+        費們 = (self.費用, self.翻譯費用, self.聊天翻譯費用)
+        if model_catalog.未知 in 費們:
+            return model_catalog.未知
+        if None in 費們:
             return None
-        return (self.費用 or 0.0) + (self.翻譯費用 or 0.0) + (self.聊天翻譯費用 or 0.0)
+        return sum(費 or 0.0 for 費 in 費們)
 
     def 用量短字(self):
         總 = self.總費用()
+        if 總 == model_catalog.未知:
+            return model_catalog.未知字
         return "$—" if 總 is None else f"${總:.2f}"
 
     def 時間字(self):

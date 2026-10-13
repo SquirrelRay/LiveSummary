@@ -24,6 +24,7 @@ from collections import deque
 import config  # 語言清單（單一來源）
 import events
 import llm
+import model_catalog  # 單價未知時費用是 model_catalog.未知
 import startup_timeline as 里程碑
 import subtitle  # 只用 讀譯文（從模型回答讀出 JSON 陣列）
 
@@ -367,7 +368,7 @@ class 聊天翻譯器:
         u = llm.聊天翻譯用量
         if u["缺token"]:
             return None
-        return u["輸入"] / 1e6 * self.單價[0] + u["輸出"] / 1e6 * self.單價[1]
+        return model_catalog.算費用(u["輸入"], u["輸出"], self.單價)     # 單價未知 → model_catalog.未知
 
     def 送狀態(self):
         events.送出("status", 聊天翻譯次數=llm.聊天翻譯用量["次數"], 聊天翻譯費用=self.費用())
@@ -380,5 +381,7 @@ class 聊天翻譯器:
         翻 = f"，翻了 {self.統計['已翻']} 則"
         if 費用 is None:
             return f"聊天室翻譯（另計）：呼叫 {u['次數']} 次{翻}，token 與費用無法計算"
+        if 費用 == model_catalog.未知:
+            return f"聊天室翻譯（另計）：呼叫 {u['次數']} 次{翻}，輸入 {u['輸入']} / 輸出 {u['輸出']} token，{model_catalog.未知字}"
         return (f"聊天室翻譯（另計）：呼叫 {u['次數']} 次{翻}，輸入 {u['輸入']} / 輸出 {u['輸出']} token，"
                 f"估算 {費用:.3f} 美元（金額為估算，實際以 API 帳單為準）")

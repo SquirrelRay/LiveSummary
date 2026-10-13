@@ -14,6 +14,7 @@ import llm        # 呼叫語言模型、錯誤種類、token 用量都在這裡
 import events     # 結果不直接 print，改成送出事件（終端機和介面都是接收者）
 import subtitle_speed   # 字幕速度段位：分段秒數與翻譯批次
 import config           # 設定檔 config.json 的預設、檢查、讀取都在這裡
+import model_catalog    # 模型的單價（查不到就是未知，不沿用舊單價）
 import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
 import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
@@ -451,13 +452,13 @@ def 加入(話題, 新行們):
 
 統計 = {"分鐘摘要": 0, "JSON失敗": 0}
 存檔 = {"摘要": True}               # 由 執行() 依設定 save_summary 填入：關掉時摘要照常產生，只是不寫檔
-單價 = {"輸入": config.出廠預設()["price_input"], "輸出": config.出廠預設()["price_output"]}   # 由 執行() 依設定填入，只用來估算費用
+單價 = {"輸入": config.出廠預設()["price_input"], "輸出": config.出廠預設()["price_output"]}   # 由 執行() 依設定填入，只用來估算費用；None = 單價未知
 
 
 def 送狀態():
     """送出這場目前的呼叫次數、token 與估算費用（命令列不印）。"""
     u = llm.用量
-    費用 = None if u["缺token"] else u["輸入"] / 1e6 * 單價["輸入"] + u["輸出"] / 1e6 * 單價["輸出"]
+    費用 = None if u["缺token"] else model_catalog.算費用(u["輸入"], u["輸出"], (單價["輸入"], 單價["輸出"]))
     events.送出("status", 次數=u["次數"], 輸入=u["輸入"], 輸出=u["輸出"], 費用=費用)
 
 
@@ -707,7 +708,7 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
         llm.查證用量[k] = 0
     統計["分鐘摘要"] = 0
     統計["JSON失敗"] = 0
-    單價["輸入"], 單價["輸出"] = 設定["price_input"], 設定["price_output"]
+    單價["輸入"], 單價["輸出"] = model_catalog.單價(設定) or (None, None)      # 查不到（自己輸入的模型等）就是未知，不沿用舊單價
     存檔["摘要"] = bool(設定["save_summary"])
 
     # 把設定套用到各個模組（模型名稱、話題長短、分鐘摘要句數）
@@ -783,9 +784,9 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
     if 查證:
         if 查證.進行中():
             events.送出("info", 印出=f"等待上網查證收尾（最多 {web_verify.收尾等待秒} 秒）...")
-        查證行 = 查證.收尾() + "；" + llm.查證用量文字(設定["price_input"], 設定["price_output"])
+        查證行 = 查證.收尾() + "；" + llm.查證用量文字(單價["輸入"], 單價["輸出"])
 
-    行們 = ["\n完成：切出 " + str(話題數) + " 個話題，" + llm.用量文字(設定["price_input"], 設定["price_output"])]
+    行們 = ["\n完成：切出 " + str(話題數) + " 個話題，" + llm.用量文字(單價["輸入"], 單價["輸出"])]
     音訊行 = 行來源.音訊統計() if hasattr(行來源, "音訊統計") else None
     if 音訊行:
         行們.append(音訊行)

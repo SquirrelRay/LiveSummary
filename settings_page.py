@@ -1,10 +1,16 @@
-# 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」）：功能開關、顯示上限、字幕速度段位、模型、存檔
+# 設定框（啟動面板的齒輪、膠囊／系統匣選單的「設定」）：模型服務與金鑰、功能開關、顯示上限、字幕速度段位、存檔
 # 按「儲存」才寫回 config.json（寫之前先備份成 config.backup.json）；
 # config.json 裡已停用的舊欄位（overlay、hotkey_compact、translate_batch_seconds／translate_batch_lines）原樣保留。
+# 模型服務與模型：兩個下拉選單（目錄在 model_catalog.py）。選服務自動帶入服務網址、金鑰欄位、「如何取得金鑰」；
+#   只有「其他相容服務」才顯示網址欄。模型選單列推薦模型（白話名稱＋說明），最後一項「其他（自己輸入）」才出現文字欄。
+#   「載入可用模型」用列出模型（不花錢）把服務實際提供的模型放進選單的進階區塊（可篩選）；Ollama 的推薦清單就是本機已下載的模型。
+#   單價查不到的模型（自己輸入、清單外沒附價格）費用一律顯示「單價未知，無法估算」。
 # API 金鑰：輸入時遮蔽（眼睛按鈕可暫時顯示剛輸入的字）；存在這台電腦的認證管理員（api_key.py），不寫進 config.json。
 #   「測試連線」成功才存、失敗絕不存；按「儲存」也會存；只輸入不按這兩顆就關掉，金鑰不會被存（和其他欄位一致）。
 #   已存的金鑰永遠不會放回輸入框，只顯示白話狀態。
+# 視窗大小：預設依內容算（不截斷文字），使用者拉過就記在 介面設定.json；超出目前螢幕時自動縮回。
 import os
+import re
 import threading
 
 from PySide6.QtCore import Qt, QObject, QEvent, QTimer, Signal
@@ -17,7 +23,12 @@ import api_key
 import config
 import cost_estimate
 import llm
+import model_catalog
 import subtitle_speed
+import ui_state
+
+清單上限 = 300           # 「載入可用模型」最多一次放幾個進選單（OpenRouter 有幾百個，其餘用篩選找）
+查證原因字 = "目前的模型服務不支援上網查證：只有直接連 Claude 時能用（透過 OpenRouter 用 Claude 也不支援）。"
 
 
 def 小標(字):
@@ -42,16 +53,22 @@ class 滾輪過濾(QObject):
 
 class 設定頁(QScrollArea):
     _測試完成 = Signal(object)        # 測試連線的背景執行緒 → 介面執行緒
+    _列出完成 = Signal(object)        # 載入可用模型的背景執行緒 → 介面執行緒
+    背景測試 = True                   # 測試連線、載入可用模型放背景執行緒（測試時設 False 改成直接執行）
 
     def __init__(self, 主):
         super().__init__()
         self.主 = 主                 # 主控台（換內容方向、看是否執行中）
-        self.背景測試 = True         # 測試連線放背景執行緒（測試時設 False 改成直接執行）
         self._測試完成.connect(self._測試連線完成)
+        self._列出完成.connect(self._載入模型完成)
         self._載入中 = False
+        self._已載入 = {}            # 服務代號 → 「載入可用模型」讀到的模型們（這次開程式內有效）
+        self._設定服務, self._設定模型, self._設定網址 = "claude", "", ""      # 表單載入時的設定（切回同一個服務時還原）
+        self._設定單價 = ("", None, None)    # 表單載入時的設定裡註明的單價（price_model, 輸入, 輸出）
+        self._查證記憶 = False       # 切到不支援上網查證的服務前，勾選的狀態
         self.下次標們 = []           # 「下次開始生效」標籤
         self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)     # 視窗被縮得太窄時寧可出現橫捲軸，也不截斷文字
         內 = QWidget()
         版 = QVBoxLayout(內)
         版.setContentsMargins(16, 16, 16, 16)
@@ -75,6 +92,7 @@ class 設定頁(QScrollArea):
         self.狀態字.setWordWrap(True)
         版.addWidget(self.狀態字)
 
+        版.addWidget(self._做模型區())
         版.addWidget(self._做一般區())
         版.addWidget(self._做費用區())
         版.addWidget(self._做存檔區())
@@ -109,8 +127,87 @@ class 設定頁(QScrollArea):
         self.下次標們.append(w)
         return w
 
+    def _做模型區(self):
+        """模型服務、模型（推薦清單＋其他）、單價、進階（載入可用模型、篩選）、API 金鑰。"""
+        框, 格 = self._面板("模型服務與 API 金鑰")
+        格.setColumnStretch(3, 0)            # 「下次開始生效」那一欄平常是空的：寬度都給下拉選單與金鑰欄
+        self.服務選 = QComboBox()
+        for s in model_catalog.服務們:
+            self.服務選.addItem(model_catalog.服務顯示名(s["代號"]), s["代號"])
+            self.服務選.setItemData(self.服務選.count() - 1,
+                                  model_catalog.實驗說明 if s["實驗性"] else "正式支援", Qt.ToolTipRole)
+        self.實驗標 = QLabel("實驗性")
+        self.實驗標.setStyleSheet("color: #f5b84a; font-weight: 700;")
+        self.實驗標.setToolTip(model_catalog.實驗說明)
+        服務列 = QWidget()
+        橫 = QHBoxLayout(服務列)
+        橫.setContentsMargins(0, 0, 0, 0)
+        橫.addWidget(self.服務選, 1)
+        橫.addWidget(self.實驗標)
+
+        self.網址標 = 小標("服務網址")
+        self.網址欄 = QLineEdit()
+        self.網址欄.setPlaceholderText("服務的網址，例如 https://example.com/v1")
+        self.模型選 = QComboBox()
+        self.模型選.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)   # 很長的模型名稱不把視窗撐寬
+        self.模型選.setMinimumContentsLength(24)
+        self.自訂標 = 小標("模型代號")
+        self.自訂模型欄 = QLineEdit()
+        self.自訂模型欄.setPlaceholderText("輸入服務文件上寫的模型代號（進階）")
+        self.單價字 = QLabel("")
+        self.單價字.setObjectName("小標")
+        self.單價字.setWordWrap(True)
+
+        進階 = QWidget()
+        橫2 = QHBoxLayout(進階)
+        橫2.setContentsMargins(0, 0, 0, 0)
+        進階字 = QLabel("進階：")
+        進階字.setObjectName("小標")
+        self.載入鈕 = QPushButton("載入可用模型")
+        self.載入鈕.setCursor(Qt.PointingHandCursor)
+        self.載入鈕.setToolTip("列出這個服務實際提供的模型（不會產生費用），放進模型選單的進階區塊")
+        self.篩選欄 = QLineEdit()
+        self.篩選欄.setPlaceholderText("輸入關鍵字篩選模型")
+        self.篩選欄.hide()
+        橫2.addWidget(進階字)
+        橫2.addWidget(self.載入鈕)
+        橫2.addWidget(self.篩選欄, 1)
+        橫2.addStretch(0)
+        self.載入訊息 = QLabel("")
+        self.載入訊息.setWordWrap(True)
+        self.載入訊息.hide()
+        self._做金鑰欄()
+
+        列 = 0
+        for 名, w, 下次 in (("模型服務", 服務列, True), (self.網址標, self.網址欄, True), ("模型", self.模型選, True),
+                         (self.自訂標, self.自訂模型欄, False)):
+            格.addWidget(小標(名) if isinstance(名, str) else 名, 列, 0)
+            格.addWidget(w, 列, 1, 1, 2)
+            if 下次:
+                格.addWidget(self._下次(), 列, 3)
+            列 += 1
+        for w in (self.單價字, 進階, self.載入訊息):
+            格.addWidget(w, 列, 1, 1, 3)
+            列 += 1
+        格.addWidget(小標("API 金鑰"), 列, 0)
+        格.addWidget(self.金鑰列, 列, 1, 1, 2)
+        列 += 1
+        for w in (self.金鑰狀態列, self.金鑰訊息, self.金鑰進階):
+            格.addWidget(w, 列, 1, 1, 3)
+            列 += 1
+        for w in (self.網址標, self.網址欄, self.自訂標, self.自訂模型欄):
+            w.hide()
+
+        self.服務選.currentIndexChanged.connect(self._換服務)
+        self.模型選.currentIndexChanged.connect(self._換模型)
+        self.自訂模型欄.textChanged.connect(lambda _: self._更新段位說明())
+        self.網址欄.textChanged.connect(lambda _: self._換網址())
+        self.載入鈕.clicked.connect(lambda: self.載入可用模型())
+        self.篩選欄.textChanged.connect(lambda _: self._重建模型選單())
+        return 框
+
     def _做一般區(self):
-        框, 格 = self._面板("功能與模型")
+        框, 格 = self._面板("功能")
         self.欄 = {}
         e = self.欄
         e["subtitle_mode"] = QComboBox()
@@ -123,6 +220,11 @@ class 設定頁(QScrollArea):
         e["chat_translate"] = QCheckBox("聊天室翻譯：外語直播時把留言翻成繁體中文（聊天室面板開著才翻，另外計費）")
         e["web_verify"] = QCheckBox("上網查證詞庫的候選名詞：查到台灣通行寫法就寫回詞庫並附來源網址（只支援 Claude，另外計費）")
         e["web_verify"].setToolTip("每場只查這一場新加入的候選，最多 10 個；查無的標「已查」不再重查。搜尋每次 0.01 美元＋token")
+        e["web_verify"].toggled.connect(self._記查證)
+        self.查證原因 = QLabel(查證原因字)
+        self.查證原因.setObjectName("小標")
+        self.查證原因.setWordWrap(True)
+        self.查證原因.hide()
         e["chat_translate_max_per_min"] = QSpinBox()
         e["chat_translate_max_per_min"].setRange(1, 600)
         e["chat_translate_max_per_min"].setSuffix(" 則")
@@ -154,21 +256,16 @@ class 設定頁(QScrollArea):
         self.段位說明 = QLabel()
         self.段位說明.setObjectName("小標")
         self.段位說明.setWordWrap(True)
-        self._單價 = (config.出廠預設()["price_input"], config.出廠預設()["price_output"])   # 估算費用用的單價，載入時從 config.json 讀
-        e["provider"] = QComboBox()
-        e["provider"].addItem("Claude", "anthropic")
-        e["provider"].addItem("OpenAI 相容服務", "openai_compatible")
-        e["provider"].currentIndexChanged.connect(self._更新段位說明)       # 上網查證只支援 anthropic：費用表跟著變
-        e["model"] = QLineEdit()
-        self._做金鑰欄()
-        e["provider"].currentIndexChanged.connect(lambda _: self._換服務())
 
         列 = 0
 
         def 加(名, w, 下次=False):
             nonlocal 列
-            格.addWidget(小標(名), 列, 0)
-            格.addWidget(w, 列, 1, 1, 2)
+            if 名:
+                格.addWidget(小標(名), 列, 0)
+                格.addWidget(w, 列, 1, 1, 2)
+            else:                                    # 沒有標題的勾選框：從最左邊開始，長的文字才放得下
+                格.addWidget(w, 列, 0, 1, 3)
             if 下次:
                 格.addWidget(self._下次(), 列, 3)
             列 += 1
@@ -176,6 +273,8 @@ class 設定頁(QScrollArea):
         加("逐句字幕模式", e["subtitle_mode"], True)
         for k in ("chat", "minute_summary", "fix_with_chat", "summary_thinking", "web_verify"):
             加("", e[k], True)
+        格.addWidget(self.查證原因, 列, 0, 1, 4)
+        列 += 1
         加("", e["chat_translate"])                 # 按「儲存」當場生效（膠囊選單也可以直接切換）
         加("聊天室翻譯每分鐘最多翻", e["chat_translate_max_per_min"], True)
         加("分鐘摘要句數", e["minute_sentences"], True)
@@ -189,12 +288,6 @@ class 設定頁(QScrollArea):
         self.段位下次標 = self.下次標們[-1]
         格.addWidget(self.段位說明, 列, 1, 1, 3)
         列 += 1
-        加("模型服務", e["provider"], True)
-        加("模型名稱", e["model"], True)
-        加("API 金鑰", self.金鑰列)
-        for w in (self.金鑰狀態列, self.金鑰訊息, self.金鑰進階):
-            格.addWidget(w, 列, 1, 1, 3)
-            列 += 1
         return 框
 
     def _做金鑰欄(self):
@@ -287,11 +380,10 @@ class 設定頁(QScrollArea):
 
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):
-        """把設定（config.載入設定 的格式）放進表單。不給就讀 config.json。"""
-        現行 = config.目前設定()
+        """把設定（config.載入設定 的格式）放進表單。不給就讀 config.json。
+        舊設定（只有 provider＋base_url＋model）自動對到服務與模型：模型不在推薦清單就顯示成「其他（自己輸入）」；服務對不到就是其他相容服務。"""
         if 設定 is None:
-            設定 = 現行
-        self._單價 = (現行["price_input"], 現行["price_output"])     # 單價不在表單上：估算費用一律用 config.json 的單價（還原預設也一樣）
+            設定 = config.目前設定()
         self._載入中 = True
         try:
             e = self.欄
@@ -305,18 +397,39 @@ class 設定頁(QScrollArea):
                     w.setValue(int(v))
                 elif isinstance(w, QLineEdit):
                     w.setText(str(v))
+            self._記住設定(設定)
+            self._查證記憶 = bool(設定["web_verify"])
+            self.服務選.setCurrentIndex(max(0, self.服務選.findData(self._設定服務)))
         finally:
             self._載入中 = False
-        self._更新段位說明()
-        self.更新金鑰()
+        self.自訂模型欄.setText("")
+        self._套用服務(self._設定服務, 模型=self._設定模型)
+
+    def _記住設定(self, 設定):
+        self._設定服務 = model_catalog.設定的服務(設定)
+        self._設定模型 = 設定.get("model", "")
+        self._設定網址 = 設定.get("base_url", "") if self._設定服務 == model_catalog.其他 else ""
+        self._設定單價 = (設定.get("price_model", ""), 設定.get("price_input"), 設定.get("price_output"))
 
     def _更新段位說明(self, *_):
         """字幕速度下方：延遲與準確度、分段與批次設定；並重算下方的每小時費用表。"""
-        if "chat" not in self.欄 or "費用格" not in self.__dict__:      # 建構途中，表單還沒建完
+        if "chat" not in getattr(self, "欄", {}) or "費用格" not in self.__dict__:      # 建構途中，表單還沒建完
             return
         代碼 = self.欄["subtitle_speed"].currentData()
         self.段位說明.setText(subtitle_speed.延遲準確度字(代碼) + chr(10) + subtitle_speed.批次文字(代碼))
         self._更新費用表()
+
+    def _模型設定(self):
+        """表單上選的服務與模型 → 要寫進設定的 provider、base_url、model 與單價欄位。
+        單價查得到（推薦清單、OpenRouter 清單附的價格、本機 0）才寫，並註明是哪個模型的；查不到就清掉對應（費用顯示單價未知）。"""
+        模型 = self.目前模型()
+        設 = dict(model_catalog.服務設定(self.目前服務(), self.網址欄.text()), model=模型)
+        單 = self._選的單價()
+        if 單:
+            設.update(price_input=單[0], price_output=單[1], price_model=模型)
+        else:
+            設["price_model"] = ""
+        return 設
 
     def _表單設定(self):
         """目前表單上的值（含還沒按儲存的）合成一份設定，費用表用它估算；語言不在表單上，取 config.json 的。"""
@@ -324,10 +437,10 @@ class 設定頁(QScrollArea):
         return dict(config.目前設定(),
                     subtitle_mode=e["subtitle_mode"].currentData(), chat=e["chat"].isChecked(),
                     minute_summary=e["minute_summary"].isChecked(), summary_thinking=e["summary_thinking"].isChecked(),
-                    minute_sentences=e["minute_sentences"].value(), price_input=self._單價[0], price_output=self._單價[1],
+                    minute_sentences=e["minute_sentences"].value(),
                     chat_translate=e["chat_translate"].isChecked(),
                     chat_translate_max_per_min=e["chat_translate_max_per_min"].value(),
-                    web_verify=e["web_verify"].isChecked(), provider=e["provider"].currentData())
+                    web_verify=e["web_verify"].isChecked(), **self._模型設定())
 
     def _更新費用表(self):
         代碼 = self.欄["subtitle_speed"].currentData()
@@ -349,26 +462,239 @@ class 設定頁(QScrollArea):
                 格.addWidget(w, r, c)
         self.費用表 = 列們
 
-    # ---------- API 金鑰 ----------
-    def _表單服務(self):
-        """表單上選的模型服務 → (provider, 服務網址, 舊設定的環境變數名稱)。
-        和記住的設定同一種服務就沿用它的網址與環境變數名稱；切到別種服務就用該家預設。"""
-        現行 = config.目前設定()
-        provider = self.欄["provider"].currentData()
-        if provider == 現行["provider"]:
-            return provider, 現行["base_url"], 現行["api_key_env"]
-        return provider, "", api_key.出廠環境變數
+    # ---------- 模型服務與模型 ----------
+    def 目前服務(self):
+        return self.服務選.currentData()
 
-    def 金鑰代號(self):
-        provider, 網址, _ = self._表單服務()
-        return api_key.服務代號(provider, 網址)
+    def 目前模型(self):
+        值 = self.模型選.currentData()
+        if 值 == model_catalog.自訂:
+            return self.自訂模型欄.text().strip()
+        return 值 or ""
 
-    def _換服務(self):
+    def _換服務(self, *_):
         if self._載入中:
             return
         self.金鑰欄.clear()                 # 打到一半的金鑰不跟著換到別的服務
         self.金鑰訊息.hide()
+        self.自訂模型欄.setText("")          # 舊服務的模型不殘留
+        self._套用服務(self.目前服務())
+
+    def _套用服務(self, 服務, 模型=None):
+        """換到這個服務：網址（只有其他相容服務顯示）、實驗性標示、模型選單（回到記住的或建議的模型）、上網查證、金鑰、費用。"""
+        同 = 服務 == self._設定服務
+        self.網址欄.blockSignals(True)
+        self.網址欄.setText(self._設定網址 if 同 and 服務 == model_catalog.其他 else "")
+        self.網址欄.blockSignals(False)
+        for w in (self.網址標, self.網址欄):
+            w.setVisible(服務 == model_catalog.其他)
+        實驗 = model_catalog.服務(服務)["實驗性"]
+        self.實驗標.setVisible(實驗)
+        self.服務選.setToolTip(model_catalog.實驗說明 if 實驗 else "")
+        self.篩選欄.blockSignals(True)
+        self.篩選欄.clear()
+        self.篩選欄.blockSignals(False)
+        self.篩選欄.setVisible(bool(self._清單(服務)))
+        self.載入訊息.hide()
+        if 模型 is None:
+            模型 = self._設定模型 if 同 else (model_catalog.建議模型(服務) or model_catalog.自訂)
+        self._重建模型選單(模型)
+        self._更新查證可用()
         self.更新金鑰()
+        self._更新段位說明()
+        if 服務 == "ollama" and "ollama" not in self._已載入:
+            self.載入可用模型(自動=True)        # Ollama 的推薦清單就是本機已下載的模型
+
+    def _換網址(self):
+        """其他相容服務改了網址：之前載入的清單不算數，金鑰也換成這個網址的那一格。"""
+        self._已載入.pop(model_catalog.其他, None)
+        self.篩選欄.hide()
+        self._重建模型選單()
+        self.更新金鑰()
+
+    def _推薦們(self, 服務):
+        if 服務 == "ollama":
+            已 = self._已載入.get("ollama")
+            代號們 = [m["代號"] for m in 已] if 已 is not None else (
+                [self._設定模型] if self._設定服務 == "ollama" and self._設定模型 else [])
+            return [model_catalog.模型項(c, c, "本機模型", 0.0, 0.0) for c in 代號們]
+        return model_catalog.推薦(服務)
+
+    def _清單(self, 服務):
+        """「載入可用模型」讀到的清單（Ollama 的直接當推薦清單，不在進階區塊）。"""
+        return None if 服務 == "ollama" else self._已載入.get(服務)
+
+    def _加標題(self, 字):
+        w = self.模型選
+        w.addItem(字, None)
+        w.model().item(w.count() - 1).setEnabled(False)
+
+    def _重建模型選單(self, 偏好=None):
+        """推薦模型 →（載入過）服務提供的模型（進階，可篩選）→ 其他（自己輸入）。偏好：要選的模型代號（或 自訂）。"""
+        服務 = self.目前服務()
+        if 偏好 is None:
+            偏好 = self.模型選.currentData()
+            if 偏好 == model_catalog.自訂 and self.自訂模型欄.text().strip():
+                偏好 = self.自訂模型欄.text().strip()
+        w = self.模型選
+        w.blockSignals(True)
+        w.clear()
+        推薦們 = self._推薦們(服務)
+        for m in 推薦們:
+            w.addItem(model_catalog.模型顯示名(m), m["代號"])
+            提示 = ("本機模型，不花 API 費用" if 服務 == "ollama" else
+                  model_catalog.單價字(m["輸入"], m["輸出"]) + (f"。{m['備註']}" if m["備註"] else ""))
+            w.setItemData(w.count() - 1, 提示, Qt.ToolTipRole)
+        清單 = self._清單(服務)
+        if 清單:
+            推薦代號 = {m["代號"] for m in 推薦們}
+            篩 = self.篩選欄.text().strip().lower()
+            其餘 = [m for m in 清單 if m["代號"] not in 推薦代號
+                  and (not 篩 or 篩 in m["代號"].lower() or 篩 in m["名稱"].lower() or m["代號"] == 偏好)]
+            if w.count():
+                w.insertSeparator(w.count())
+            self._加標題(f"服務提供的模型（進階，{'符合的 ' if 篩 else ''}{len(其餘)} 個）")
+            for m in 其餘[:清單上限]:
+                w.addItem(m["代號"], m["代號"])
+                提示 = (model_catalog.單價字(m["輸入"], m["輸出"], 日期="") + "，服務的模型清單附的單價"
+                      if m["輸入"] is not None else "單價未知，無法估算費用")
+                w.setItemData(w.count() - 1, 提示, Qt.ToolTipRole)
+            if len(其餘) > 清單上限:
+                self._加標題(f"還有 {len(其餘) - 清單上限} 個，請在篩選欄輸入關鍵字")
+        if w.count():
+            w.insertSeparator(w.count())
+        w.addItem("其他（自己輸入）", model_catalog.自訂)
+        w.setItemData(w.count() - 1, "自己輸入模型代號（進階）；單價未知，費用無法估算", Qt.ToolTipRole)
+        i = w.findData(偏好) if 偏好 else -1
+        if i < 0 and 偏好 and 偏好 != model_catalog.自訂:          # 不在清單裡的模型：顯示成「其他（自己輸入）」並帶入原本的代號
+            i = w.findData(model_catalog.自訂)
+            self.自訂模型欄.setText(偏好)
+        if i < 0:
+            建議 = model_catalog.建議模型(服務)
+            i = w.findData(建議) if 建議 else (0 if 推薦們 else w.findData(model_catalog.自訂))
+        w.setCurrentIndex(i)
+        w.blockSignals(False)
+        self._換模型()
+
+    def _選的單價(self):
+        """目前選的模型的 (輸入, 輸出) 單價；自己輸入、清單外沒附價格 → None（不沿用舊單價）。"""
+        值, 服務 = self.模型選.currentData(), self.目前服務()
+        if not 值 or 值 == model_catalog.自訂:
+            return None
+        if 服務 == "ollama":
+            return 0.0, 0.0
+        if 服務 == self._設定服務:              # 設定裡註明是這個模型的單價（進階使用者自己填的）優先，和實際估算的規則一致
+            單 = model_catalog.單價({"model": 值, "price_model": self._設定單價[0],
+                                  "price_input": self._設定單價[1], "price_output": self._設定單價[2]})
+            if 單 and self._設定單價[0] == 值:
+                return 單
+        m = model_catalog.找模型(服務, 值) or next((x for x in self._清單(服務) or [] if x["代號"] == 值), None)
+        if m and m["輸入"] is not None and m["輸出"] is not None:
+            return m["輸入"], m["輸出"]
+        return None
+
+    def _換模型(self, *_):
+        自訂 = self.模型選.currentData() == model_catalog.自訂
+        for w in (self.自訂標, self.自訂模型欄):
+            w.setVisible(自訂)
+        單 = self._選的單價()
+        值, 服務 = self.模型選.currentData(), self.目前服務()
+        if 服務 == "ollama" and 值 and not 自訂:
+            字 = "本機模型，不花 API 費用"
+        elif 單 is None:
+            字 = model_catalog.未知字 + "（費用表、啟動面板、膠囊都會顯示無法估算）"
+        elif model_catalog.找模型(服務, 值):
+            m = model_catalog.找模型(服務, 值)
+            字 = model_catalog.單價字(*單) + (f"。{m['備註']}" if m["備註"] else "")
+        else:
+            字 = model_catalog.單價字(*單, 日期="") + "，服務的模型清單附的單價"
+        self.單價字.setText(字)
+        self.模型選.setToolTip(self.模型選.itemData(self.模型選.currentIndex(), Qt.ToolTipRole) or "")
+        self._更新段位說明()
+
+    def _記查證(self, 開):
+        if not self._載入中 and self.欄["web_verify"].isEnabled():
+            self._查證記憶 = bool(開)
+
+    def _更新查證可用(self):
+        """上網查證只有直接連 Claude 時能用：其他服務停用勾選並寫原因；切回 Claude 還原原本的勾選。"""
+        可 = self.目前服務() == "claude"
+        w = self.欄["web_verify"]
+        w.blockSignals(True)
+        w.setChecked(self._查證記憶 if 可 else False)
+        w.setEnabled(可)
+        w.blockSignals(False)
+        self.查證原因.setVisible(not 可)
+
+    # ---------- 載入可用模型 ----------
+    def _載入提示(self, 字, 錯=False, 顏色=None):
+        self.載入訊息.setStyleSheet(f"color: {顏色 or ('#ff5c7a' if 錯 else '#3ecf8e')};")
+        self.載入訊息.setText(字)
+        self.載入訊息.setVisible(bool(字))
+
+    def 載入可用模型(self, 自動=False):
+        """用「列出模型」（不花錢）讀服務實際提供的模型。沒有金鑰或連不上時用白話說明。"""
+        服務 = self.目前服務()
+        provider, 網址, 環境 = self._表單服務()
+        if 服務 == model_catalog.其他 and not 網址:
+            return self._載入提示("請先填「服務網址」，再按「載入可用模型」。", 錯=True)
+        代號 = api_key.服務代號(provider, 網址)
+        狀態, 已有 = api_key.來源與金鑰(代號, 環境)
+        金鑰 = self.金鑰欄.text().strip() or 已有
+        if 狀態 != api_key.不需要 and not 金鑰:
+            return self._載入提示("還沒有這個服務的 API 金鑰：請先在下面貼上金鑰，再按「載入可用模型」。", 錯=True)
+        self.載入鈕.setEnabled(False)
+        self._載入提示("正在讀取 Ollama 裡的模型…" if 服務 == "ollama" else "載入中…", 顏色="#8a91a5")
+
+        def 做():
+            try:
+                結果, 說明, 模型們 = llm.列出模型(provider, 網址, 金鑰)
+            except Exception:          # noqa: BLE001  不讓背景執行緒的錯誤帶出任何內容
+                結果, 說明, 模型們 = llm.測試其他, "載入時發生問題，請再試一次。", []
+            self._列出完成.emit((服務, 網址, 結果, api_key.遮掉(說明, 金鑰), 模型們))
+        if self.背景測試:
+            threading.Thread(target=做, daemon=True, name="載入可用模型").start()
+        else:
+            做()
+
+    def _載入模型完成(self, 包):
+        服務, 網址, 結果, 說明, 模型們 = 包
+        self.載入鈕.setEnabled(True)
+        if 服務 != self.目前服務() or 網址 != self._表單服務()[1]:      # 使用者已經換了服務或網址：這份清單不用了
+            return
+        if 結果 != llm.測試成功:
+            if 服務 == "ollama" and 結果 == llm.測試連不上:
+                說明 = "連不上 Ollama。請先打開 Ollama，再按「載入可用模型」。"
+            return self._載入提示(說明, 錯=True)
+        模型們 = sorted(模型們, key=lambda m: m["代號"].lower())
+        self._已載入[服務] = 模型們
+        偏好 = None
+        if 服務 == "ollama":
+            if not 模型們:
+                self._載入提示("Ollama 裡還沒有下載任何模型。請先打開命令提示字元，執行「ollama pull 模型名稱」下載模型，"
+                           "再按「載入可用模型」。", 錯=True)
+            else:
+                self._載入提示(f"已讀到這台電腦裡的 {len(模型們)} 個模型。")
+                if not self.目前模型():
+                    偏好 = 模型們[0]["代號"]
+        else:
+            self._載入提示(f"已載入 {len(模型們)} 個模型，放在模型選單的「進階」區塊" +
+                       ("；可以在右邊輸入關鍵字篩選。" if 模型們 else "。"))
+            self.篩選欄.setVisible(bool(模型們))
+        self._重建模型選單(偏好)
+
+    # ---------- API 金鑰 ----------
+    def _表單服務(self):
+        """表單上選的模型服務 → (provider, 服務網址, 舊設定的環境變數名稱)。
+        和記住的設定同一個服務就沿用它的環境變數名稱；切到別的服務就用該家預設。"""
+        服務 = self.目前服務()
+        設 = model_catalog.服務設定(服務, self.網址欄.text())
+        環境 = config.目前設定()["api_key_env"] if 服務 == self._設定服務 else api_key.出廠環境變數
+        return 設["provider"], 設["base_url"], 環境
+
+    def 金鑰代號(self):
+        provider, 網址, _ = self._表單服務()
+        return api_key.服務代號(provider, 網址)
 
     def 更新金鑰(self):
         """依表單上選的服務顯示：狀態（白話）、如何取得金鑰、進階小字；不需要金鑰的服務停用輸入欄。"""
@@ -456,7 +782,7 @@ class 設定頁(QScrollArea):
         self.主.更新啟動面板費用()
 
     def 讀全部(self):
-        """回傳要寫進 config.json 的欄位（不含已停用的舊欄位）。"""
+        """回傳要寫進 config.json 的欄位（不含已停用的舊欄位）。服務、網址、模型、單價一起換，舊服務的值不殘留。"""
         e = self.欄
         一般 = {
             "subtitle_mode": e["subtitle_mode"].currentData(),
@@ -473,8 +799,10 @@ class 設定頁(QScrollArea):
             "ui_max_summary": e["ui_max_summary"].value(),
             "subtitle_speed": e["subtitle_speed"].currentData(),
             "time_display": e["time_display"].currentData(),
-            "provider": e["provider"].currentData(), "model": e["model"].text().strip(),
+            **self._模型設定(),
         }
+        if self.目前服務() != model_catalog.設定的服務(config.目前設定()):
+            一般["api_key_env"] = api_key.出廠環境變數       # 換了服務：舊服務的環境變數名稱不殘留（出廠值 = 各家預設名稱）
         return 一般
 
     # ---------- 立即生效的項目 ----------
@@ -499,14 +827,18 @@ class 設定頁(QScrollArea):
     # ---------- 儲存、還原 ----------
     def 儲存(self):
         一般 = self.讀全部()
+        服務 = self.目前服務()
+        if 服務 == model_catalog.其他 and not re.match(r"https?://\S+$", 一般["base_url"]):
+            return self._提示("請填「服務網址」（例如 https://example.com/v1）。", 錯=True)
         if not 一般["model"]:
-            return self._提示("模型名稱不能空白。", 錯=True)
+            return self._提示("請先選擇模型（Ollama 要先下載模型）。" if 服務 == "ollama" else "模型名稱不能空白。", 錯=True)
         代號 = self.金鑰代號()                   # 用寫入前的設定決定是哪個服務（寫入後 provider 可能已改）
         金鑰 = self.金鑰欄.text().strip() if self.金鑰欄.isEnabled() else ""
         try:
             config.寫入設定(一般)        # 只更新表單上的欄位；其他欄位（含已停用的 overlay、hotkey_compact）原樣保留；寫之前先備份
         except Exception as e:
             return self._提示(f"儲存失敗：{type(e).__name__}：{e}", 錯=True)
+        self._記住設定(config.目前設定())
         金鑰字 = ""
         if 金鑰:
             try:
@@ -537,7 +869,9 @@ class 設定頁(QScrollArea):
 
 
 class 設定框(QWidget):
-    """獨立的「設定」視窗（啟動面板的齒輪、膠囊選單的「設定」）：內容就是上面的 設定頁，不另外寫一份。"""
+    """獨立的「設定」視窗（啟動面板的齒輪、膠囊選單的「設定」）：內容就是上面的 設定頁，不另外寫一份。
+    大小：預設依內容算到所有文字都放得下；使用者拉過就記住；超出目前螢幕就縮回螢幕內。"""
+    螢幕邊距 = 20
 
     def __init__(self, 主):
         super().__init__(None, Qt.Window)
@@ -545,11 +879,50 @@ class 設定框(QWidget):
         self.setObjectName("根")
         self.setAttribute(Qt.WA_StyledBackground)
         self.setWindowTitle("直播摘要 設定")
-        self.resize(820, 760)
+        self._程式調整 = False        # 程式自己 resize 時不算「使用者拉過」
+        self._使用者拉過 = False
         版 = QVBoxLayout(self)
         版.setContentsMargins(8, 8, 8, 8)
         self.頁 = 設定頁(主)
         版.addWidget(self.頁)
+        self._調整大小(*self.預設大小())
+
+    def 預設大小(self, 螢幕範圍=None):
+        """內容需要的寬度（所有文字、按鈕不截斷）＋捲軸與邊框；高度最多到螢幕的九成，其餘用捲軸。"""
+        內 = self.頁.widget()
+        內.ensurePolished()
+        需要 = 內.sizeHint()
+        邊 = self.layout().contentsMargins()
+        框 = 2 * self.頁.frameWidth()
+        寬 = 需要.width() + self.頁.verticalScrollBar().sizeHint().width() + 邊.left() + 邊.right() + 框 + 4
+        高 = 需要.height() + 邊.top() + 邊.bottom() + 框
+        if 螢幕範圍 is not None:
+            高 = min(高, int(螢幕範圍.height() * 0.9))
+        return self.縮進螢幕(寬, 高, 螢幕範圍)
+
+    def 縮進螢幕(self, 寬, 高, 螢幕範圍):
+        if 螢幕範圍 is None:
+            return 寬, 高
+        return (max(200, min(寬, 螢幕範圍.width() - 2 * self.螢幕邊距)),
+                max(200, min(高, 螢幕範圍.height() - 2 * self.螢幕邊距)))
+
+    def _調整大小(self, 寬, 高):
+        self._程式調整 = True
+        try:
+            self.resize(寬, 高)
+        finally:
+            self._程式調整 = False
+
+    def resizeEvent(self, e):
+        if self.isVisible() and not self._程式調整:
+            self._使用者拉過 = True
+        super().resizeEvent(e)
+
+    def hideEvent(self, e):
+        if self._使用者拉過:                      # 使用者拉過才記（存在本機的 介面設定.json，不進 git）
+            ui_state.存設定框大小(self.width(), self.height())
+            self._使用者拉過 = False
+        super().hideEvent(e)
 
     def 打開(self, 螢幕範圍=None, 捲到金鑰=False):
         """每次打開都從 config.json 重新載入（沒按「儲存」的修改不保留，輸入框裡沒存的金鑰也清掉）。放在指定螢幕範圍的中間。
@@ -561,8 +934,10 @@ class 設定框(QWidget):
             self.頁.載入()
             self.頁.設執行中(self.主.執行中())
             self.頁.狀態字.setText("")
+            記住 = ui_state.讀設定框大小()
+            寬, 高 = self.縮進螢幕(*記住, 螢幕範圍) if 記住 else self.預設大小(螢幕範圍)
+            self._調整大小(寬, 高)
             if 螢幕範圍 is not None:
-                self.resize(min(820, 螢幕範圍.width() - 40), min(760, 螢幕範圍.height() - 40))
                 self.move(螢幕範圍.center() - self.rect().center())
         self.show()
         self.raise_()

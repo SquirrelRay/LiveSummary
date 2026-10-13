@@ -72,7 +72,7 @@ def 環境(qapp, tmp_path, monkeypatch, capfd, request):
     if getattr(request, "param", None) != "沒有設定檔":
         shutil.copy2(範例設定, 設定檔)            # 用 git 裡的範例設定（不讀本機的 config.json）；備份檔也會寫在 tmp_path
         內容 = json.loads(設定檔.read_text(encoding="utf-8"))
-        內容.update(price_input=1.0, price_output=5.0)      # 這些測試的金額斷言（$0.21、$0.30…）是照 1／5 的單價算的，與出廠預設單價無關
+        內容.update(price_input=1.0, price_output=5.0, price_model=內容["model"])      # 這些測試的金額斷言（$0.21、$0.30…）是照 1／5 的單價算的，與出廠預設單價無關
         設定檔.write_text(json.dumps(內容), encoding="utf-8")
     monkeypatch.setattr(config, "設定檔路徑", str(設定檔))
     monkeypatch.setattr(ui_state, "網址紀錄檔", str(tmp_path / "網址紀錄.json"))

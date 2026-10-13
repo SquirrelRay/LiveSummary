@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 import config
 import glossary
 import llm
+import model_catalog
 import web_verify
 
 
@@ -82,7 +83,7 @@ def main():
         sys.exit(1)
     if 計數 is None:
         sys.exit(1)
-    print(web_verify.結束文字(計數, max(0, args.max)) + "；" + llm.查證用量文字(設定["price_input"], 設定["price_output"]))
+    print(web_verify.結束文字(計數, max(0, args.max)) + "；" + llm.查證用量文字(*(model_catalog.單價(設定) or (None, None))))
 
 
 if __name__ == "__main__":

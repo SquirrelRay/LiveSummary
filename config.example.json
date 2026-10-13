@@ -25,6 +25,7 @@
   "api_key_env": "ANTHROPIC_API_KEY",
   "price_input": 0.1,
   "price_output": 0.5,
+  "price_model": "claude-haiku-5-5",
   "subtitle_mode": "auto",
   "subtitle_speed": "balanced",
   "capsule_show_usage": false,
