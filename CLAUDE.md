@@ -5,7 +5,11 @@
 - 套件一律用鎖定檔安裝：`.venv\Scripts\python.exe -m pip install -r requirements-lock.txt`；`requirements.txt` 是給人看的主要套件與說明。
 - 不要在 `.venv` 裡單獨升級或另裝套件；要升級照 README「開發環境」的步驟重新產生鎖定檔。av 維持 17.1.0（原因見 requirements.txt）。
 - 打包 .exe 的調查、決定與步驟在 `docs/打包調查.md`，做打包相關工作前先讀。
-- 打包：`.venv\Scripts\python.exe scripts\build_exe.py`（設定 `LiveSummary.spec`）→ `dist\LiveSummary\`（LiveSummary.exe＋helper.exe＋_internal）與 `dist\LiveSummary.zip`；build\、dist\ 不提交。英文名稱 LiveSummary（exe、資料夾、AppData）；「文件」\直播摘要、視窗標題、介面文字維持中文。
+- 打包：`.venv\Scripts\python.exe scripts\build_exe.py`（設定 `LiveSummary.spec`）→ `dist\LiveSummary\`（LiveSummary.exe 啟動器＋LiveSummaryApp.exe 主程式＋helper.exe＋_internal）與 `dist\LiveSummary-v版本號.zip`；build\、dist\ 不提交。英文名稱 LiveSummary（exe、資料夾、AppData）；「文件」\直播摘要、視窗標題、介面文字維持中文。
+
+- 版本號只寫在 `version.py`（改版本只改那裡）；其他地方（設定框、當機紀錄、exe 檔案內容、zip 檔名）都從它讀，不准寫死。
+- 沒被接住的錯誤由 `crash_log.py` 寫進 `logs\當機紀錄.txt` 並遮掉 API 金鑰；程式裡不准放使用者能觸發的「測試當機」，測試用的觸發方式只在 tests 裡。
+- 使用者點的 `LiveSummary.exe` 是 `stub\Stub.cs` 編出的小啟動器（原因見 docs/打包調查.md「第5步之一」），真正的主程式是 `LiveSummaryApp.exe`。
 
 ## 檔案位置（開發和打包版相同）
 - 程式資料（config.json、介面設定、網址紀錄、版面配置、詞庫\、logs\、翻譯錯誤紀錄）在 `%LOCALAPPDATA%\LiveSummary`；輸出（直播稿、摘要、聊天室、逐句翻譯）在「文件」`\直播摘要`（Known Folder 取得，OneDrive 接管也對）。

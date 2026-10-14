@@ -105,7 +105,7 @@ def 頻道查詢():
 def 頻道(網址):
     """網址欄的字 → (詞庫名, "")；看不出是哪位直播主 → (None, 白話原因)。
     Twitch：詞庫名＝頻道名稱。YouTube：詞庫名＝YT_頻道ID；頻道 ID 要上網查，查詢中回傳 (None, 查詢中)，查完送出 頻道查詢().查完。"""
-    網址 = (網址 or "").strip()
+    網址 = platforms.整理網址(網址)
     if not 網址:
         return None, "請先在啟動面板輸入 Twitch 頻道網址或 YouTube 直播網址"
     資 = platforms.判斷(網址)

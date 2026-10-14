@@ -29,6 +29,7 @@ import llm
 import model_catalog
 import subtitle_speed
 import ui_state
+import version
 
 清單上限 = 300           # 「載入可用模型」最多一次放幾個進選單（OpenRouter 有幾百個，其餘用篩選找）
 文字稿旗標 = "顯示文字稿模式"       # 介面設定.json 的旗標：主控台來源要不要出現「文字稿檔案」（開發測試用）
@@ -596,6 +597,10 @@ class 設定頁(QScrollArea):
         版.addWidget(self._做費用區())
         版.addWidget(self._做存檔區())
         版.addWidget(self._做開發者區())
+        self.版本標 = QLabel(f"{version.產品名} {version.版本字()}")      # 版本號只寫在 version.py
+        self.版本標.setObjectName("小標")
+        self.版本標.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        版.addWidget(self.版本標)
         版.addStretch(1)
         self.setWidget(內)
         self._滾輪 = 滾輪過濾(self)

@@ -489,12 +489,27 @@
         .venv\Scripts\python.exe scripts\build_exe.py
       先要有 vendor\ffmpeg（上面 2-1）。設定在 LiveSummary.spec；腳本會清掉舊的、打包、放 LICENSE、驗收（該收的檔案都在、
       helper.exe 列得出 streamlink 外掛）、壓縮，最後印出花費時間與大小。結果：
-        dist\LiveSummary\LiveSummary.exe   主程式（無視窗）
-        dist\LiveSummary\helper.exe        命令列版，主程式另開 streamlink／yt_audio 用（使用者不用點它）
-        dist\LiveSummary\_internal\        共用的程式庫、隨附 ffmpeg（ffmpeg\bin）、cuBLAS（nvidia\cublas\bin）
-        dist\LiveSummary.zip               整個資料夾的壓縮檔
+        dist\LiveSummary\LiveSummary.exe     使用者點的啟動器（C# 小程式，約 6 KB，stub\Stub.cs，用 Windows 內建的 csc.exe 編）
+        dist\LiveSummary\LiveSummaryApp.exe  真正的主程式（無視窗）；啟動器檢查檔案齊全後啟動它
+        dist\LiveSummary\helper.exe          命令列版，主程式另開 streamlink／yt_audio 用（使用者不用點它）
+        dist\LiveSummary\_internal\          共用的程式庫、隨附 ffmpeg（ffmpeg\bin）、cuBLAS（nvidia\cublas\bin）
+        dist\LiveSummary-v1.0.0.zip          整個資料夾的壓縮檔（檔名的版本號從 version.py 來）
       build\、dist\ 不進 git。打包版的程式資料與輸出位置和直接跑 app.py 相同（見最上面「檔案放在哪裡」）。
       測打包版一樣要從檔案總管雙擊 LiveSummary.exe，不要從 Claude 桌面版裡啟動。
+      為什麼有啟動器：在檔案總管直接點開 zip 裡的 exe，Windows 只會把「那一個檔案」解壓縮到暫存資料夾；PyInstaller 的主程式在 Python 開始執行前
+      就找不到 _internal，只會跳英文的「Failed to load Python DLL」，程式裡來不及改成中文。所以使用者點的是獨立的小啟動器：
+      LiveSummaryApp.exe、helper.exe、_internal 三樣都在才啟動主程式；缺任何一樣就跳中文提示後結束（路徑裡有名稱含 .zip 的資料夾，即檔案總管解 zip 的暫存位置 %TEMP%\<GUID>_檔名.zip.xxx\ 時說
+      「請先把整個壓縮檔解壓縮，再執行 LiveSummary.exe」，其他位置說「程式檔案不完整」）。檔案齊全的正常解壓縮不會被擋，就算放在暫存資料夾裡也一樣。
+   版本號：只寫在 version.py（v1 = 1.0.0）。顯示在設定框最下面、logs\當機紀錄.txt、三個 exe 的檔案內容（右鍵 → 內容 → 詳細資料）、zip 檔名；
+      其他地方都從 version.py 讀（tests\test_版本號.py 會檢查沒有別處寫死）。改版本只改 version.py 的 版本。
+   圖示：assets\icon.ico 放了就套用到三個 exe 和視窗（附進 _internal\assets\icon.ico）；沒放用預設，打包不會失敗。說明見 assets\README.txt。
+   當機紀錄：crash_log.py 攔主執行緒、其他執行緒、Qt 槽函式裡沒被接住的錯誤（以及 Qt 嚴重錯誤、原生層當機時的 Python 堆疊），寫進
+      %LOCALAPPDATA%\LiveSummary\logs\當機紀錄.txt（時間、版本號、完整錯誤；超過 2 MB 改名成 當機紀錄.舊.txt），同時跳出中文提示
+      （有「打開紀錄資料夾」按鈕；30 秒內不重複跳，紀錄照寫）。寫入前一律遮 API 金鑰：認證管理員與環境變數讀到的整串、sk-…、AIza…、
+      Authorization／api_key／token／password 後面的值、32 字元以上的英數長字串。
+      程式裡沒有任何使用者能觸發的「測試當機」；測試用的觸發方式只在 tests\test_當機紀錄.py。
+   網址欄全形字：注音輸入法會把「_」打成「＿」、「/」「:」「.」變全形；platforms.整理網址() 在解析、按開始前把全形英數字和符號轉半形、去前後空白
+      （只轉全形 ASCII 區、全形空白、「。」，中文與日文字不動）。
    另開程序：所有外部程式（streamlink、ffmpeg、nvidia-smi）都經過 external.py 的 開啟()／執行()，統一加 CREATE_NO_WINDOW（無視窗模式不閃黑色視窗）；
       不要在其他檔案直接用 subprocess（tests\test_外部程式.py 會檢查）。打包後 streamlink 改呼叫同資料夾的 helper.exe（進入點 helper.py）。
    3. 確認：python --version 應該是 3.13.x；沒啟動時直接打 python 會是系統上的其他版本（例如 3.10），不要用它跑程式或檢查。

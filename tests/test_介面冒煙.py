@@ -534,3 +534,27 @@ def test_啟動面板_總費用放得下_不被截斷(環境):
     右 = 啟.總費用.mapTo(啟, 啟.總費用.rect().topRight()).x()
     assert 右 <= 啟.結束鈕.mapTo(啟, 啟.結束鈕.rect().topLeft()).x()          # 沒有壓到結束鈕
     assert 啟.開始鈕.mapTo(啟, 啟.開始鈕.rect().topRight()).x() <= 啟.width()   # 兩顆按鈕都在面板內
+
+
+def test_全形網址_啟動面板按開始後交給引擎的是半形(環境, monkeypatch):
+    """注音輸入法打出全形的「＿」「／」「：」「．」：按開始時整理成半形，網址框、引擎、網址紀錄用的都是半形。"""
+    台 = 環境["台"]
+    收到 = []
+
+    def 假執行(設定, 網址=None, **_):
+        收到.append(網址)
+        events.送出("error", 訊息="這個頻道目前沒有開播。", 印出="")
+        return False
+    monkeypatch.setattr(live_topics, "執行", 假執行)
+    台.啟動面板.網址框.setText("　ｈｔｔｐｓ：／／ｗｗｗ．ｔｗｉｔｃｈ．ｔｖ／ren＿kisaragi＿＿　")
+    台.啟動面板.開始()
+    assert 等(lambda: bool(收到) and not 台.執行中(), 10)
+    assert 台.啟動面板.網址框.text() == "https://www.twitch.tv/ren_kisaragi__"
+    assert 台.網址框.text() == "https://www.twitch.tv/ren_kisaragi__"
+    assert 收到 == ["https://www.twitch.tv/ren_kisaragi__"]
+
+
+def test_設定框底部顯示版本號(環境):
+    台 = 環境["台"]
+    台.開設定框()
+    assert 台.設定框.頁.版本標.text() == "直播摘要 v1.0.0"

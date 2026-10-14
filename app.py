@@ -8,7 +8,7 @@ import time
 import threading
 
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint, QEvent, QSize
-from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QTextCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QIcon, QFontDatabase, QFontMetrics, QTextCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QLineEdit, QPushButton, QComboBox,
     QHBoxLayout, QVBoxLayout, QTabBar, QTextBrowser, QScrollArea, QFileDialog,
@@ -38,6 +38,8 @@ import language_state    # 目前語言（狀態列的語言藥丸與重新偵�
 import config            # 設定檔 config.json 的讀取、語言清單
 import model_catalog     # 模型服務目錄與單價（單價未知 → 費用顯示「單價未知，無法估算」）
 import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
+import crash_log         # 當機紀錄（沒被接住的錯誤寫進 logs\當機紀錄.txt 並跳出提示）
+import version           # 版本號（只寫在 version.py）
 import app_paths         # 檔案位置（資料在 %LOCALAPPDATA%\LiveSummary、輸出在「文件」\直播摘要）
 import timefmt           # 時間格式與「幾分鐘前」
 
@@ -1375,7 +1377,7 @@ class 主控台(QMainWindow):
     def 開始(self):
         按下時間 = time.time()
         直播 = self.直播鈕.isChecked()
-        網址 = self.網址框.text().strip() if 直播 else None
+        網址 = platforms.整理網址(self.網址框.text()) if 直播 else None
         檔案 = self.檔案框.text().strip().strip('"') if not 直播 else None
         self.網址清單.hide()
         if 直播 and not 網址:
@@ -1936,9 +1938,15 @@ def 選字型():
 
 
 def main():
+    crash_log.安裝(qt=False, 原生=False)      # 先掛 Python 的錯誤攔截（原生層要等搬完舊資料：faulthandler 會先建出 logs\當機紀錄.txt，新位置就不算空的了）
     搬家 = app_paths.啟動準備()      # 第一次啟動：從舊位置複製舊資料；建好資料與輸出資料夾（結果都寫在 logs\搬家紀錄.txt）
+    crash_log.安裝()                 # 當機紀錄（已掛過的不重複掛）：補上 Qt 嚴重錯誤與原生層當機
     app = QApplication(sys.argv)
+    crash_log.接上Qt()               # 其他執行緒的錯誤也能在主執行緒跳出提示
     app.setApplicationName(app_paths.程式名)     # 沒設的話 Qt 用 exe 檔名（LiveSummary）當沒設標題的視窗標題；介面維持中文
+    app.setApplicationVersion(version.版本)
+    if app_paths.圖示檔():                      # assets\icon.ico 有放才套用到視窗（和 exe 的圖示是同一個檔）；沒有就用預設
+        app.setWindowIcon(QIcon(app_paths.圖示檔()))
     app.setStyle("Fusion")
     try:
         app.styleHints().setColorScheme(Qt.ColorScheme.Dark)   # 讓標題列也變深色（Qt 6.8 以上才有）

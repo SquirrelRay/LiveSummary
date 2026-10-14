@@ -453,7 +453,9 @@ class 啟動面板(QWidget):
         if self.等待中 or 台.執行中() or 台.結束中:
             return
         self.網址清單.hide()
-        網址 = self.網址框.text().strip()
+        網址 = platforms.整理網址(self.網址框.text())      # 全形字（注音輸入法打出的「＿」「／」…）轉半形、去前後空白
+        if 網址 != self.網址框.text() and not self.測試檔案:
+            self.網址框.setText(網址)
         if not 網址 and not self.測試檔案:
             return self.設狀態(platforms.請先輸入網址, 錯誤=True)
         if not self.測試檔案 and "/videos/" in 網址.lower():

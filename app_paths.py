@@ -162,6 +162,10 @@ def 摘要格式紀錄檔():
     return os.path.join(日誌資料夾(), "摘要格式紀錄.txt")
 
 
+def 當機紀錄檔():
+    return os.path.join(日誌資料夾(), "當機紀錄.txt")
+
+
 # ---- 程式自己帶的檔案：外部程式、顯示卡函式庫（唯讀；開發和打包版位置不同）----
 # 開發（直接跑 app.py）：專案資料夾；隨附的 ffmpeg 放 vendor\ffmpeg（scripts\下載ffmpeg.py 下載，不進 git）。
 # 打包版（PyInstaller 資料夾形式）：sys._MEIPASS（= exe 旁邊的 _internal）；helper.exe 和主程式 exe 在同一個資料夾。
@@ -175,6 +179,15 @@ def 程式資料夾():
     if 已打包():
         return getattr(sys, "_MEIPASS", None) or os.path.join(os.path.dirname(sys.executable), "_internal")
     return os.path.dirname(os.path.abspath(__file__))
+
+
+圖示相對位置 = os.path.join("assets", "icon.ico")      # 程式圖示（Ray 提供）；沒有這個檔就用預設圖示，打包也不會失敗
+
+
+def 圖示檔():
+    """程式圖示 .ico 的位置（開發：專案\\assets\\icon.ico；打包版：_internal\\assets\\icon.ico）；沒有這個檔回傳 None。"""
+    路徑 = os.path.join(程式資料夾(), 圖示相對位置)
+    return 路徑 if os.path.isfile(路徑) else None
 
 
 def 隨附ffmpeg資料夾():

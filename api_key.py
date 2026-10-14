@@ -8,6 +8,8 @@
 import os
 from urllib.parse import urlsplit
 
+import crash_log  # 讀到的金鑰交給它記住，當機紀錄才能整串遮掉（金鑰只在記憶體）
+
 認證服務名 = "直播摘要"            # 認證管理員裡的名稱（使用者在「認證管理員 → 一般認證」看得到）
 出廠環境變數 = "ANTHROPIC_API_KEY"   # 舊設定的預設環境變數名稱（= config 出廠預設）
 
@@ -109,6 +111,7 @@ def 儲存(代號, 金鑰):
     金鑰 = (金鑰 or "").strip()
     if not 金鑰:
         raise 金鑰存取錯誤("金鑰是空白的，沒有儲存。")
+    crash_log.記住金鑰(金鑰)
     try:
         後端().set_password(認證服務名, 代號, 金鑰)
     except Exception:          # noqa: BLE001
@@ -131,10 +134,12 @@ def 來源與金鑰(代號, api_key_env=出廠環境變數):
     """回傳 (狀態, 金鑰)。狀態：已儲存／環境變數／未設定／不需要（不需要時若有存金鑰也照樣帶上）。"""
     金鑰 = 讀取已儲存(代號)
     if 金鑰:
+        crash_log.記住金鑰(金鑰)
         return (已儲存 if 需要金鑰(代號, api_key_env) else 不需要), 金鑰
     名 = 環境變數名(代號, api_key_env)
     金鑰 = os.environ.get(名) if 名 else None
     if 金鑰:
+        crash_log.記住金鑰(金鑰)
         return (環境變數中 if 需要金鑰(代號, api_key_env) else 不需要), 金鑰
     return (未設定 if 需要金鑰(代號, api_key_env) else 不需要), None
 
