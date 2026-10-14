@@ -507,6 +507,11 @@
    版本號：只寫在 version.py（v1 = 1.0.0）。顯示在設定框最下面、logs\當機紀錄.txt、三個 exe 的檔案內容（右鍵 → 內容 → 詳細資料）、zip 檔名；
       其他地方都從 version.py 讀（tests\test_版本號.py 會檢查沒有別處寫死）。改版本只改 version.py 的 版本。
    圖示：assets\icon.ico 放了就套用到三個 exe 和視窗（附進 _internal\assets\icon.ico）；沒放用預設，打包不會失敗。說明見 assets\README.txt。
+   第三方授權清單：scripts\licenses.py（打包時自動跑）產生 dist\LiveSummary\licenses\（第三方授權清單.txt 總表＋每項全文），
+      只列實際帶進去的套件，加上 Python、PyInstaller、FFmpeg；沒附全文、來源待確認的檔案會在打包時印警告。單獨跑：.venv\Scripts\python.exe scripts\licenses.py
+      （用現有的 dist、build）。哪些項目還要處理見 docs\打包調查.md「第5步之二結果」。
+   使用說明：給一般使用者的 docs\使用說明.txt，打包時放在 zip 最上層。
+   系統匣圖示說明：tray_tip.py（首次引導第 3 頁、設定框共用），按鈕打開 ms-settings:taskbar。
    當機紀錄：crash_log.py 攔主執行緒、其他執行緒、Qt 槽函式裡沒被接住的錯誤（以及 Qt 嚴重錯誤、原生層當機時的 Python 堆疊），寫進
       %LOCALAPPDATA%\LiveSummary\logs\當機紀錄.txt（時間、版本號、完整錯誤；超過 2 MB 改名成 當機紀錄.舊.txt），同時跳出中文提示
       （有「打開紀錄資料夾」按鈕；30 秒內不重複跳，紀錄照寫）。寫入前一律遮 API 金鑰：認證管理員與環境變數讀到的整串、sk-…、AIza…、

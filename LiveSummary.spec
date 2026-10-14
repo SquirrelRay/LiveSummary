@@ -76,7 +76,7 @@ for f in ("cublas64_12.dll", "cublasLt64_12.dll"):
 # yt_chat.檢查可中斷等待() 要讀這個模組的原始碼：除了 .pyc 也附 .py
 原始碼模式 = {"yt_dlp.downloader.youtube_live_chat": "pyz+py"}
 
-排除 = ["tkinter", "matplotlib", "IPython", "pytest", "ruff"]
+排除 = ["tkinter", "matplotlib", "IPython", "pytest", "_pytest", "pluggy", "iniconfig", "ruff"]   # _pytest 等是 numpy 等的選用匯入帶進來的開發工具
 
 
 def 分析(腳本, 額外隱藏=()):

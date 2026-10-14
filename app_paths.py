@@ -184,6 +184,17 @@ def 程式資料夾():
 圖示相對位置 = os.path.join("assets", "icon.ico")      # 程式圖示（Ray 提供）；沒有這個檔就用預設圖示，打包也不會失敗
 
 
+授權清單資料夾名 = "licenses"        # 打包版 exe 旁的第三方授權清單（scripts/build_exe.py 產生）
+
+
+def 授權清單資料夾():
+    """打包版：exe 旁的 licenses 資料夾（存在才回傳）；開發環境沒有，回傳 None。"""
+    if not 已打包():
+        return None
+    路徑 = os.path.join(os.path.dirname(sys.executable), 授權清單資料夾名)
+    return 路徑 if os.path.isdir(路徑) else None
+
+
 def 圖示檔():
     """程式圖示 .ico 的位置（開發：專案\\assets\\icon.ico；打包版：_internal\\assets\\icon.ico）；沒有這個檔回傳 None。"""
     路徑 = os.path.join(程式資料夾(), 圖示相對位置)

@@ -6,6 +6,7 @@
 #   最上方三個圓點標示第幾步；底部「上一步」「下一步」（最後一頁是「開始使用」），左下角小字「跳過」。
 #   第 1 頁的模型服務與金鑰就是設定框的 模型金鑰區（同一個元件，精簡模式），按「下一步」時把換過的服務、模型寫進設定。
 #   第 2 頁打開時自動檢查（顯示卡、ffmpeg、streamlink），每項先轉圈再變成 ✓／⚠／✕；全部完成前「下一步」停用。
+#   第 3 頁另有一張系統匣圖示說明卡（tray_tip.py）：圖示可能被收進「^」，按鈕打開 Windows 的工作列設定。
 #   第 3 頁的模型大小依實際情況：有可用的 NVIDIA 顯示卡 → 顯示卡用的模型；沒有 → CPU 用的 small；已下載過 → 「轉錄模型已準備好」。
 #   看過（按完「開始使用」、按「跳過」或關掉視窗）就記在本機的 介面設定.json（引導看過），之後不再自動出現。
 #   風格和啟動面板一致：深色、圓角、無邊框、同一個紫色主按鈕；圖示都是程式畫的線條圖示（不用 emoji、不用圖片檔）。
@@ -40,6 +41,7 @@ import cost_estimate
 import first_run
 import model_catalog
 import settings_page
+import tray_tip
 import ui_state
 
 看過旗標 = "引導看過"
@@ -671,6 +673,8 @@ class 首次引導(QWidget):
         卡版.addWidget(self.模型標記, 0, Qt.AlignVCenter)
         卡版.addWidget(self.模型字, 1)
         版.addWidget(卡片)
+        self.系統匣卡 = tray_tip.系統匣說明卡()      # Windows 11 預設把圖示收進「^」：教使用者固定顯示（設定框也有同一張）
+        版.addWidget(self.系統匣卡)
         版.addStretch(1)
         self.更新模型卡()
         return 區

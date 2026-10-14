@@ -13,6 +13,9 @@ import zipfile
 
 專案 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, 專案)
+sys.path.insert(0, os.path.join(專案, "scripts"))
+
+import licenses
 
 import version
 
@@ -21,7 +24,9 @@ import version
 建置 = os.path.join(專案, "build")
 輸出根 = os.path.join(專案, "dist")
 輸出 = os.path.join(輸出根, 名稱)
-壓縮檔 = os.path.join(輸出根, version.壓縮檔名())          # LiveSummary-v1.0.0.zip（版本號從 version.py 來）
+壓縮檔 = os.path.join(輸出根, version.壓縮檔名())
+使用說明 = os.path.join(專案, "docs", "使用說明.txt")      # 放在壓縮檔最上層（給一般使用者看）
+使用說明檔名 = "使用說明.txt"          # LiveSummary-v1.0.0.zip（版本號從 version.py 來）
 PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirements-lock.txt 一致
 
 # 打包結果裡一定要有的檔案（相對 dist\LiveSummary）；漏了打包版會在某個功能才壞，所以建完就檢查
@@ -38,6 +43,7 @@ PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirement
     r"_internal\opencc\clib\share\opencc\STCharacters.ocd2",
     r"_internal\yt_dlp\downloader\youtube_live_chat.py",             # yt_chat.檢查可中斷等待() 讀原始碼
     r"_internal\ctranslate2\ctranslate2.dll",
+    rf"{licenses.資料夾名}\{licenses.總表檔名}",                       # 第三方授權清單（產生授權清單() 寫的）
 ]
 # 不該出現的（決定不帶的大檔）
 不該有 = ["cudnn_ops64_9.dll", "cudnn_cnn64_9.dll", "nvrtc64_120_0.dll", "nvblas64_12.dll", "ffplay.exe", "ffprobe.exe"]
@@ -65,6 +71,8 @@ def 檢查環境():
         停("沒有 PyInstaller：.venv\\Scripts\\python.exe -m pip install -r requirements-lock.txt")
     if PyInstaller.__version__ != PyInstaller版本:
         停(f"PyInstaller 版本是 {PyInstaller.__version__}，應該是 {PyInstaller版本}（用 requirements-lock.txt 安裝）")
+    if not os.path.isfile(使用說明):
+        停(f"找不到使用說明（{使用說明}）")
     if not os.path.isfile(os.path.join(專案, "vendor", "ffmpeg", "bin", "ffmpeg.exe")):
         停("沒有隨附的 ffmpeg：先跑 .venv\\Scripts\\python.exe scripts\\下載ffmpeg.py")
     cublas = os.path.join(專案, ".venv", "Lib", "site-packages", "nvidia", "cublas", "bin", "cublas64_12.dll")
@@ -129,15 +137,41 @@ def 驗收():
         停(f"helper.exe 列不出 streamlink 的 twitch／youtube 外掛（結束碼 {結果.returncode}）：\n"
           + 文字[-500:] + (結果.stderr or b"").decode("utf-8", "replace")[-500:])
     外掛數 = len([x for x in 文字.split(":", 1)[-1].split(",") if x.strip()])
-    print(f"驗收通過：必要檔案 {len(必要檔案)} 個都在、三個 exe 的版本都是 {version.版本}、沒有不該帶的檔案；helper.exe 列出 streamlink 外掛 {外掛數} 個")
+    print(f"驗收通過：必要檔案 {len(必要檔案)} 個都在、兩個 exe 的版本都是 {version.版本}、沒有不該帶的檔案；helper.exe 列出 streamlink 外掛 {外掛數} 個")
+
+
+def 產生授權清單():
+    """licenses 資料夾（總表＋每一項的全文）。缺總表或項目太少就停；沒附全文、對不到套件的檔案印出來給人確認。"""
+    總表, 項目們, 對不到 = licenses.寫出(輸出, os.path.join(建置, 名稱))
+    if not os.path.isfile(總表) or len(項目們) < 10:
+        停(f"授權清單產生失敗（{總表}，{len(項目們)} 項）")
+    沒全文 = [f"{x['名稱']} {x['版本']}" for x in 項目們 if not x["全文們"]]
+    print(f"授權清單：{len(項目們)} 項 → {os.path.relpath(總表, 輸出根)}")
+    if 沒全文:
+        print("  ⚠ 套件沒有附授權全文：" + "、".join(沒全文))
+    if 對不到:
+        print("  ⚠ 來源待確認的檔案（沒對應到任何一項）：" + "、".join(對不到))
+
+
+def _使用說明內容():
+    with open(使用說明, encoding="utf-8") as f:
+        文字 = f.read().replace("\r\n", "\n").replace("\n", "\r\n")       # 記事本用 CRLF
+    return "\ufeff" + 文字                                                # 加 BOM，舊版記事本也認得 UTF-8
 
 
 def 壓縮():
     with zipfile.ZipFile(壓縮檔, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        z.writestr(使用說明檔名, _使用說明內容().encode("utf-8"))      # 壓縮檔最上層：一打開壓縮檔就看得到
         for 路, _, 檔們 in os.walk(輸出):
             for f in 檔們:
                 完整 = os.path.join(路, f)
                 z.write(完整, os.path.relpath(完整, 輸出根))      # 壓縮檔裡是 LiveSummary\…（解開就是一個資料夾）
+    with zipfile.ZipFile(壓縮檔) as z:
+        名們 = set(z.namelist())
+    要有 = [使用說明檔名, f"{名稱}/LiveSummary.exe", f"{名稱}/{licenses.資料夾名}/{licenses.總表檔名}"]
+    缺 = [x for x in 要有 if x not in 名們]
+    if 缺:
+        停("壓縮檔裡缺少：" + "、".join(缺))
 
 
 def main():
@@ -147,6 +181,7 @@ def main():
     print("PyInstaller 打包中（約幾分鐘）…")
     打包()
     shutil.copyfile(os.path.join(專案, "LICENSE"), os.path.join(輸出, "LICENSE.txt"))
+    產生授權清單()
     驗收()
     打包秒 = time.monotonic() - 開始
     print("壓縮中…")

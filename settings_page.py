@@ -28,8 +28,12 @@ import cost_estimate
 import llm
 import model_catalog
 import subtitle_speed
+import tray_tip
 import ui_state
 import version
+
+授權說明 = ("本程式以 GNU GPLv3 授權開放原始碼（全文在程式資料夾的 LICENSE.txt）。"
+        "使用 FFmpeg（LGPL v3）處理直播聲音。第三方元件的授權清單在程式資料夾的 licenses 資料夾。")
 
 清單上限 = 300           # 「載入可用模型」最多一次放幾個進選單（OpenRouter 有幾百個，其餘用篩選找）
 文字稿旗標 = "顯示文字稿模式"       # 介面設定.json 的旗標：主控台來源要不要出現「文字稿檔案」（開發測試用）
@@ -596,11 +600,9 @@ class 設定頁(QScrollArea):
         版.addWidget(self._做一般區())
         版.addWidget(self._做費用區())
         版.addWidget(self._做存檔區())
+        版.addWidget(self._做系統匣區())
+        版.addWidget(self._做關於區())
         版.addWidget(self._做開發者區())
-        self.版本標 = QLabel(f"{version.產品名} {version.版本字()}")      # 版本號只寫在 version.py
-        self.版本標.setObjectName("小標")
-        self.版本標.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        版.addWidget(self.版本標)
         版.addStretch(1)
         self.setWidget(內)
         self._滾輪 = 滾輪過濾(self)
@@ -786,6 +788,38 @@ class 設定頁(QScrollArea):
         self.資料夾鈕.clicked.connect(self.打開資料夾)
         格.addWidget(self.資料夾鈕, 1 + len(self.存檔項目), 0, 1, 2)
         return 框
+
+    def _做系統匣區(self):
+        """系統匣圖示說明（和首次引導最後一頁同一張卡）。"""
+        框, 格 = self._面板(tray_tip.標題)
+        self.系統匣卡 = tray_tip.系統匣說明卡(小標題=False)
+        格.addWidget(self.系統匣卡, 0, 0, 1, 4)
+        return 框
+
+    def _做關於區(self):
+        """關於：版本、授權（GPLv3）、使用 FFmpeg（LGPL）、第三方授權清單的位置。"""
+        框, 格 = self._面板("關於")
+        self.版本標 = QLabel(f"{version.產品名} {version.版本字()}")      # 版本號只寫在 version.py
+        self.版本標.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        格.addWidget(self.版本標, 0, 0, 1, 4)
+        self.授權字 = QLabel(授權說明)
+        self.授權字.setObjectName("小標")
+        self.授權字.setWordWrap(True)
+        self.授權字.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        格.addWidget(self.授權字, 1, 0, 1, 4)
+        self.授權鈕 = QPushButton("打開授權清單")
+        self.授權鈕.setCursor(Qt.PointingHandCursor)
+        self.授權鈕.clicked.connect(self.打開授權清單)
+        if not app_paths.授權清單資料夾():
+            self.授權鈕.setEnabled(False)
+            self.授權鈕.setToolTip("打包版才有授權清單（開發環境沒有）")
+        格.addWidget(self.授權鈕, 2, 0, 1, 2)
+        return 框
+
+    def 打開授權清單(self):
+        資料夾 = app_paths.授權清單資料夾()
+        if 資料夾:
+            os.startfile(資料夾)      # noqa: S606 程式自己的授權清單資料夾
 
     def _做開發者區(self):
         """開發者選項（預設收起）：顯示文字稿重播模式。"""
