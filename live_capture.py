@@ -78,7 +78,7 @@ def 找ffmpeg():
     """要用的 ffmpeg 路徑：隨附的優先、沒有才用系統上的（位置由 app_paths.ffmpeg位置 決定）；找到哪一個寫進啟動里程碑紀錄。"""
     路徑, 來源 = app_paths.ffmpeg位置()
     if not 路徑:
-        raise 直播錯誤("找不到 ffmpeg，請先安裝（winget install Gyan.FFmpeg）後重開視窗。")
+        raise 直播錯誤(first_run.缺ffmpeg直播錯誤())
     里程碑.標記(里程碑.找到ffmpeg, 來源=來源, 路徑=路徑)
     return 路徑
 

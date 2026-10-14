@@ -323,3 +323,46 @@ def _清事件():
     events.停止.clear()
     yield
     events.接收者們.clear()
+
+
+# ---------- 缺外部程式時的提示：打包後與開發時不同 ----------
+def test_開發時缺ffmpeg_提示安裝或跑下載腳本(monkeypatch):
+    import first_run
+    monkeypatch.setattr(app_paths, "ffmpeg位置", lambda: (None, None))
+    assert first_run.缺ffmpeg標籤() == "找不到 ffmpeg：安裝後重新開啟程式"
+    with pytest.raises(lc.直播錯誤) as e:
+        lc.找ffmpeg()
+    assert "winget install Gyan.FFmpeg" in str(e.value) and "下載ffmpeg.py" in str(e.value)
+    assert "重新解壓縮" not in str(e.value)
+
+
+def test_打包後缺ffmpeg_提示檔案不完整_不叫人裝winget(打包版, monkeypatch):
+    import first_run
+    import onboarding
+    monkeypatch.setattr(app_paths, "ffmpeg位置", lambda: (None, None))
+    with pytest.raises(lc.直播錯誤) as e:
+        lc.找ffmpeg()
+    assert "程式檔案不完整" in str(e.value) and "重新解壓縮" in str(e.value) and "winget" not in str(e.value)
+    assert "重新解壓縮" in first_run.檢查ffmpeg(lambda: False)["標籤"]
+    assert "winget" not in first_run.檢查ffmpeg(lambda: False)["標籤"]
+    說明 = onboarding.怎麼處理("ffmpeg")
+    assert "重新解壓縮" in 說明 and "winget" not in 說明 and "pip" not in 說明
+    assert "pip" not in onboarding.怎麼處理("streamlink") and "重新解壓縮" in onboarding.怎麼處理("streamlink")
+
+
+def test_開發時首次引導說明還是安裝指令():
+    import onboarding
+    assert "winget install Gyan.FFmpeg" in onboarding.怎麼處理("ffmpeg")
+    assert "pip install streamlink" in onboarding.怎麼處理("streamlink")
+    assert onboarding.怎麼處理("顯示卡") == onboarding.怎麼處理們["顯示卡"]
+
+
+def test_打包後streamlink檢查看helper_exe在不在(打包版, monkeypatch):
+    import first_run
+    monkeypatch.undo()          # conftest 的 autouse 假的 找得到streamlink 先拿掉，測真的；下面重新模擬打包
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(打包版 / "直播摘要.exe"))
+    assert first_run.找得到streamlink() is False
+    assert "重新解壓縮" in first_run.檢查streamlink()["標籤"]
+    (打包版 / "helper.exe").write_bytes(b"")
+    assert first_run.找得到streamlink() is True

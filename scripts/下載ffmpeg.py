@@ -2,9 +2,9 @@
 
 用法（專案資料夾）：.venv\\Scripts\\python.exe scripts\\下載ffmpeg.py
 
-- 版本固定在下面的 網址／SHA256（BtbN 每天的 autobuild）。要換版本：改這三個常數，SHA-256 抄 GitHub 發布頁該檔案的 sha256。
+- 版本固定在下面的 網址／SHA256（BtbN 每月最後一天的 autobuild，長期保留）。要換版本：改這三個常數，SHA-256 抄 GitHub 發布頁該檔案的 sha256。
 - SHA-256 不符就刪掉下載的檔案、不解開、結束碼 1（不會用到來路不明的 ffmpeg）。
-- 壓縮檔留在 vendor\\下載（備份：BtbN 的每日版只留約兩週，之後網址會失效；只有每月最後一天的版本長期保留）。
+- 壓縮檔留在 vendor\\下載（備份：BtbN 的每日版只留約兩週；只有每月最後一天的版本長期保留，所以釘月底版）。
   vendor\\ 整個在 .gitignore，二進位檔不進 git。
 - 程式找 ffmpeg 的順序（app_paths.ffmpeg位置）：vendor\\ffmpeg\\bin\\ffmpeg.exe（開發）／_internal\\ffmpeg\\bin（打包版）→ 系統上的。
 """
@@ -22,11 +22,11 @@ if ROOT not in sys.path:
 import app_paths
 import external
 
-# 2026-10-13 的 BtbN autobuild：FFmpeg n9.0.2-27-g7e93014c5b（release/9.0 分支）、win64、LGPL、shared
-版本 = "n9.0.2-27-g7e93014c5b"
+# 2026-09-30 的 BtbN autobuild（每月最後一天的版本長期保留；每日版約兩週就刪）：FFmpeg n9.0.2-17-g2a571b6068（release/9.0 分支）、win64、LGPL、shared
+版本 = "n9.0.2-17-g2a571b6068"
 檔名 = f"ffmpeg-{版本}-win64-lgpl-shared-9.0.zip"
-網址 = f"https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-13-13-05/{檔名}"
-SHA256 = "9df4db960f3f0cd3ed76be0a2be96265d00db4c3be2526a6d39b03c2b547100d"
+網址 = f"https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/{檔名}"
+SHA256 = "7157177b8a6cb2174c1650ba8c71b363f2c78cba5330f88c4c02cf5b2b880646"
 
 
 class 雜湊不符(Exception):

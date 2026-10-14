@@ -480,7 +480,7 @@
         .venv\Scripts\python.exe app.py
         .venv\Scripts\pythonw.exe app.py        （不開黑色命令列視窗）
    2-1. 隨附的 ffmpeg（和打包版用同一版）：.venv\Scripts\python.exe scripts\下載ffmpeg.py
-      下載 BtbN 的 LGPL shared 版（版本、網址、SHA-256 釘在腳本裡，雜湊不符就拒絕使用），解開到 vendor\ffmpeg（.gitignore，不進 git），
+      下載 BtbN 的 LGPL shared 版月底版 n9.0.2-17（版本、網址、SHA-256 釘在腳本裡；版本選擇原因見 docs/打包調查.md），雜湊不符就拒絕使用），解開到 vendor\ffmpeg（.gitignore，不進 git），
       壓縮檔備份留在 vendor\下載。程式找 ffmpeg 的順序：vendor\ffmpeg\bin\ffmpeg.exe → 系統上的；用了哪一個寫在 logs\啟動里程碑_*.txt（「找到 ffmpeg」那行）。
    另開程序：所有外部程式（streamlink、ffmpeg、nvidia-smi）都經過 external.py 的 開啟()／執行()，統一加 CREATE_NO_WINDOW（無視窗模式不閃黑色視窗）；
       不要在其他檔案直接用 subprocess（tests\test_外部程式.py 會檢查）。打包後 streamlink 改呼叫同資料夾的 helper.exe（進入點 helper.py）。

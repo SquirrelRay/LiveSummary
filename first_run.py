@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 
+import app_paths
 import events
 import external
 
@@ -110,19 +111,45 @@ def 找得到ffmpeg():
 
 
 def 找得到streamlink():
+    if app_paths.已打包():       # 打包後 streamlink 是另開隨附的 helper.exe（模組本身在程式裡，不代表 helper.exe 在）
+        return os.path.isfile(app_paths.helper執行檔())
     return importlib.util.find_spec("streamlink_cli") is not None
+
+
+# 缺外部程式時的提示：打包版的 ffmpeg、helper.exe 都是隨程式附的，不見了表示解壓縮不完整，不能叫使用者另外安裝；
+# 開發時（直接跑 app.py）維持安裝說明。
+不完整說明 = "程式檔案不完整，請重新解壓縮整個資料夾（不要只複製其中幾個檔案），再重新開啟程式。"
+
+
+def 缺ffmpeg標籤():
+    if app_paths.已打包():
+        return "找不到 ffmpeg：程式檔案不完整，請重新解壓縮"
+    return "找不到 ffmpeg：安裝後重新開啟程式"
+
+
+def 缺ffmpeg直播錯誤():
+    """直播開始時找不到 ffmpeg 的完整錯誤句子。"""
+    if app_paths.已打包():
+        return "找不到 ffmpeg：" + 不完整說明
+    return "找不到 ffmpeg，請先安裝（winget install Gyan.FFmpeg，或執行 scripts\\下載ffmpeg.py）後重開視窗。"
+
+
+def 缺streamlink標籤():
+    if app_paths.已打包():
+        return "找不到 streamlink：程式檔案不完整，請重新解壓縮"
+    return "找不到 streamlink：安裝後重新開啟程式"
 
 
 def 檢查ffmpeg(找=None):
     if (找 or 找得到ffmpeg)():
         return 檢查結果(好, "ffmpeg：可以處理直播聲音")
-    return 檢查結果(錯, "找不到 ffmpeg：安裝後重新開啟程式")
+    return 檢查結果(錯, 缺ffmpeg標籤())
 
 
 def 檢查streamlink(找=None):
     if (找 or 找得到streamlink)():
         return 檢查結果(好, "streamlink：可以連上直播")
-    return 檢查結果(錯, "找不到 streamlink：安裝後重新開啟程式")
+    return 檢查結果(錯, 缺streamlink標籤())
 
 
 # ---------- 轉錄模型：在哪、下載過沒有、多大 ----------

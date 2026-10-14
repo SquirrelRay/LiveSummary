@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 import api_key
+import app_paths
 import config
 import cost_estimate
 import first_run
@@ -75,6 +76,19 @@ import ui_state
     "ffmpeg": "ffmpeg 是處理直播聲音的工具。打開命令提示字元，執行 winget install Gyan.FFmpeg，裝好後重新開啟本程式。",
     "streamlink": "streamlink 是連上直播的工具。打開命令提示字元，執行 pip install streamlink，裝好後重新開啟本程式。",
 }
+打包後怎麼處理們 = {      # 打包版的 ffmpeg、streamlink 是程式附的：缺了是檔案不完整，不叫使用者另外安裝
+    "ffmpeg": "ffmpeg 是處理直播聲音的工具，本來就附在程式資料夾裡。" + first_run.不完整說明,
+    "streamlink": "streamlink 是連上直播的工具，本來就附在程式資料夾裡。" + first_run.不完整說明,
+}
+
+
+def 怎麼處理(鍵):
+    """第 2 頁某個檢查項目的處理說明（打包後與開發時不同）；沒有說明回傳空字串。"""
+    if app_paths.已打包() and 鍵 in 打包後怎麼處理們:
+        return 打包後怎麼處理們[鍵]
+    return 怎麼處理們.get(鍵, "")
+
+
 怎麼處理字, 收起處理字 = "怎麼處理？", "收起"
 檢查們 = [("顯示卡", "NVIDIA 顯示卡", first_run.檢查顯示卡),
        ("ffmpeg", "ffmpeg", first_run.檢查ffmpeg),
@@ -579,7 +593,7 @@ class 首次引導(QWidget):
         版.setSpacing(14)
         self.檢查列們 = {}
         for 鍵, 名, _ in self.檢查們:
-            列 = 結果列(怎麼處理們.get(鍵, ""))
+            列 = 結果列(怎麼處理(鍵))
             列.檢查中(f"正在檢查 {名}…")
             self.檢查列們[鍵] = 列
             版.addWidget(列)

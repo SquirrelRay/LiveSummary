@@ -564,7 +564,7 @@ def test_命令列的文字稿模式照舊可用(tmp_path, monkeypatch):
 
 
 def test_一般使用者看得到的字沒有內部名詞():
-    字們 = list(onboarding.怎麼處理們.values())
+    字們 = [*onboarding.怎麼處理們.values(), *onboarding.打包後怎麼處理們.values()]
     for 頁 in onboarding.頁們:
         字們 += [頁["標題"], 頁["說明"], *頁["了解更多"]]
     字們 += [字 for _, 字 in onboarding.流程們]
