@@ -1,0 +1,44 @@
+LiveSummary (直播摘要)
+Copyright (C) 2026 Ray
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 3 of the License, or (at your option)
+any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, see <https://www.gnu.org/licenses>.
+
+Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining
+it with the NVIDIA CUDA Toolkit libraries (including cuBLAS, cuBLASLt and
+the CUDA Runtime) or the Intel OpenMP Runtime Library and the Intel oneAPI
+Math Kernel Library (or a modified version of those libraries), containing
+parts covered by the terms of the NVIDIA CUDA Toolkit End User License
+Agreement, the Intel End User License Agreement for Developer Tools or the
+Intel Simplified Software License, the licensors of this Program grant you
+additional permission to convey the resulting work.
+
+----------------------------------------------------------------------------
+說明（中文；以上英文為正式條文）
+
+本程式以 GNU GPL 第 3 版（或任何更新版本）授權，全文在 LICENSE.txt（未修改）。
+上面的「額外許可」依 GPLv3 第 7 條加上，用的是自由軟體基金會（FSF）在 GPL FAQ
+「What legal issues come up if I use GPL-incompatible libraries with GPL software?」
+（https://www.gnu.org/licenses/gpl-faq.html#GPLIncompatibleLibs）提供的範本。
+
+為什麼需要：本程式用 NVIDIA 顯示卡把聲音轉成文字時，會在同一個程序裡載入 NVIDIA cuBLAS
+（隨附在 _internal\nvidia\cublas\bin），轉錄引擎 ctranslate2 也附帶 Intel OpenMP（libiomp5md.dll），
+並靜態包含 Intel oneMKL 與 CUDA 執行期。這些是 NVIDIA、Intel 的專有函式庫，不是 GPL 相容的授權，
+也不能提供原始碼（所以範本裡大括號那一句「對應原始碼要包含這些函式庫的原始碼」依 FAQ 的說明拿掉）。
+這份額外許可讓本程式可以和它們連結、一起散布。
+
+- 只有本程式的著作權人能給這份許可；它只涵蓋本程式自己的程式碼。
+- 別人修改本程式時，可以選擇保留或拿掉這份額外許可（GPLv3 第 7 條）。
+- 這些函式庫本身仍各自依 NVIDIA、Intel 的授權條款散布，全文在 licenses 資料夾。

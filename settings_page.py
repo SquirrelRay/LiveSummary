@@ -32,7 +32,8 @@ import tray_tip
 import ui_state
 import version
 
-授權說明 = ("本程式以 GNU GPLv3 授權開放原始碼（全文在程式資料夾的 LICENSE.txt）。"
+授權說明 = ("本程式以 GNU GPLv3 授權開放原始碼（全文在程式資料夾的 LICENSE.txt），"
+        "並依 GPLv3 第 7 條加上額外許可，允許與 NVIDIA CUDA、Intel 的函式庫一起使用（LICENSE-ADDITIONAL-PERMISSION.txt）。"
         "使用 FFmpeg（LGPL v3）處理直播聲音。第三方元件的授權清單在程式資料夾的 licenses 資料夾。")
 
 清單上限 = 300           # 「載入可用模型」最多一次放幾個進選單（OpenRouter 有幾百個，其餘用篩選找）

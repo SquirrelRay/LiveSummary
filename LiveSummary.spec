@@ -9,6 +9,7 @@
 #   - 不帶 PySide6.QtNetwork：程式沒用到；PySide6\__init__.py 裡有條件式的 import，會讓 PyInstaller 把它連同
 #     PATH 上找到的 OpenSSL（例如 Git 的 libssl-3-x64.dll）一起收進來。OpenSSL 只用 Python 自己的那份（build_exe.py 驗收）。
 #   - ffmpeg 從 vendor\ffmpeg 帶 ffmpeg.exe＋DLL → _internal\ffmpeg\bin，授權檔 → _internal\ffmpeg\LICENSE.txt（ffplay、ffprobe 不帶）。
+#   - 不帶 av（PyAV，含 GPL 的 x264／x265）：放替身模組 pyi_rth_av替身.py（執行期 hook）讓 faster-whisper 能匯入。
 #   - 不用 UPX。
 import glob
 import os
@@ -81,10 +82,14 @@ for f in ("cublas64_12.dll", "cublasLt64_12.dll"):
 原始碼模式 = {"yt_dlp.downloader.youtube_live_chat": "pyz+py"}
 
 排除 = ["tkinter", "matplotlib", "IPython", "pytest", "_pytest", "pluggy", "iniconfig", "ruff",   # _pytest 等是 numpy 等的選用匯入帶進來的開發工具
-        "PySide6.QtNetwork"]                                                                    # 沒用到；避免收進 PATH 上的 OpenSSL
+        "PySide6.QtNetwork",                                                                    # 沒用到；避免收進 PATH 上的 OpenSSL
+        "av"]                                                                                   # 不帶 PyAV（含 GPL 編碼器），見下面的替身
+# av 的替身：faster-whisper 一 import 就要 av，打包版在程式開始前放替身模組（本程式只傳 numpy 陣列，用不到 av；
+# 被用到會丟出清楚的中文錯誤）。開發環境（.venv）的 av 不動，transcribe.py、VOD 腳本照常讀音訊檔。
+av替身 = os.path.join(專案, "pyi_rth_av替身.py")
 
 
-def 分析(腳本, 額外隱藏=()):
+def 分析(腳本, 額外隱藏=(), 執行期hook=()):
     return Analysis(                                  # noqa: F821
         [os.path.join(專案, 腳本)],
         pathex=[專案],
@@ -92,12 +97,13 @@ def 分析(腳本, 額外隱藏=()):
         datas=資料,
         hiddenimports=[*隱藏模組, *額外隱藏],
         excludes=排除,
+        runtime_hooks=list(執行期hook),
         module_collection_mode=原始碼模式,
         noarchive=False,
     )
 
 
-主程式 = 分析("app.py")
+主程式 = 分析("app.py", 執行期hook=[av替身])          # helper.exe 不載入 faster-whisper，不用替身
 helper = 分析("helper.py", 額外隱藏=["streamlink_cli.main", "yt_audio"])
 
 主程式pyz = PYZ(主程式.pure)                          # noqa: F821

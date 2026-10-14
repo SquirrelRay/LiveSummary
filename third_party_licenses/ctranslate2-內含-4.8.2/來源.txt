@@ -1,0 +1,13 @@
+取得日期：2026-10-14（scripts\取得授權全文.py 產生，不要手改）
+ctranslate2 4.8.2 的 ctranslate2.dll 靜態包含的元件
+依據：https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/python/tools/prepare_build_environment_windows.sh、https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/CMakeLists.txt、https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/.gitmodules
+  oneMKL：https://files.pythonhosted.org/packages/b9/d7/0445e80511e70b653291daaac068712a780ee0e00bb791d047eed0053c4b/mkl_include-2025.3.0-py2.py3-none-win_amd64.whl（SHA-256 d8efcf39c37767c65abdf42976189475bab36f456e5e7e53bab00bc35c6a3209，mkl_include-2025.3.0.dist-info/LICENSE.txt）
+  oneDNN：https://raw.githubusercontent.com/oneapi-src/oneDNN/v3.1.1/LICENSE
+  oneDNN：https://raw.githubusercontent.com/oneapi-src/oneDNN/v3.1.1/THIRD-PARTY-PROGRAMS
+  spdlog：https://raw.githubusercontent.com/gabime/spdlog/76fb40d95455f249bd70824ecfcae7a8f0930fa3/LICENSE
+  CCCL（thrust、cub、libcu++）：https://raw.githubusercontent.com/NVIDIA/cccl/b5fe509fd11a925f90d6495176707cc1184eed9d/LICENSE
+  cpu_features：https://raw.githubusercontent.com/google/cpu_features/8a494eb1e158ec2050e5f699a504fbc9b896a43b/LICENSE
+  CUTLASS：https://raw.githubusercontent.com/NVIDIA/cutlass/bbe579a9e3beb6ea6626d9227ec32d0dae119a49/LICENSE.txt
+  BS::thread_pool：https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/third_party/BS_thread_pool.hpp
+  avx_mathfun：https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/third_party/avx_mathfun.h
+  avx512_mathfun：https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/third_party/avx512_mathfun.h

@@ -2,7 +2,7 @@
 #   .venv\Scripts\python.exe scripts\build_exe.py
 # 設定在專案根目錄的 LiveSummary.spec；決定與原因見 docs\打包調查.md。
 # 步驟：檢查環境（.venv 的 Python 3.13、PyInstaller 版本、vendor\ffmpeg、cuBLAS）→ 清掉舊的 build\LiveSummary、dist\LiveSummary、zip
-#   → PyInstaller（PATH 只留 Python 與 Windows 系統資料夾，不受 Git 等其他程式影響）→ 放 LICENSE → 授權清單
+#   → PyInstaller（PATH 只留 Python 與 Windows 系統資料夾，不受 Git 等其他程式影響）→ 放 LICENSE 與額外許可 → 授權清單
 #   → 驗收（含 exe 的版本號、OpenSSL 必須是 Python 自己的）（該收的檔案都在、helper.exe 列得出 streamlink 外掛）→ 壓縮 → 印出花費時間與大小。
 # 任何一步失敗就停下來並說明，不會留下看起來正常的 zip。
 import glob
@@ -28,6 +28,7 @@ import version
 壓縮檔 = os.path.join(輸出根, version.壓縮檔名())
 使用說明 = os.path.join(專案, "docs", "使用說明.txt")      # 放在壓縮檔最上層（給一般使用者看）
 使用說明檔名 = "使用說明.txt"          # LiveSummary-v1.0.0.zip（版本號從 version.py 來）
+額外許可檔名 = "LICENSE-ADDITIONAL-PERMISSION.txt"   # GPLv3 第 7 條額外許可（專案根目錄，原樣放在 exe 旁）
 PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirements-lock.txt 一致
 
 # 打包結果裡一定要有的檔案（相對 dist\LiveSummary）；漏了打包版會在某個功能才壞，所以建完就檢查
@@ -35,6 +36,7 @@ PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirement
     "LiveSummary.exe",
     "helper.exe",
     "LICENSE.txt",                                                   # 本程式 GPLv3
+    "LICENSE-ADDITIONAL-PERMISSION.txt",                             # GPLv3 第 7 條額外許可（NVIDIA CUDA、Intel 函式庫）
     r"_internal\ffmpeg\bin\ffmpeg.exe",
     r"_internal\ffmpeg\LICENSE.txt",                                 # ffmpeg 的 LGPL v3
     r"_internal\nvidia\cublas\bin\cublas64_12.dll",
@@ -129,6 +131,21 @@ def 檢查版本(路徑, 期望檔名):
         停(f"{期望檔名} 的版本資訊不對（要 {version.版本}，實際 FileVersion={表.get('FileVersion')}、ProductVersion={表.get('ProductVersion')}）")
 
 
+def av的檔案(輸出):
+    """打包結果裡 av（PyAV）的檔案：_internal 底下的 av、av.libs、av-*.dist-info 資料夾，以及任何 x264／x265（GPL 編碼器）。
+    打包版不帶 av（spec 排除、放替身），應該是空的。隨附 ffmpeg 的 avcodec-*.dll 等不是 av 的，不算。"""
+    內部 = os.path.join(輸出, "_internal")
+    結果 = []
+    for 路, _, 檔們 in os.walk(內部):
+        for f in 檔們:
+            相對 = os.path.relpath(os.path.join(路, f), 內部)
+            頂層 = 相對.split(os.sep, 1)[0].lower()
+            是av = 頂層 in ("av", "av.libs") or (頂層.startswith("av-") and 頂層.endswith(".dist-info"))
+            if 是av or f.lower().startswith(("libx264", "libx265")):
+                結果.append(os.path.join("_internal", 相對))
+    return 結果
+
+
 def 驗收():
     缺 = [f for f in 必要檔案 if not os.path.isfile(os.path.join(輸出, f))]
     if 缺:
@@ -140,6 +157,7 @@ def 驗收():
     # ffmpeg 的 DLL 只該在 _internal\ffmpeg\bin（spec 不讓 PyInstaller 分析它；出現在別處就是又被複製了一份）
     ffmpeg的dll = {f for f in os.listdir(os.path.join(輸出, "_internal", "ffmpeg", "bin")) if f.endswith(".dll")}
     多 += [os.path.join("_internal", f) for f in os.listdir(os.path.join(輸出, "_internal")) if f in ffmpeg的dll]
+    多 += av的檔案(輸出)
     if 多:
         停("打包結果有不該帶的檔案：\n  " + "\n  ".join(多))
     for 檔名 in ("LiveSummary.exe", "helper.exe"):
@@ -203,6 +221,7 @@ def main():
     print("PyInstaller 打包中（約幾分鐘）…")
     打包()
     shutil.copyfile(os.path.join(專案, "LICENSE"), os.path.join(輸出, "LICENSE.txt"))
+    shutil.copyfile(os.path.join(專案, 額外許可檔名), os.path.join(輸出, 額外許可檔名))
     產生授權清單()
     驗收()
     打包秒 = time.monotonic() - 開始

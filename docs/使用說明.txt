@@ -100,5 +100,6 @@
 
 
 八、授權
-  本程式以 GNU GPLv3 授權開放原始碼（全文：LiveSummary 資料夾裡的 LICENSE.txt）。
+  本程式以 GNU GPLv3 授權開放原始碼（全文：LiveSummary 資料夾裡的 LICENSE.txt），
+  並依 GPLv3 第 7 條加上額外許可，允許與 NVIDIA、Intel 的函式庫一起使用（LICENSE-ADDITIONAL-PERMISSION.txt）。
   使用 FFmpeg（LGPL v3）等第三方元件，授權清單在 LiveSummary 資料夾的 licenses 資料夾。

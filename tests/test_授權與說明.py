@@ -274,7 +274,7 @@ def test_OpenSSL必須是Python自己的(tmp_path):
 
 def test_打包不帶QtNetwork與cudnn_PATH只留系統與Python():
     spec = (專案 / "LiveSummary.spec").read_text(encoding="utf-8")
-    assert '"PySide6.QtNetwork"]' in spec and '!= "cudnn64_9.dll"' in spec
+    assert '"PySide6.QtNetwork",' in spec and '!= "cudnn64_9.dll"' in spec
     打包 = _載入("build_exe_測試5", 專案 / "scripts" / "build_exe.py")
     assert {"cudnn64_9.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll", "Qt6Network.dll", "qtuiotouchplugin.dll"} <= set(打包.不該有)
     assert "不帶的Qt檔 = {\"qtuiotouchplugin.dll\", \"qt6network.dll\"}" in spec
@@ -288,9 +288,10 @@ def test_打包不帶QtNetwork與cudnn_PATH只留系統與Python():
 def test_third_party_licenses和venv版本一致():
     from importlib import metadata
     licenses = _載入("licenses_測試6", 專案 / "scripts" / "licenses.py")
-    for 套件, 前綴 in licenses.上游全文.items():
-        資料夾 = Path(licenses.補充根) / f"{前綴}-{metadata.version(套件)}"
-        assert (資料夾 / "來源.txt").exists() and licenses.補充全文(資料夾.name), 資料夾        # 升級套件後要重跑 scripts\取得授權全文.py
+    for 套件, 前綴們 in licenses.上游全文.items():
+        for 前綴 in 前綴們:
+            資料夾 = Path(licenses.補充根) / f"{前綴}-{metadata.version(套件)}"
+            assert (資料夾 / "來源.txt").exists() and licenses.補充全文(資料夾.name), 資料夾        # 升級套件後要重跑 scripts\取得授權全文.py
     for 檔 in licenses.附加聲明.values():
         assert (Path(licenses.補充根) / 檔).exists()
     assert (Path(licenses.補充根) / "vc-runtime" / "說明.txt").exists()

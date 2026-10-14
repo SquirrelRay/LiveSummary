@@ -35,7 +35,10 @@ OpenMP標記 = "libiomp5md.dll SHA-256："          # 和 scripts\取得授權�
 授權檔樣式 = re.compile(r"(LICEN[CS]E|COPYING|NOTICE|AUTHORS|ThirdPartyNotices)", re.IGNORECASE)
 
 # 套件沒附全文、改從 third_party_licenses\<資料夾>-<套件版本>\ 收（資料夾版本要等於 .venv 裡的版本，不然當作找不到）
-上游全文 = {"ctranslate2": "ctranslate2", "tokenizers": "tokenizers", "PySide6_Essentials": "qt"}
+# ctranslate2-內含：ctranslate2.dll 靜態包含的 oneMKL、oneDNN、spdlog、CCCL、cpu_features、CUTLASS 等
+上游全文 = {"ctranslate2": ["ctranslate2", "ctranslate2-內含"], "tokenizers": ["tokenizers"], "PySide6_Essentials": ["qt"]}
+上游說明 = {"qt": "Qt 內含的第三方元件聲明另附（qt 第三方元件.txt）。",
+        "ctranslate2-內含": "ctranslate2.dll 靜態包含的元件（Intel oneMKL、oneDNN、spdlog、CCCL、cpu_features、CUTLASS 等）的聲明另附（內含元件.txt）。"}
 # 額外附在某個套件後面的手寫聲明（third_party_licenses\ 底下的檔案）
 附加聲明 = {"nvidia-cublas-cu12": os.path.join("nvidia-cublas", "聲明.txt")}
 
@@ -276,14 +279,14 @@ def 收集(輸出, 建置):
         類型 = _授權類型(套件)
         全文 = _授權全文們(套件)
         說明 = ""
-        if 名 in 上游全文:
-            資料夾 = f"{上游全文[名]}-{套件.version}"
+        for 前綴 in 上游全文.get(名, []):
+            資料夾 = f"{前綴}-{套件.version}"
             補 = 補充全文(資料夾)
             if 補 is None:
                 缺補充.append(資料夾)
             else:
                 全文 += 補
-                說明 = "Qt 內含的第三方元件聲明另附（qt 第三方元件.txt）。" if 上游全文[名] == "qt" else "授權全文取自上游該版本的原始碼庫。"
+                說明 = (說明 + 上游說明.get(前綴, "授權全文取自上游該版本的原始碼庫。")).strip()
         if not 全文:
             for 鍵, 路徑 in 標準全文.items():
                 if 鍵 in 類型 and os.path.isfile(路徑):
@@ -367,7 +370,8 @@ def 寫出(輸出, 建置):
     os.makedirs(資料夾, exist_ok=True)
     行們 = [f"{version.產品名}（LiveSummary）{version.版本字()} 第三方授權清單",
           "",
-          "本程式本身以 GNU GPLv3 授權（全文：程式資料夾的 LICENSE.txt）。",
+          "本程式本身以 GNU GPLv3 授權（全文：程式資料夾的 LICENSE.txt），並依 GPLv3 第 7 條加上額外許可，",
+          "允許與 NVIDIA CUDA、Intel 的函式庫連結並一起散布（條文：程式資料夾的 LICENSE-ADDITIONAL-PERMISSION.txt）。",
           "以下是程式資料夾裡隨附的第三方元件；每一項的授權全文在同一個資料夾、檔名列在「全文」欄。",
           "",
           f"{'名稱':<34}{'版本':<26}授權類型",
