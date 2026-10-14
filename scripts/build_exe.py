@@ -1,8 +1,8 @@
-# 打包成 .exe：一個指令建出 dist\LiveSummary\（LiveSummary.exe 啟動器＋LiveSummaryApp.exe 主程式＋helper.exe＋_internal）和 dist\LiveSummary-v版本號.zip。
+# 打包成 .exe：一個指令建出 dist\LiveSummary\（LiveSummary.exe＋helper.exe＋_internal）和 dist\LiveSummary-v版本號.zip。
 #   .venv\Scripts\python.exe scripts\build_exe.py
 # 設定在專案根目錄的 LiveSummary.spec；決定與原因見 docs\打包調查.md。
 # 步驟：檢查環境（.venv 的 Python 3.13、PyInstaller 版本、vendor\ffmpeg、cuBLAS）→ 清掉舊的 build\LiveSummary、dist\LiveSummary、zip
-#   → PyInstaller → 編譯 LiveSummary.exe 啟動器（stub\Stub.cs）→ 放 LICENSE → 驗收（含 exe 的版本號）（該收的檔案都在、helper.exe 列得出 streamlink 外掛）→ 壓縮 → 印出花費時間與大小。
+#   → PyInstaller → 放 LICENSE → 驗收（含 exe 的版本號）（該收的檔案都在、helper.exe 列得出 streamlink 外掛）→ 壓縮 → 印出花費時間與大小。
 # 任何一步失敗就停下來並說明，不會留下看起來正常的 zip。
 import glob
 import os
@@ -13,9 +13,6 @@ import zipfile
 
 專案 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, 專案)
-sys.path.insert(0, os.path.join(專案, "scripts"))
-
-import stub_build
 
 import version
 
@@ -29,8 +26,7 @@ PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirement
 
 # 打包結果裡一定要有的檔案（相對 dist\LiveSummary）；漏了打包版會在某個功能才壞，所以建完就檢查
 必要檔案 = [
-    "LiveSummary.exe",                                               # 啟動器（stub\Stub.cs 編譯的，build_exe 放進去）
-    "LiveSummaryApp.exe",                                            # 真正的主程式
+    "LiveSummary.exe",
     "helper.exe",
     "LICENSE.txt",                                                   # 本程式 GPLv3
     r"_internal\ffmpeg\bin\ffmpeg.exe",
@@ -71,8 +67,6 @@ def 檢查環境():
         停(f"PyInstaller 版本是 {PyInstaller.__version__}，應該是 {PyInstaller版本}（用 requirements-lock.txt 安裝）")
     if not os.path.isfile(os.path.join(專案, "vendor", "ffmpeg", "bin", "ffmpeg.exe")):
         停("沒有隨附的 ffmpeg：先跑 .venv\\Scripts\\python.exe scripts\\下載ffmpeg.py")
-    if not stub_build.找csc():
-        停("找不到 Windows 內建的 C# 編譯器（編 LiveSummary.exe 啟動器用，Windows 10／11 都有 .NET Framework 4 的 csc.exe）")
     cublas = os.path.join(專案, ".venv", "Lib", "site-packages", "nvidia", "cublas", "bin", "cublas64_12.dll")
     if not os.path.isfile(cublas):
         停(f"找不到 cuBLAS（{cublas}）：用 requirements-lock.txt 安裝 .venv")
@@ -86,7 +80,7 @@ def 清掉舊的():
         for 舊壓縮 in glob.glob(os.path.join(輸出根, f"{名稱}*.zip")):         # 含舊版本號、沒版本號的舊檔
             os.remove(舊壓縮)
     except OSError as e:
-        停(f"刪不掉上次的打包結果（{e}）：LiveSummary.exe／LiveSummaryApp.exe 還開著、或有視窗／終端機正開在 dist 裡面？關掉再跑一次")
+        停(f"刪不掉上次的打包結果（{e}）：LiveSummary.exe 還開著、或有視窗／終端機正開在 dist 裡面？關掉再跑一次")
 
 
 def 打包():
@@ -115,13 +109,16 @@ def 驗收():
     缺 = [f for f in 必要檔案 if not os.path.isfile(os.path.join(輸出, f))]
     if 缺:
         停("打包結果缺少：\n  " + "\n  ".join(缺))
+    exe們 = sorted(f for f in os.listdir(輸出) if f.lower().endswith(".exe"))
+    if exe們 != ["LiveSummary.exe", "helper.exe"]:
+        停(f"dist 的 LiveSummary 資料夾裡應該只有 LiveSummary.exe 和 helper.exe 兩個 exe，實際是：{exe們}")
     多 = [os.path.relpath(os.path.join(路, f), 輸出) for 路, _, 檔們 in os.walk(輸出) for f in 檔們 if f in 不該有]
     # ffmpeg 的 DLL 只該在 _internal\ffmpeg\bin（spec 不讓 PyInstaller 分析它；出現在別處就是又被複製了一份）
     ffmpeg的dll = {f for f in os.listdir(os.path.join(輸出, "_internal", "ffmpeg", "bin")) if f.endswith(".dll")}
     多 += [os.path.join("_internal", f) for f in os.listdir(os.path.join(輸出, "_internal")) if f in ffmpeg的dll]
     if 多:
         停("打包結果有不該帶的檔案：\n  " + "\n  ".join(多))
-    for 檔名 in ("LiveSummary.exe", "LiveSummaryApp.exe", "helper.exe"):
+    for 檔名 in ("LiveSummary.exe", "helper.exe"):
         檢查版本(os.path.join(輸出, 檔名), 檔名)
     # streamlink 外掛是用名稱動態載入的：helper.exe 實際列一次，確認收進去了（不連網）
     import external
@@ -149,10 +146,6 @@ def main():
     清掉舊的()
     print("PyInstaller 打包中（約幾分鐘）…")
     打包()
-    try:
-        stub_build.編譯(os.path.join(輸出, "LiveSummary.exe"), os.path.join(建置, "stub"))
-    except RuntimeError as e:
-        停(str(e))
     shutil.copyfile(os.path.join(專案, "LICENSE"), os.path.join(輸出, "LICENSE.txt"))
     驗收()
     打包秒 = time.monotonic() - 開始

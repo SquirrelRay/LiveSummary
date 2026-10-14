@@ -1,5 +1,12 @@
 直播重點摘要（階段 1）
 
+==============================================================================
+  【下載後請先把整個壓縮檔解壓縮，再執行 LiveSummary.exe】
+  不要在壓縮檔裡直接點開 LiveSummary.exe：Windows 只會取出那一個檔案，程式一定跑不起來
+  （會出現英文的「Failed to load Python DLL」錯誤）。做法：在 LiveSummary-v版本號.zip 上按右鍵
+  → 全部解壓縮，再到解壓縮出來的 LiveSummary 資料夾裡雙擊 LiveSummary.exe。
+==============================================================================
+
 授權：GNU General Public License v3（GPLv3），全文見 LICENSE。
 
 本文件裡的「python …」指令都是指開發環境 .venv 的 Python 3.13（建立與啟動方法見最後的「開發環境」）。
@@ -489,17 +496,14 @@
         .venv\Scripts\python.exe scripts\build_exe.py
       先要有 vendor\ffmpeg（上面 2-1）。設定在 LiveSummary.spec；腳本會清掉舊的、打包、放 LICENSE、驗收（該收的檔案都在、
       helper.exe 列得出 streamlink 外掛）、壓縮，最後印出花費時間與大小。結果：
-        dist\LiveSummary\LiveSummary.exe     使用者點的啟動器（C# 小程式，約 6 KB，stub\Stub.cs，用 Windows 內建的 csc.exe 編）
-        dist\LiveSummary\LiveSummaryApp.exe  真正的主程式（無視窗）；啟動器檢查檔案齊全後啟動它
+        dist\LiveSummary\LiveSummary.exe     主程式（無視窗）
         dist\LiveSummary\helper.exe          命令列版，主程式另開 streamlink／yt_audio 用（使用者不用點它）
         dist\LiveSummary\_internal\          共用的程式庫、隨附 ffmpeg（ffmpeg\bin）、cuBLAS（nvidia\cublas\bin）
         dist\LiveSummary-v1.0.0.zip          整個資料夾的壓縮檔（檔名的版本號從 version.py 來）
       build\、dist\ 不進 git。打包版的程式資料與輸出位置和直接跑 app.py 相同（見最上面「檔案放在哪裡」）。
       測打包版一樣要從檔案總管雙擊 LiveSummary.exe，不要從 Claude 桌面版裡啟動。
-      為什麼有啟動器：在檔案總管直接點開 zip 裡的 exe，Windows 只會把「那一個檔案」解壓縮到暫存資料夾；PyInstaller 的主程式在 Python 開始執行前
-      就找不到 _internal，只會跳英文的「Failed to load Python DLL」，程式裡來不及改成中文。所以使用者點的是獨立的小啟動器：
-      LiveSummaryApp.exe、helper.exe、_internal 三樣都在才啟動主程式；缺任何一樣就跳中文提示後結束（路徑裡有名稱含 .zip 的資料夾，即檔案總管解 zip 的暫存位置 %TEMP%\<GUID>_檔名.zip.xxx\ 時說
-      「請先把整個壓縮檔解壓縮，再執行 LiveSummary.exe」，其他位置說「程式檔案不完整」）。檔案齊全的正常解壓縮不會被擋，就算放在暫存資料夾裡也一樣。
+      從壓縮檔內直接點開 exe 會跳英文錯誤、程式碼來不及攔（開機程式在 Python 啟動前就失敗），所以只靠上面最前面那段說明請使用者先解壓縮；
+      試過 C# 啟動器、不採用（原因見 docs/打包調查.md「第5步之一結果」）。
    版本號：只寫在 version.py（v1 = 1.0.0）。顯示在設定框最下面、logs\當機紀錄.txt、三個 exe 的檔案內容（右鍵 → 內容 → 詳細資料）、zip 檔名；
       其他地方都從 version.py 讀（tests\test_版本號.py 會檢查沒有別處寫死）。改版本只改 version.py 的 版本。
    圖示：assets\icon.ico 放了就套用到三個 exe 和視窗（附進 _internal\assets\icon.ico）；沒放用預設，打包不會失敗。說明見 assets\README.txt。

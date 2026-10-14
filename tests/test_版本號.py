@@ -39,7 +39,7 @@ def test_版本們補滿四段():
 def test_版本號只寫在version_py一個地方():
     """其他 .py／.spec 不准自己寫死 1.0.0（tests 除外）。"""
     樣式 = re.compile(r"(?<![\d.])1\.0\.0(?![\d.])")
-    for 檔 in [*專案.glob("*.py"), *(專案 / "scripts").glob("*.py"), 專案 / "LiveSummary.spec", 專案 / "stub" / "Stub.cs"]:
+    for 檔 in [*專案.glob("*.py"), *(專案 / "scripts").glob("*.py"), 專案 / "LiveSummary.spec"]:
         if 檔.name == "version.py":
             continue
         for 行號, 行 in enumerate(檔.read_text(encoding="utf-8").splitlines(), 1):
@@ -47,10 +47,10 @@ def test_版本號只寫在version_py一個地方():
 
 
 def test_exe檔案內容的欄位來自version_py():
-    資 = version.檔案資訊("LiveSummaryApp.exe")
+    資 = version.檔案資訊("LiveSummary.exe")
     assert 資["FileVersion"] == 資["ProductVersion"] == version.版本
     assert 資["FileDescription"] == 資["ProductName"] == "直播摘要"
-    assert 資["OriginalFilename"] == "LiveSummaryApp.exe" and 資["InternalName"] == "LiveSummaryApp"
+    assert 資["OriginalFilename"] == "LiveSummary.exe" and 資["InternalName"] == "LiveSummary"
     assert version.檔案資訊("helper.exe", "別的說明")["FileDescription"] == "別的說明"
 
 
@@ -61,18 +61,7 @@ def test_打包腳本用version_py的檔名做壓縮檔():
     finally:
         sys.path.remove(str(專案 / "scripts"))
     assert Path(打包.壓縮檔).name == "LiveSummary-v1.0.0.zip"
-    assert "LiveSummaryApp.exe" in 打包.必要檔案 and "LiveSummary.exe" in 打包.必要檔案
-
-
-def test_啟動器的組件資訊帶版本號():
-    sys.path.insert(0, str(專案 / "scripts"))
-    try:
-        import stub_build
-    finally:
-        sys.path.remove(str(專案 / "scripts"))
-    資訊 = stub_build._組件資訊()
-    assert 'AssemblyFileVersion("1.0.0")' in 資訊 and 'AssemblyInformationalVersion("1.0.0")' in 資訊
-    assert 'AssemblyTitle("直播摘要")' in 資訊
+    assert "LiveSummary.exe" in 打包.必要檔案 and "helper.exe" in 打包.必要檔案 and not any("App" in f for f in 打包.必要檔案)
 
 
 def test_spec的exe版本資源從version_py來():

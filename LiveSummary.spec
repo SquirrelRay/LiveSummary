@@ -1,7 +1,6 @@
 # PyInstaller 設定：建出 dist\LiveSummary\（資料夾形式 onedir）。不要直接跑，用 scripts\build_exe.py（會先檢查、清掉舊的、最後驗收與壓縮）。
 # 決定與原因見 docs\打包調查.md：
-#   - LiveSummaryApp.exe：主程式（app.py），無視窗（console=False），不開黑色命令列視窗。使用者點的 LiveSummary.exe 是 build_exe.py 另外編譯的
-#     小啟動器（stub\Stub.cs）：旁邊的檔案齊全就啟動它，從壓縮檔裡直接點開（只解出單一個 exe）時改跳中文提示，原因見 docs\打包調查.md「第5步之一」。
+#   - LiveSummary.exe：主程式（app.py），無視窗（console=False），不開黑色命令列視窗。
 #   - exe 的檔案內容（版本、說明）從 version.py 產生；assets\icon.ico 存在就當作 exe 與視窗圖示，不存在用預設（打包不會失敗）。
 #   - helper.exe：命令列版（helper.py），streamlink／yt_audio 模式給主程式另開程序用（console=True；主程式開它時加 CREATE_NO_WINDOW）。
 #   - 兩個 exe 放同一個資料夾、共用 _internal（一個 COLLECT）。
@@ -23,7 +22,7 @@ sys.path.insert(0, 專案)
 import app_paths  # noqa: E402
 import version  # noqa: E402
 
-主程式檔名 = "LiveSummaryApp"             # 要和 scripts\stub_build.py 的 主程式檔名 一致（啟動器找這個檔）
+主程式檔名 = "LiveSummary"
 圖示 = os.path.join(專案, app_paths.圖示相對位置)
 有圖示 = os.path.isfile(圖示)
 print("圖示：" + (圖示 if 有圖示 else "沒有 assets/icon.ico，使用預設圖示"))
