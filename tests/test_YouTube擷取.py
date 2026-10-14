@@ -2,7 +2,7 @@
 # 全部用假的 streamlink 回應、假網頁、假管線；不連網、不需要 streamlink 或 ffmpeg。
 import json
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import numpy as np
@@ -86,7 +86,7 @@ class 假查詢:
 
 
 # ---------- 每一種錯誤的白話訊息 ----------
-預定 = datetime(2026, 10, 14, 0, 0, tzinfo=timezone.utc).timestamp()
+預定 = datetime(2026, 10, 14, 0, 0, tzinfo=UTC).timestamp()
 預定字 = datetime.fromtimestamp(預定).strftime("%Y-%m-%d %H:%M")
 
 錯誤情況 = [
@@ -379,7 +379,7 @@ def test_檔頭_YouTube寫明怎麼對齊_Twitch不變():
 
 # ---------- yt_audio：PDT 推算 ----------
 def 片段(num, 秒=None, 長=5.0):
-    基 = datetime(2026, 10, 13, 17, 39, 1, 262000, tzinfo=timezone.utc)
+    基 = datetime(2026, 10, 13, 17, 39, 1, 262000, tzinfo=UTC)
     return SimpleNamespace(num=num, duration=長, date=None if 秒 is None else 基 + timedelta(seconds=秒))
 
 
@@ -441,7 +441,7 @@ def test_查YouTube直播_直播中_開播時間與分類():
              "microformat": {"playerMicroformatRenderer": {"category": "News & Politics", "liveBroadcastDetails": {
                  "isLiveNow": True, "startTimestamp": "2026-10-13T17:45:54+00:00"}}}})
     資訊 = si.查YouTube直播(f"https://youtu.be/{影片}", 假取得(文))
-    assert 資訊["開播"] == datetime(2026, 10, 13, 17, 45, 54, tzinfo=timezone.utc).timestamp()
+    assert 資訊["開播"] == datetime(2026, 10, 13, 17, 45, 54, tzinfo=UTC).timestamp()
     assert (資訊["直播主"], 資訊["遊戲"], 資訊["頻道ID"], 資訊["狀態"]) == ("Sky News", "News & Politics", 頻道ID, "OK")
 
 

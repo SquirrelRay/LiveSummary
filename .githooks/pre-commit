@@ -1,8 +1,11 @@
 #!/bin/sh
 # 提交前檢查（由 core.hooksPath 指向 .githooks）。失敗就擋下 commit。
+# 一律用專案的開發環境 .venv（Python 3.13，用 requirements-lock.txt 建）跑，不用系統上的其他 Python。
 cd "$(git rev-parse --show-toplevel)" || exit 1
 export PYTHONIOENCODING=utf-8
-if command -v python >/dev/null 2>&1; then PY=python
-elif command -v py >/dev/null 2>&1; then PY="py -3"
-else echo "找不到 Python，無法執行提交前檢查。"; exit 1; fi
-exec $PY scripts/check.py
+PY=.venv/Scripts/python.exe
+if [ ! -x "$PY" ]; then
+  echo "找不到開發環境 .venv（Python 3.13），無法執行提交前檢查。建立方法見 README「開發環境」。"
+  exit 1
+fi
+exec "$PY" scripts/check.py

@@ -1,7 +1,8 @@
 """提交前檢查：pytest 必須全過，ruff 警告數不得比 .ruff-baseline 多。
 
-手動執行：python scripts/check.py          一般檢查（git hook 跑的就是這個，不含標成 slow 的慢測試）
-          python scripts/check.py --all    完整檢查（連 slow 慢測試一起跑；改到置頂、滑鼠提示、視窗層級相關程式、打包前要跑）
+手動執行（用開發環境 .venv 的 Python 3.13；先啟動 .venv 的話直接打 python 也可以）：
+          .venv\\Scripts\\python.exe scripts/check.py          一般檢查（git hook 跑的就是這個，不含標成 slow 的慢測試）
+          .venv\\Scripts\\python.exe scripts/check.py --all    完整檢查（連 slow 慢測試一起跑；改到置頂、滑鼠提示、視窗層級相關程式、打包前要跑）
 通過回傳 0，失敗回傳 1。由 .githooks/pre-commit 在 git commit 時自動呼叫（不加 --all）。
 """
 import json
@@ -13,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_FILE = ROOT / ".ruff-baseline"
+開發版本 = (3, 13)          # 開發環境的 Python 版本（.venv，用 requirements-lock.txt 建）
 
 
 def run(args):
@@ -86,6 +88,10 @@ def check_ruff():
 def main():
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8", errors="replace")
+    if sys.version_info[:2] != 開發版本:
+        print(f"失敗：這是 Python {sys.version.split()[0]}（{sys.executable}），開發環境是 Python {開發版本[0]}.{開發版本[1]}。")
+        print("請用 .venv\\Scripts\\python.exe scripts/check.py（建立 .venv 的方法見 README「開發環境」）。")
+        return 1
     ok = check_pytest("--all" in sys.argv[1:])
     ok = check_ruff() and ok
     print("\n檢查通過，可以提交。" if ok else "\n檢查失敗，提交已被擋下。請先修正上面列出的問題。")

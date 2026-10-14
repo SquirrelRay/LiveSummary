@@ -95,6 +95,24 @@ def test_解析時間():
     assert si.解析時間(None) is None and si.解析時間("abc") is None
 
 
+def _舊解析時間(字):
+    """Python 3.13 前的寫法（Z 先換成 +00:00）：拿來確認新寫法每種輸入的結果都一樣。"""
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(字).strip().replace("Z", "+00:00")).timestamp()  # noqa: FURB162  故意保留舊寫法來對照
+    except (TypeError, ValueError):
+        return None
+
+
+@pytest.mark.parametrize("字", [
+    "2026-10-13T12:00:00Z", "2026-10-13T12:00:00.123456Z", "2026-10-13T12:00:00.5Z", " 2026-10-13T12:00:00Z \n",
+    "2026-10-13T12:00:00+09:00", "2026-10-13T12:00:00+00:00", "2026-10-13T12:00:00.123+09:00", "2026-10-13T12:00:00-05:30",
+    "", "   ", "abc", "Z", "亂碼ZZ", "2026-13-45T99:99:99Z", None, 12345,
+])
+def test_解析時間_和舊寫法相同(字):
+    assert si.解析時間(字) == _舊解析時間(字)
+
+
 @pytest.fixture
 def 乾淨停止():
     events.停止.clear()

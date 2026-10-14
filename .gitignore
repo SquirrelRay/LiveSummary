@@ -46,3 +46,6 @@ logs/
 
 # 直播主專有名詞詞庫（本機資料，用記事本改）
 詞庫/
+
+# 開發用的 Python 3.13 虛擬環境（用 requirements-lock.txt 建，見 README「開發環境」）
+.venv/

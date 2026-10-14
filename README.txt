@@ -1,7 +1,11 @@
 直播重點摘要（階段 1）
 
+授權：GNU General Public License v3（GPLv3），全文見 LICENSE。
+
+本文件裡的「python …」指令都是指開發環境 .venv 的 Python 3.13（建立與啟動方法見最後的「開發環境」）。
+
 第一次設定：
-1. 安裝套件：pip install -r requirements.txt（清單與版本見 requirements.txt；ffmpeg 另外裝）
+1. 安裝套件：建立開發環境 .venv（見最後的「開發環境」；套件版本見 requirements.txt 與 requirements-lock.txt；ffmpeg 另外裝）
 2. 設定金鑰：打開程式，啟動面板會顯示「尚未設定 API 金鑰」→ 按「設定金鑰」→ 貼上金鑰 → 按「測試連線」（成功就會記住）。
    金鑰存在 Windows 的「認證管理員」（控制台 → 認證管理員 → Windows 認證，名稱含「直播摘要」），不會寫進任何檔案。
    每家服務（Claude、OpenAI、DeepSeek、其他相容服務）各存一把，切換服務時各自的金鑰都還在。
@@ -434,9 +438,23 @@
         每小時直播稿約 US$0.24（換話題判斷約 $0.13、分鐘摘要約 $0.09、話題摘要約 $0.03）；1.5 小時約 US$0.37。
       延伸思考開著時輸出約 3.7 倍，費用大約再多一倍以上。
 
-開發者：啟用提交前檢查（新電腦 clone 後做一次）：
-   pip install -r requirements-dev.txt
-   git config core.hooksPath .githooks
+開發環境（Python 3.13，2026-10-14 起；舊的 Python 3.10 不再用於開發，也不再支援）：
+   環境放在專案資料夾的 .venv（已被 .gitignore 忽略），套件一律用鎖定檔 requirements-lock.txt 安裝（每個相依套件都是測過的確切版本）。
+   1. 建立（新電腦或要重建時做一次；要先裝 Python 3.13：python.org 的 Windows 64 位元安裝程式，不必勾「加到 PATH」）：
+        %LOCALAPPDATA%\Programs\Python\Python313\python.exe -m venv .venv
+        .venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+        git config core.hooksPath .githooks
+      （PowerShell 裡 %LOCALAPPDATA% 要寫成 $env:LOCALAPPDATA；或用 py -3.13 -m venv .venv）
+   2. 使用：在專案資料夾開終端機，先啟動環境，之後打 python 就是 3.13：
+        命令提示字元：.venv\Scripts\activate
+        PowerShell：  .venv\Scripts\Activate.ps1
+      提示字元前面出現 (.venv) 就是啟動了；關掉終端機就恢復。不想啟動的話，把 python 換成 .venv\Scripts\python.exe 也一樣，例如：
+        .venv\Scripts\python.exe app.py
+        .venv\Scripts\pythonw.exe app.py        （不開黑色命令列視窗）
+   3. 確認：python --version 應該是 3.13.x；沒啟動時直接打 python 會是系統上的其他版本（例如 3.10），不要用它跑程式或檢查。
+   4. 升級套件：改 requirements.txt → 在乾淨的 3.13 環境裝 requirements.txt 與 requirements-dev.txt → 跑 check.py --all 與真模型實測
+      → pip freeze 重新產生 requirements-lock.txt（av 要維持 17.1.0，原因見 requirements.txt）。
+   提交前檢查：git hook 固定用 .venv\Scripts\python.exe 跑（找不到 .venv 會擋下 commit 並說明）；check.py 不是 Python 3.13 也會直接失敗並說明。
    之後每次 git commit 會自動跑 pytest 與 ruff（警告數不得超過 .ruff-baseline），沒過就不能提交。
    手動檢查：python scripts/check.py（一般檢查，約 1.5～2 分鐘；git hook 跑的就是這個）
    完整檢查：python scripts/check.py --all（多跑標成 slow 的慢測試：真的 Windows 視窗、子程序，約多 10 秒）

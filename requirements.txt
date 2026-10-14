@@ -1,12 +1,16 @@
-# 執行程式需要的套件（版本 = 開發電腦 2026-10-13 實際安裝的版本；打包成 .exe 時也用這份清單）
-# 安裝：pip install -r requirements.txt
-# 開發用（ruff、pytest）另外在 requirements-dev.txt
+# 執行程式需要的主要套件與說明（給人看的；Python 3.13，2026-10-14 起）
+# 實際安裝請用鎖定檔（每個相依套件都釘住確切版本，開發與打包 .exe 都用它）：
+#   .venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+# 只裝這份的話，沒列出的相依套件會裝到最新版，可能和測過的不一樣（例如 av 19 會讓音訊檔轉錄失敗）。
+# 開發用（ruff、pytest）另外在 requirements-dev.txt（鎖定檔裡也有）
 # 不是 Python 套件、要另外裝的：ffmpeg（winget install Gyan.FFmpeg）
 anthropic==1.12.1            # 呼叫 Claude（摘要、翻譯、上網查證、測試連線）
 PySide6-Essentials==6.12.0   # 介面（啟動面板、膠囊、面板、設定框）
 faster-whisper==1.2.1        # 語音轉文字
 ctranslate2==4.8.2           # faster-whisper 的運算引擎（跟著 faster-whisper 裝，固定版本避免不相容）
 numpy==2.2.6                 # 音訊資料
+av==17.1.0                   # faster-whisper 讀音訊檔用（transcribe.py、scripts/vod_to_transcript.py）；
+#                              ↑ 不要升到 19：av 19.0.1 和 faster-whisper 1.2.1 不相容（open() 不認得 metadata_errors），音訊檔轉錄會失敗
 streamlink==8.6.2            # 抓直播音訊（程式用 python -m streamlink_cli 啟動）
 yt-dlp==2026.8.19            # YouTube 聊天室（yt_chat.py）、transcribe.py 下載影片音訊
 # ↑ yt-dlp 固定在測過的版本，不要直接升級：yt_chat.py 替換了 yt-dlp 內部聊天室下載的等待（time.sleep），按停止才能立刻生效。

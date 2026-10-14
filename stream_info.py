@@ -29,9 +29,9 @@ def _http(網址, 資料=None, 標頭=None, 逾時=逾時秒):
 
 
 def 解析時間(字):
-    """「2026-10-12T09:38:28Z」（可有小數秒）→ epoch 秒數；讀不懂回傳 None。"""
+    """「2026-10-12T09:38:28Z」（可有小數秒）→ epoch 秒數；讀不懂回傳 None。（Python 3.11 起 fromisoformat 認得結尾的 Z）"""
     try:
-        return datetime.fromisoformat(str(字).strip().replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(str(字).strip()).timestamp()
     except (TypeError, ValueError):
         return None
 
