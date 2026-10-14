@@ -1,0 +1,3 @@
+取得日期：2026-10-14（scripts\取得授權全文.py 產生，不要手改）
+ctranslate2 4.8.2 的授權全文（套件的 wheel 沒附）
+網址：https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.2/LICENSE

@@ -366,3 +366,20 @@ def test_打包後streamlink檢查看helper_exe在不在(打包版, monkeypatch)
     assert "重新解壓縮" in first_run.檢查streamlink()["標籤"]
     (打包版 / "helper.exe").write_bytes(b"")
     assert first_run.找得到streamlink() is True
+
+
+def test_下載ffmpeg_備份原始碼_雜湊要對(tmp_path, monkeypatch):
+    import hashlib
+    v = _載入下載腳本()
+    資料 = b"fake ffmpeg source zip"
+    monkeypatch.setattr(v, "原始碼SHA256", hashlib.sha256(資料).hexdigest())
+    次數 = []
+    路徑 = v.備份原始碼(str(tmp_path / "原始碼"), _假網路(資料, 次數), 進度=lambda *a: None)
+    assert Path(路徑) == tmp_path / "原始碼" / v.原始碼檔名 and Path(路徑).read_bytes() == 資料
+    v.備份原始碼(str(tmp_path / "原始碼"), _假網路(資料, 次數), 進度=lambda *a: None)
+    assert 次數 == [v.原始碼網址]                                       # 已備份且雜湊對：不重下
+    monkeypatch.setattr(v, "原始碼SHA256", "0" * 64)
+    with pytest.raises(v.雜湊不符):
+        v.備份原始碼(str(tmp_path / "原始碼"), _假網路(資料, []), 進度=lambda *a: None)
+    assert not Path(路徑).exists()                                     # 壞檔刪掉
+    assert v.原始碼提交 in v.版本 or v.版本.endswith(v.原始碼提交[:10])    # 提交和 ffmpeg 版本字串對得上

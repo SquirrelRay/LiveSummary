@@ -2,7 +2,8 @@
 #   .venv\Scripts\python.exe scripts\build_exe.py
 # 設定在專案根目錄的 LiveSummary.spec；決定與原因見 docs\打包調查.md。
 # 步驟：檢查環境（.venv 的 Python 3.13、PyInstaller 版本、vendor\ffmpeg、cuBLAS）→ 清掉舊的 build\LiveSummary、dist\LiveSummary、zip
-#   → PyInstaller → 放 LICENSE → 驗收（含 exe 的版本號）（該收的檔案都在、helper.exe 列得出 streamlink 外掛）→ 壓縮 → 印出花費時間與大小。
+#   → PyInstaller（PATH 只留 Python 與 Windows 系統資料夾，不受 Git 等其他程式影響）→ 放 LICENSE → 授權清單
+#   → 驗收（含 exe 的版本號、OpenSSL 必須是 Python 自己的）（該收的檔案都在、helper.exe 列得出 streamlink 外掛）→ 壓縮 → 印出花費時間與大小。
 # 任何一步失敗就停下來並說明，不會留下看起來正常的 zip。
 import glob
 import os
@@ -46,7 +47,9 @@ PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirement
     rf"{licenses.資料夾名}\{licenses.總表檔名}",                       # 第三方授權清單（產生授權清單() 寫的）
 ]
 # 不該出現的（決定不帶的大檔）
-不該有 = ["cudnn_ops64_9.dll", "cudnn_cnn64_9.dll", "nvrtc64_120_0.dll", "nvblas64_12.dll", "ffplay.exe", "ffprobe.exe"]
+# cudnn64_9.dll：ctranslate2 自帶的那份也不帶（顯示卡轉錄用不到）；libssl-3-x64 等：PATH 上其他程式（Git）的 OpenSSL
+不該有 = ["cudnn64_9.dll", "cudnn_ops64_9.dll", "cudnn_cnn64_9.dll", "nvrtc64_120_0.dll", "nvblas64_12.dll", "ffplay.exe", "ffprobe.exe",
+        "libssl-3-x64.dll", "libcrypto-3-x64.dll", "Qt6Network.dll", "qtuiotouchplugin.dll"]   # 後兩個：沒用到的 Qt 網路模組
 
 
 def 停(訊息):
@@ -91,10 +94,23 @@ def 清掉舊的():
         停(f"刪不掉上次的打包結果（{e}）：LiveSummary.exe 還開著、或有視窗／終端機正開在 dist 裡面？關掉再跑一次")
 
 
+def 乾淨PATH():
+    """打包時用的 PATH：只有 .venv、Python 安裝與 Windows 系統資料夾。
+    PyInstaller 找 DLL 會看 PATH，PATH 上有 Git（mingw64\\bin）等程式時會把它們的 DLL 收進來（第5步之二發現 OpenSSL 就是這樣來的）。"""
+    windows = os.environ.get("SystemRoot", r"C:\Windows")
+    return os.pathsep.join([os.path.dirname(sys.executable), sys.base_prefix, os.path.join(sys.base_prefix, "DLLs"),
+                            os.path.join(windows, "System32"), windows, os.path.join(windows, "System32", "Wbem")])
+
+
 def 打包():
     import PyInstaller.__main__
-    PyInstaller.__main__.run([規格檔, "--noconfirm", "--clean",
-                              "--distpath", 輸出根, "--workpath", 建置, "--log-level", "WARN"])
+    原本 = os.environ.get("PATH", "")
+    os.environ["PATH"] = 乾淨PATH()
+    try:
+        PyInstaller.__main__.run([規格檔, "--noconfirm", "--clean",
+                                  "--distpath", 輸出根, "--workpath", 建置, "--log-level", "WARN"])
+    finally:
+        os.environ["PATH"] = 原本
 
 
 def 檢查版本(路徑, 期望檔名):
@@ -128,6 +144,10 @@ def 驗收():
         停("打包結果有不該帶的檔案：\n  " + "\n  ".join(多))
     for 檔名 in ("LiveSummary.exe", "helper.exe"):
         檢查版本(os.path.join(輸出, 檔名), 檔名)
+    問題, openssl們 = licenses.OpenSSL來源問題(輸出)
+    if 問題:
+        停("OpenSSL 不是 Python 自己的那份：\n  " + "\n  ".join(問題))
+    print(f"OpenSSL 來源：{'、'.join(openssl們)} 與 {os.path.join(sys.base_prefix, 'DLLs')} 的檔案 SHA-256 相同（Python {sys.version.split()[0]} 自己的）")
     # streamlink 外掛是用名稱動態載入的：helper.exe 實際列一次，確認收進去了（不連網）
     import external
     結果 = external.執行([os.path.join(輸出, "helper.exe"), "--streamlink", "--plugins"],
@@ -141,21 +161,23 @@ def 驗收():
 
 
 def 產生授權清單():
-    """licenses 資料夾（總表＋每一項的全文）。缺總表或項目太少就停；沒附全文、對不到套件的檔案印出來給人確認。"""
-    總表, 項目們, 對不到 = licenses.寫出(輸出, os.path.join(建置, 名稱))
+    """licenses 資料夾（總表＋每一項的全文）。缺總表或項目太少就停；licenses.py 找到的待處理項目（警告）印出來給人確認。"""
+    總表, 項目們, _, 警告們 = licenses.寫出(輸出, os.path.join(建置, 名稱))
     if not os.path.isfile(總表) or len(項目們) < 10:
         停(f"授權清單產生失敗（{總表}，{len(項目們)} 項）")
-    沒全文 = [f"{x['名稱']} {x['版本']}" for x in 項目們 if not x["全文們"]]
     print(f"授權清單：{len(項目們)} 項 → {os.path.relpath(總表, 輸出根)}")
-    if 沒全文:
-        print("  ⚠ 套件沒有附授權全文：" + "、".join(沒全文))
-    if 對不到:
-        print("  ⚠ 來源待確認的檔案（沒對應到任何一項）：" + "、".join(對不到))
+    for 警告 in 警告們:
+        print("  ⚠ " + 警告)
+    if not 警告們:
+        print("  授權清單沒有警告")
 
 
 def _使用說明內容():
     with open(使用說明, encoding="utf-8") as f:
-        文字 = f.read().replace("\r\n", "\n").replace("\n", "\r\n")       # 記事本用 CRLF
+        文字 = f.read().replace("{版本}", version.版本字())               # 原稿不寫死版本號（版本只寫在 version.py）
+    if "{" in 文字 or "}" in 文字:
+        停("使用說明.txt 裡有沒換掉的 {…}（只支援 {版本}）")
+    文字 = 文字.replace("\r\n", "\n").replace("\n", "\r\n")             # 記事本用 CRLF
     return "\ufeff" + 文字                                                # 加 BOM，舊版記事本也認得 UTF-8
 
 

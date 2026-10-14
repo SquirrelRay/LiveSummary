@@ -1,0 +1,12 @@
+Microsoft Visual C++ 執行階段（Microsoft Visual C++ Runtime）
+© Microsoft Corporation. All rights reserved.
+
+程式資料夾裡的 msvcp140*.dll、vcruntime140*.dll（實際的檔案與版本列在下面）是 Microsoft Visual C++ 可轉散發套件
+（Visual C++ Redistributable）的檔案，依 Microsoft Visual Studio 授權條款「可散發程式碼（Distributable Code）」的規定，
+隨使用它們的程式一起散布，未經修改。
+  - 授權條款：https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
+  - 可散發的檔案清單：https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+  - 散布方式說明：https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+
+These Microsoft Visual C++ Redistributable files are distributed unmodified as Distributable Code
+under the Microsoft Visual Studio license terms.

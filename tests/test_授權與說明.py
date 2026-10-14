@@ -128,8 +128,9 @@ def 假打包(tmp_path):
 def test_授權清單涵蓋帶進去的套件與固定項目(假打包):
     licenses = _載入("licenses_測試", 專案 / "scripts" / "licenses.py")
     輸出, 建置 = 假打包
-    總表, 項目們, 對不到 = licenses.寫出(str(輸出), str(建置))
+    總表, 項目們, 對不到, 警告們 = licenses.寫出(str(輸出), str(建置))
     名們 = {x["名稱"] for x in 項目們}
+    assert any("來路不明.dll" in x for x in 警告們)
     assert {"Python", "FFmpeg", "certifi", "PyYAML"} <= 名們
     assert "PyInstaller（開機程式與執行期模組）" in 名們
     assert "pytest" not in 名們 and "ruff" not in 名們             # 沒帶進去的開發工具不列
@@ -183,3 +184,122 @@ def test_使用說明的模型大小和程式一致():
     assert f"約 {first_run.大小字(first_run.模型大小['large-v3-turbo'])}" in 文字           # 1.6 GB
     小 = first_run.模型大小["small"] / 1e6
     assert 480 <= 小 <= 500 and "約 490 MB" in 文字                                         # 486 MB 寫成「約 490 MB」
+
+
+def test_使用說明指向程式裡的使用說明視窗():
+    import onboarding
+    文字 = 使用說明.read_text(encoding="utf-8")
+    assert "「直播摘要 使用說明」視窗（不是這份文字檔）" in 文字
+    assert 'setWindowTitle("直播摘要 使用說明")' in (專案 / "onboarding.py").read_text(encoding="utf-8")   # 和程式裡的視窗標題一致
+    assert f"第 1 頁「{onboarding.頁們[0]['標題']}」" in 文字
+    assert "使用說明第 1 頁" not in 文字
+
+
+def test_使用說明的費用註明以發布時價格估算_版本從version_py來():
+    import version
+    原稿 = 使用說明.read_text(encoding="utf-8")
+    assert "{版本} 發布時各服務的價格估算" in 原稿 and version.版本 not in 原稿      # 原稿不寫死版本號
+    打包 = _載入("build_exe_測試4", 專案 / "scripts" / "build_exe.py")
+    文字 = 打包._使用說明內容()
+    assert f"以 {version.版本字()} 發布時各服務的價格估算" in 文字 and "價格可能調整" in 文字
+    assert "以程式內顯示的估算和服務的帳單為準" in 文字 and "{" not in 文字
+
+
+# ---------- 授權收尾：補充全文、原始碼取得方式、OpenSSL 來源 ----------
+def test_授權清單_補充全文與固定項目與原始碼取得方式(假打包):
+    import shutil
+    from importlib import metadata
+
+    import certifi
+    licenses = _載入("licenses_測試2", 專案 / "scripts" / "licenses.py")
+    下載 = _載入("下載ffmpeg_測試", 專案 / "scripts" / "下載ffmpeg.py")
+    輸出, 建置 = 假打包
+    內部 = 輸出 / "_internal"
+    site = Path(certifi.__file__).parent.parent
+    (內部 / "ctranslate2").mkdir()
+    shutil.copyfile(site / "ctranslate2" / "libiomp5md.dll", 內部 / "ctranslate2" / "libiomp5md.dll")   # 真的那份：要對到 intel-openmp
+    (內部 / "msvcp140.dll").write_bytes(b"x")
+    總表, 項目們, 對不到, 警告們 = licenses.寫出(str(輸出), str(建置))
+    項 = {x["名稱"]: x for x in 項目們}
+    assert 對不到 == ["來路不明.dll"]                                  # msvcp140.dll 歸到 VC++ 執行階段
+    openmp = 項["Intel OpenMP 執行期"]
+    assert openmp["版本"] == "2025.3.0" and any("Intel End User License Agreement" in t for _, t in openmp["全文們"])
+    assert r"_internal\msvcp140.dll" in 項["Microsoft Visual C++ 執行階段"]["全文們"][0][1]
+    assert any("MIT License" in t for _, t in 項["ctranslate2"]["全文們"])         # 上游 v4.8.2 的 LICENSE
+    assert not any("沒有授權全文" in x for x in 警告們)
+    內容 = Path(總表).read_text(encoding="utf-8-sig")
+    assert "原始碼取得方式" in 內容 and f"https://github.com/FFmpeg/FFmpeg/tree/{下載.原始碼提交}" in 內容
+    assert 下載.原始碼檔名 in 內容 and f"certifi-{metadata.version('certifi')}.tar.gz" in 內容
+
+
+def test_授權清單_Intel_OpenMP對不到版本就警告(假打包):
+    licenses = _載入("licenses_測試3", 專案 / "scripts" / "licenses.py")
+    輸出, 建置 = 假打包
+    (輸出 / "_internal" / "ctranslate2").mkdir()
+    (輸出 / "_internal" / "ctranslate2" / "libiomp5md.dll").write_bytes(b"not the real one")
+    _, 項目們, _, 警告們 = licenses.寫出(str(輸出), str(建置))
+    assert next(x for x in 項目們 if x["名稱"] == "Intel OpenMP 執行期")["全文們"] == []
+    assert any(x.startswith("沒有授權全文") and "Intel OpenMP" in x for x in 警告們)
+
+
+def test_授權清單_隨附函式庫沒提到就警告(tmp_path):
+    licenses = _載入("licenses_測試4", 專案 / "scripts" / "licenses.py")
+    雜 = "0123456789abcdef" * 2
+    for 資料夾, 檔 in (("av.libs", f"libx264-165-{雜}.dll"), ("av.libs", f"msvcp140-{雜}.dll"), ("av.libs", f"avcodec-62-{雜}.dll"),
+                    ("numpy.libs", f"libscipy_openblas64_-{雜}.dll")):
+        (tmp_path / "_internal" / 資料夾).mkdir(parents=True, exist_ok=True)
+        (tmp_path / "_internal" / 資料夾 / 檔).write_bytes(b"x")
+    項目們 = [{"名稱": "av", "全文們": [("LICENSE.txt", "BSD license; uses FFmpeg's avcodec")]},
+            {"名稱": "numpy", "全文們": [("LICENSE.txt", "bundles OpenBLAS (BSD)")]}]
+    assert licenses.隨附庫沒提到(str(tmp_path), 項目們) == {"av.libs": ["libx264-165"]}     # msvcp140 另有 VC++ 一項
+
+
+def test_OpenSSL必須是Python自己的(tmp_path):
+    import shutil
+    licenses = _載入("licenses_測試5", 專案 / "scripts" / "licenses.py")
+    內部 = tmp_path / "_internal"
+    內部.mkdir()
+    問題, _ = licenses.OpenSSL來源問題(str(tmp_path))
+    assert any("沒有 OpenSSL" in x for x in 問題)
+    for 名 in ("libcrypto-3.dll", "libssl-3.dll"):
+        shutil.copyfile(Path(sys.base_prefix) / "DLLs" / 名, 內部 / 名)
+    assert licenses.OpenSSL來源問題(str(tmp_path)) == ([], ["libcrypto-3.dll", "libssl-3.dll"])
+    (內部 / "PySide6").mkdir()
+    (內部 / "PySide6" / "libssl-3-x64.dll").write_bytes(b"git")            # 像 Git 的 mingw64\bin 那份
+    (內部 / "libssl-3.dll").write_bytes(b"changed")
+    問題, _ = licenses.OpenSSL來源問題(str(tmp_path))
+    assert len(問題) == 2 and any("libssl-3-x64.dll" in x and "不是 Python 自己的" in x for x in 問題)
+    assert any("libssl-3.dll" in x and "內容不同" in x for x in 問題)
+
+
+def test_打包不帶QtNetwork與cudnn_PATH只留系統與Python():
+    spec = (專案 / "LiveSummary.spec").read_text(encoding="utf-8")
+    assert '"PySide6.QtNetwork"]' in spec and '!= "cudnn64_9.dll"' in spec
+    打包 = _載入("build_exe_測試5", 專案 / "scripts" / "build_exe.py")
+    assert {"cudnn64_9.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll", "Qt6Network.dll", "qtuiotouchplugin.dll"} <= set(打包.不該有)
+    assert "不帶的Qt檔 = {\"qtuiotouchplugin.dll\", \"qt6network.dll\"}" in spec
+    windows = os.path.normcase(os.environ.get("SystemRoot", r"C:\Windows"))
+    for 路徑 in 打包.乾淨PATH().split(os.pathsep):
+        正規 = os.path.normcase(路徑)
+        assert 正規.startswith((windows, os.path.normcase(sys.base_prefix), os.path.normcase(os.path.dirname(sys.executable)))), 路徑
+        assert "git" not in 正規
+
+
+def test_third_party_licenses和venv版本一致():
+    from importlib import metadata
+    licenses = _載入("licenses_測試6", 專案 / "scripts" / "licenses.py")
+    for 套件, 前綴 in licenses.上游全文.items():
+        資料夾 = Path(licenses.補充根) / f"{前綴}-{metadata.version(套件)}"
+        assert (資料夾 / "來源.txt").exists() and licenses.補充全文(資料夾.name), 資料夾        # 升級套件後要重跑 scripts\取得授權全文.py
+    for 檔 in licenses.附加聲明.values():
+        assert (Path(licenses.補充根) / 檔).exists()
+    assert (Path(licenses.補充根) / "vc-runtime" / "說明.txt").exists()
+
+
+def test_取得授權全文_Qt只收打包會帶到的模組():
+    m = _載入("取得授權全文_測試", 專案 / "scripts" / "取得授權全文.py")
+    assert m.Qt要收("src/3rdparty/harfbuzz-ng/qt_attribution.json", {"QDocModule": "qtgui"})
+    assert m.Qt要收("src/3rdparty/libtiff/qt_attribution.json", {"QDocModule": "qtimageformats"})
+    assert not m.Qt要收("src/3rdparty/libpsl/qt_attribution.json", {"QDocModule": "qtnetwork"})       # QtNetwork 沒帶
+    assert not m.Qt要收("src/3rdparty/wayland/protocols/xdg-shell/qt_attribution.json", {"QDocModule": "qtgui"})
+    assert not m.Qt要收("src/testlib/3rdparty/catch2/qt_attribution.json", {"QDocModule": "qttestlib"})

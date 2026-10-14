@@ -5,6 +5,9 @@
 #   - helper.exe：命令列版（helper.py），streamlink／yt_audio 模式給主程式另開程序用（console=True；主程式開它時加 CREATE_NO_WINDOW）。
 #   - 兩個 exe 放同一個資料夾、共用 _internal（一個 COLLECT）。
 #   - cuBLAS 只帶 cublas64_12.dll、cublasLt64_12.dll → _internal\nvidia\cublas\bin（不帶 cuDNN、nvrtc、nvblas）。
+#     ctranslate2 自帶的 cudnn64_9.dll 也不帶（實測顯示卡轉錄用不到，見 docs\打包調查.md「授權收尾結果」）。
+#   - 不帶 PySide6.QtNetwork：程式沒用到；PySide6\__init__.py 裡有條件式的 import，會讓 PyInstaller 把它連同
+#     PATH 上找到的 OpenSSL（例如 Git 的 libssl-3-x64.dll）一起收進來。OpenSSL 只用 Python 自己的那份（build_exe.py 驗收）。
 #   - ffmpeg 從 vendor\ffmpeg 帶 ffmpeg.exe＋DLL → _internal\ffmpeg\bin，授權檔 → _internal\ffmpeg\LICENSE.txt（ffplay、ffprobe 不帶）。
 #   - 不用 UPX。
 import glob
@@ -70,13 +73,15 @@ for f in ("cublas64_12.dll", "cublasLt64_12.dll"):
     原樣.append((os.path.join("nvidia", "cublas", "bin", f), os.path.join(cublas來源, f), "DATA"))
 
 # ---- 動態函式庫、隱藏模組 ----
-函式庫 = collect_dynamic_libs("ctranslate2")          # ctranslate2.dll、libiomp5md.dll、它自帶的 cudnn64_9.dll 小檔
+# ctranslate2.dll、libiomp5md.dll；它自帶的 cudnn64_9.dll（NVIDIA cuDNN 授權）不帶：沒有它顯示卡轉錄結果一樣、程序也不會去載入
+函式庫 = [x for x in collect_dynamic_libs("ctranslate2") if os.path.basename(x[0]).lower() != "cudnn64_9.dll"]
 隱藏模組 = collect_submodules("streamlink.plugins")    # streamlink 用名稱動態載入外掛，靜態分析找不到
 
 # yt_chat.檢查可中斷等待() 要讀這個模組的原始碼：除了 .pyc 也附 .py
 原始碼模式 = {"yt_dlp.downloader.youtube_live_chat": "pyz+py"}
 
-排除 = ["tkinter", "matplotlib", "IPython", "pytest", "_pytest", "pluggy", "iniconfig", "ruff"]   # _pytest 等是 numpy 等的選用匯入帶進來的開發工具
+排除 = ["tkinter", "matplotlib", "IPython", "pytest", "_pytest", "pluggy", "iniconfig", "ruff",   # _pytest 等是 numpy 等的選用匯入帶進來的開發工具
+        "PySide6.QtNetwork"]                                                                    # 沒用到；避免收進 PATH 上的 OpenSSL
 
 
 def 分析(腳本, 額外隱藏=()):
@@ -119,9 +124,18 @@ helperexe = EXE(                                      # noqa: F821
     version=版本資源檔("helper.exe", version.產品名 + "（內部用的命令列程式）"),
 )
 
+# Qt 的 TUIO 觸控外掛（plugins\generic\qtuiotouchplugin.dll，用網路收觸控訊號；要另外指定才會載入）是唯一需要 Qt6Network.dll 的檔案，
+# 本程式用不到，兩個都不帶（QtNetwork 的 Python 模組上面已排除）。
+不帶的Qt檔 = {"qtuiotouchplugin.dll", "qt6network.dll"}
+
+
+def 去掉不帶的(清單):
+    return [x for x in 清單 if os.path.basename(x[0]).lower() not in 不帶的Qt檔]
+
+
 COLLECT(                                              # noqa: F821
-    主程式exe, 主程式.binaries, 主程式.datas, 原樣,
-    helperexe, helper.binaries, helper.datas,
+    主程式exe, 去掉不帶的(主程式.binaries), 主程式.datas, 原樣,
+    helperexe, 去掉不帶的(helper.binaries), helper.datas,
     name="LiveSummary",
     upx=False,
 )

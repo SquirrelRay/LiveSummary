@@ -1,0 +1,7 @@
+取得日期：2026-10-14（scripts\取得授權全文.py 產生，不要手改）
+Intel OpenMP 執行期 2025.3.0（ctranslate2 自帶的 libiomp5md.dll；和這個 wheel 裡的檔案 SHA-256 相同）
+網址：https://files.pythonhosted.org/packages/79/69/05addedd727061b61a85b4fd989754edb628b5be1cd5d161727f98cf4d86/intel_openmp-2025.3.0-py2.py3-none-win_amd64.whl
+wheel SHA-256：8ff899d01a41b92ffe0e618b221ea633127d16df726086082d381c431c31339d
+libiomp5md.dll SHA-256：982233366b0afcda1e0f55a0b134097e35b779613f54ddb69e685e6cd06b755f
+LICENSE.txt ← intel_openmp-2025.3.0.dist-info/LICENSE.txt
+third-party-programs.txt ← intel_openmp-2025.3.0.data/data/share/doc/compiler/licensing/openmp/third-party-programs.txt

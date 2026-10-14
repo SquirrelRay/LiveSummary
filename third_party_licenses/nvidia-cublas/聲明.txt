@@ -1,0 +1,18 @@
+NVIDIA cuBLAS 聲明（NVIDIA cuBLAS notice）
+
+本程式隨附 NVIDIA cuBLAS 12.9.2 的兩個執行期函式庫：
+  _internal\nvidia\cublas\bin\cublas64_12.dll
+  _internal\nvidia\cublas\bin\cublasLt64_12.dll
+Copyright © NVIDIA Corporation 2010 - 2026. All rights reserved.
+
+- 這兩個檔案是 NVIDIA CUDA Toolkit 的一部分，依「NVIDIA CUDA Toolkit 最終使用者授權合約（CUDA EULA）」第 2.6 節附件 A
+  列為可再散布的元件（cublas.dll、cublasLt.dll，檔名可帶版本號），隨本程式一起散布。合約全文是同一項的 License.txt。
+- 只供本程式（用 NVIDIA 顯示卡把聲音轉成文字）使用，不得單獨取出另作他用（CUDA EULA 1.1.2 第 2 點、1.2 第 2 點）。
+- 檔案未經修改，NVIDIA 的版權聲明保留（CUDA EULA 1.2 第 1 點）。
+- 本程式不是由 NVIDIA 贊助或背書（CUDA EULA 1.2 第 3 點）。
+- 來源：PyPI 套件 nvidia-cublas-cu12 12.9.2.10（https://pypi.org/project/nvidia-cublas-cu12/12.9.2.10/）。
+
+This software includes NVIDIA cuBLAS 12.9.2 runtime libraries (cublas64_12.dll, cublasLt64_12.dll),
+Copyright © NVIDIA Corporation 2010 - 2026. All rights reserved.
+They are redistributed unmodified under the NVIDIA CUDA Toolkit End User License Agreement (Attachment A),
+may only be used by this application, and this application is not sponsored or endorsed by NVIDIA.

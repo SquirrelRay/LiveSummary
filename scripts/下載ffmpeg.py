@@ -6,6 +6,8 @@
 - SHA-256 不符就刪掉下載的檔案、不解開、結束碼 1（不會用到來路不明的 ffmpeg）。
 - 壓縮檔留在 vendor\\下載（備份：BtbN 的每日版只留約兩週；只有每月最後一天的版本長期保留，所以釘月底版）。
   vendor\\ 整個在 .gitignore，二進位檔不進 git。
+- 同時下載這一版 FFmpeg 的原始碼（LGPL 要提供對應原始碼）到 vendor\\原始碼\\FFmpeg-<提交>.zip，發布時一起上傳到發布頁。
+  原始碼是 GitHub 依提交產生的壓縮檔，SHA-256 也釘住（2026-10-14 兩次下載相同）；不符一樣刪掉、結束碼 1。
 - 程式找 ffmpeg 的順序（app_paths.ffmpeg位置）：vendor\\ffmpeg\\bin\\ffmpeg.exe（開發）／_internal\\ffmpeg\\bin（打包版）→ 系統上的。
 """
 import hashlib
@@ -27,6 +29,11 @@ import external
 檔名 = f"ffmpeg-{版本}-win64-lgpl-shared-9.0.zip"
 網址 = f"https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/{檔名}"
 SHA256 = "7157177b8a6cb2174c1650ba8c71b363f2c78cba5330f88c4c02cf5b2b880646"
+# 這個建置對應的 FFmpeg 原始碼（版本字串 n9.0.2-17-g2a571b6068 的 g 後面就是提交；RELEASE 檔寫 9.0.2）
+原始碼提交 = "2a571b606854520cf89804d8030c8b328e621689"
+原始碼網址 = f"https://github.com/FFmpeg/FFmpeg/archive/{原始碼提交}.zip"
+原始碼檔名 = f"FFmpeg-{原始碼提交}.zip"
+原始碼SHA256 = "25c3b714ebbb3d43ffd2a5126d8ce34217dade0d8cd4829c618666e3e19b3858"
 
 
 class 雜湊不符(Exception):
@@ -98,11 +105,27 @@ def 準備(網址=網址, 檔名=檔名, 期望=SHA256, 目的資料夾=None, �
     return exe
 
 
+def 備份原始碼(目的資料夾=None, 開網址=urllib.request.urlopen, 進度=print):
+    """FFmpeg 原始碼壓縮檔 → vendor\\原始碼（已有且雜湊對就不重下）。回傳路徑。"""
+    目的資料夾 = 目的資料夾 or os.path.join(os.path.dirname(app_paths.隨附ffmpeg資料夾()), "原始碼")
+    os.makedirs(目的資料夾, exist_ok=True)
+    路徑 = os.path.join(目的資料夾, 原始碼檔名)
+    if os.path.isfile(路徑) and 算雜湊(路徑).lower() == 原始碼SHA256:
+        進度(f"原始碼已經備份過：{路徑}")
+    else:
+        進度(f"下載原始碼：{原始碼網址}")
+        下載(原始碼網址, 路徑, 開網址)
+    確認雜湊(路徑, 原始碼SHA256)
+    進度(f"原始碼 SHA-256 正確：{路徑}")
+    return 路徑
+
+
 def main():
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8")
     try:
         exe = 準備()
+        備份原始碼()
     except 雜湊不符 as e:
         print(f"失敗：{e}", file=sys.stderr)
         return 1

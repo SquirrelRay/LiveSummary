@@ -491,7 +491,7 @@
         .venv\Scripts\pythonw.exe app.py        （不開黑色命令列視窗）
    2-1. 隨附的 ffmpeg（和打包版用同一版）：.venv\Scripts\python.exe scripts\下載ffmpeg.py
       下載 BtbN 的 LGPL shared 版月底版 n9.0.2-17（版本、網址、SHA-256 釘在腳本裡；版本選擇原因見 docs/打包調查.md），雜湊不符就拒絕使用），解開到 vendor\ffmpeg（.gitignore，不進 git），
-      壓縮檔備份留在 vendor\下載。程式找 ffmpeg 的順序：vendor\ffmpeg\bin\ffmpeg.exe → 系統上的；用了哪一個寫在 logs\啟動里程碑_*.txt（「找到 ffmpeg」那行）。
+      壓縮檔備份留在 vendor\下載；同時把這一版 FFmpeg 的原始碼備份到 vendor\原始碼\FFmpeg-<提交>.zip（LGPL 要提供原始碼，發布時上傳到發布頁）。程式找 ffmpeg 的順序：vendor\ffmpeg\bin\ffmpeg.exe → 系統上的；用了哪一個寫在 logs\啟動里程碑_*.txt（「找到 ffmpeg」那行）。
    2-2. 打包成 .exe（PyInstaller 6.22.3，已在 requirements-lock.txt；決定與原因見 docs/打包調查.md）：
         .venv\Scripts\python.exe scripts\build_exe.py
       先要有 vendor\ffmpeg（上面 2-1）。設定在 LiveSummary.spec；腳本會清掉舊的、打包、放 LICENSE、驗收（該收的檔案都在、
@@ -508,8 +508,12 @@
       其他地方都從 version.py 讀（tests\test_版本號.py 會檢查沒有別處寫死）。改版本只改 version.py 的 版本。
    圖示：assets\icon.ico 放了就套用到三個 exe 和視窗（附進 _internal\assets\icon.ico）；沒放用預設，打包不會失敗。說明見 assets\README.txt。
    第三方授權清單：scripts\licenses.py（打包時自動跑）產生 dist\LiveSummary\licenses\（第三方授權清單.txt 總表＋每項全文），
-      只列實際帶進去的套件，加上 Python、PyInstaller、FFmpeg；沒附全文、來源待確認的檔案會在打包時印警告。單獨跑：.venv\Scripts\python.exe scripts\licenses.py
-      （用現有的 dist、build）。哪些項目還要處理見 docs\打包調查.md「第5步之二結果」。
+      只列實際帶進去的套件，加上 Python、PyInstaller、FFmpeg、Intel OpenMP、VC++ 執行階段；總表最後有 LGPL／GPL／MPL 元件的「原始碼取得方式」。
+      套件沒附的全文（ctranslate2、tokenizers、Intel OpenMP、Qt 內含的第三方元件）放在 third_party_licenses\（提交進 git，打包不連網），
+      由 scripts\取得授權全文.py 從上游取得——套件升級後重跑一次；cuBLAS 聲明、VC++ 說明是那裡的手寫檔。
+      打包時印警告（不讓打包失敗）：沒附全文、來源待確認的檔案、*.libs 隨附函式庫沒收錄授權、沒有原始碼網址、third_party_licenses 版本不符。
+      單獨跑：.venv\Scripts\python.exe scripts\licenses.py（用現有的 dist、build）。現況與待決定的項目見 docs\打包調查.md「授權收尾結果」。
+   OpenSSL：打包只用 Python 自己的 libcrypto-3.dll／libssl-3.dll（打包時 PATH 只留 Python 與 Windows 系統資料夾，驗收比對 SHA-256，不同就失敗）。
    使用說明：給一般使用者的 docs\使用說明.txt，打包時放在 zip 最上層。
    系統匣圖示說明：tray_tip.py（首次引導第 3 頁、設定框共用），按鈕打開 ms-settings:taskbar。
    當機紀錄：crash_log.py 攔主執行緒、其他執行緒、Qt 槽函式裡沒被接住的錯誤（以及 Qt 嚴重錯誤、原生層當機時的 Python 堆疊），寫進
