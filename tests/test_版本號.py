@@ -98,3 +98,11 @@ def test_打包設定有留圖示位置():
     app內容 = (專案 / "app.py").read_text(encoding="utf-8")
     assert "app_paths.圖示檔()" in app內容 and "setWindowIcon" in app內容
     assert (專案 / "assets" / "README.txt").exists()
+
+
+def test_著作權人是RAYPORK_額外許可與exe版權欄位一致():
+    assert version.著作權人 == "RAYPORK"
+    assert f"Copyright (C) 2026 {version.著作權人}" in version.檔案資訊("x.exe")["LegalCopyright"]
+    許可 = (專案 / "LICENSE-ADDITIONAL-PERMISSION.txt").read_text(encoding="utf-8")
+    assert f"Copyright (C) 2026 {version.著作權人}\n" in 許可 and "or (at your option)" in 許可
+    assert "Copyright (C) 2026 Ray" not in 許可

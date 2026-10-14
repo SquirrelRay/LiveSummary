@@ -6,6 +6,7 @@
 產品名 = "直播摘要"
 英文名 = "LiveSummary"
 授權 = "GPL-3.0"
+著作權人 = "RAYPORK"          # LICENSE-ADDITIONAL-PERMISSION.txt、exe 檔案內容的版權欄位（改這裡時兩處一起改）
 
 
 def 版本們():
@@ -30,7 +31,7 @@ def 檔案資訊(原檔名, 說明=None):
         "FileDescription": 說明 or 產品名,
         "FileVersion": 版本,
         "InternalName": 原檔名.rsplit(".", 1)[0],
-        "LegalCopyright": f"{授權} 開放原始碼",
+        "LegalCopyright": f"Copyright (C) 2026 {著作權人}，{授權} 開放原始碼",
         "OriginalFilename": 原檔名,
         "ProductName": 產品名,
         "ProductVersion": 版本,
