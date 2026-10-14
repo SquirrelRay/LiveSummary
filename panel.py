@@ -545,7 +545,17 @@ class 提示置頂(QObject):
     Qt 的提示框是重複使用的同一個視窗：還開著時換到別的藥丸、或膠囊每秒更新提示，只換文字不會重新排到最上面；
     中間如果面板或膠囊重新設成置頂（開面板、切換置頂、膠囊移到面板上面…），提示就會被它們蓋住。
     做法：提示框顯示（Show）或重畫（Paint，換文字時）就拉上來；任何元件要顯示提示（ToolTip 事件）時，
-    等 Qt 處理完再把開著的提示框拉上來（文字一樣、不會重畫的情況）。裝在 QApplication 上當事件過濾器。"""
+    等 Qt 處理完再把開著的提示框拉上來（文字一樣、不會重畫的情況）。裝在 QApplication 上當事件過濾器。
+    整個程式只掛一次（用 安裝()）：每個過濾器都會讓程式裡每個事件多經過一次 Python，重複掛（例如測試裡一直新建主控台）會越來越慢。"""
+
+    @classmethod
+    def 安裝(cls):
+        """掛在 QApplication 上；已經掛過就不再掛（同一個 QApplication 只有一個）。回傳那個過濾器。"""
+        app = QApplication.instance()
+        if getattr(app, "_提示置頂", None) is None:
+            app._提示置頂 = cls(app)
+            app.installEventFilter(app._提示置頂)
+        return app._提示置頂
 
     def eventFilter(self, 物, e):
         種類 = e.type()

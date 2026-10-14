@@ -1,12 +1,14 @@
 """提交前檢查：pytest 必須全過，ruff 警告數不得比 .ruff-baseline 多。
 
-手動執行：python scripts/check.py
-通過回傳 0，失敗回傳 1。由 .githooks/pre-commit 在 git commit 時自動呼叫。
+手動執行：python scripts/check.py          一般檢查（git hook 跑的就是這個，不含標成 slow 的慢測試）
+          python scripts/check.py --all    完整檢查（連 slow 慢測試一起跑；改到置頂、滑鼠提示、視窗層級相關程式、打包前要跑）
+通過回傳 0，失敗回傳 1。由 .githooks/pre-commit 在 git commit 時自動呼叫（不加 --all）。
 """
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,11 +32,14 @@ def staged_files():
     return {Path(p).as_posix() for p in r.stdout.split("\n") if p.strip()}
 
 
-def check_pytest():
-    print("【1/2】執行 pytest ...")
-    r = run(["pytest", "-q"])
+def check_pytest(全部=False):
+    # pyproject.toml 的 addopts 預設 -m 'not slow'；--all 用 -m "" 取消，連慢測試一起跑
+    print("【1/2】執行 pytest（含慢測試）..." if 全部 else "【1/2】執行 pytest（不含慢測試；要全部請加 --all）...")
+    開始 = time.time()
+    r = run(["pytest", "-q", *(["-m", ""] if 全部 else [])])
+    秒 = time.time() - 開始
     if r.returncode == 0:
-        print("  通過：pytest 全部通過。")
+        print(f"  通過：pytest 全部通過（{秒:.0f} 秒）。")
         return True
     print("  失敗：pytest 有測試沒通過（或無法執行）。輸出如下：")
     print((r.stdout + r.stderr).rstrip())
@@ -81,7 +86,7 @@ def check_ruff():
 def main():
     for s in (sys.stdout, sys.stderr):
         s.reconfigure(encoding="utf-8", errors="replace")
-    ok = check_pytest()
+    ok = check_pytest("--all" in sys.argv[1:])
     ok = check_ruff() and ok
     print("\n檢查通過，可以提交。" if ok else "\n檢查失敗，提交已被擋下。請先修正上面列出的問題。")
     return 0 if ok else 1

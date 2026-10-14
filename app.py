@@ -1127,8 +1127,7 @@ class 主控台(QMainWindow):
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
-        self.提示置頂 = panel.提示置頂(self)     # 滑鼠提示永遠在置頂的面板、膠囊之上
-        QApplication.instance().installEventFilter(self.提示置頂)
+        self.提示置頂 = panel.提示置頂.安裝()      # 滑鼠提示永遠在置頂的面板、膠囊之上（整個程式只掛一次）
         self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和啟動面板一起顯示）
         self.啟動面板 = launcher.啟動面板(self, 網址欄, 網址清單)
         self.套用開發者選項()

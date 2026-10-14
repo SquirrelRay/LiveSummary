@@ -500,3 +500,4 @@ def test_直播中用這一場的詞庫_文字稿重播沒有直播主時停用(
     台.開名詞清單()
     assert 台.名詞清單框.詞庫 is 本場 and 台.名詞清單框.本場
     台.名詞清單框.close()
+    monkeypatch.setattr(台, "執行中", lambda: False)      # 還原：fixture 收尾會等「沒在執行」，不改回來要白等 15 秒

@@ -8,6 +8,8 @@ extend-select = ["S", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: 慢測試（真的 Windows 視窗、子程序等）：一般檢查與 git hook 不跑，python scripts/check.py --all 或 pytest（不加 -m）才跑"]
+addopts = "-m 'not slow'"
 
 [tool.ruff.lint.per-file-ignores]
 # pytest 的測試本來就用 assert

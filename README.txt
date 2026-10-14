@@ -438,4 +438,7 @@
    pip install -r requirements-dev.txt
    git config core.hooksPath .githooks
    之後每次 git commit 會自動跑 pytest 與 ruff（警告數不得超過 .ruff-baseline），沒過就不能提交。
-   手動檢查：python scripts/check.py
+   手動檢查：python scripts/check.py（一般檢查，約 1.5～2 分鐘；git hook 跑的就是這個）
+   完整檢查：python scripts/check.py --all（多跑標成 slow 的慢測試：真的 Windows 視窗、子程序，約多 10 秒）
+   什麼時候要跑完整檢查：改到視窗層級相關的程式（置頂、滑鼠提示、膠囊、面板的視窗樣式或前後順序，panel.py／capsule.py／overlay.py／提示置頂）、
+   打包成 .exe 前、發版前。標慢測試的方法：在測試函式上加 @pytest.mark.slow（設定在 pyproject.toml）；慢測試不能刪、--all 要全過。
