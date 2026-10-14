@@ -5,6 +5,7 @@
 #   .venv\Scripts\python.exe -m pip install -r requirements-lock.txt
 # 升級套件：改 requirements.txt → 在乾淨的 3.13 環境裝 requirements.txt 與 requirements-dev.txt → 跑 check.py --all
 #   與真模型實測 → pip freeze 重新產生這份（av 等已知不相容的版本照上面改回）。
+# 2026-10-14 加入 OpenCC 1.4.2（簡體轉繁體）：乾淨的 3.13 環境裝這份＋OpenCC 後 pip freeze，只多了 OpenCC 一行（它沒有相依套件）。
 # 系統：Windows 64 位元、Python 3.13（其他版本沒測過）。
 
 # ---- 執行程式需要的（requirements.txt 與它們的相依套件）----
@@ -43,6 +44,7 @@ nvidia-cublas-cu12==12.9.2.10
 nvidia-cuda-nvrtc-cu12==12.9.86
 nvidia-cudnn-cu12==9.27.0.42
 onnxruntime==1.31.0
+OpenCC==1.4.2
 openai==3.28.0
 outcome==1.3.0.post0
 packaging==26.3

@@ -15,6 +15,7 @@ streamlink==8.6.2            # 抓直播音訊（程式用 python -m streamlink_
 yt-dlp==2026.8.19            # YouTube 聊天室（yt_chat.py）、transcribe.py 下載影片音訊
 # ↑ yt-dlp 固定在測過的版本，不要直接升級：yt_chat.py 替換了 yt-dlp 內部聊天室下載的等待（time.sleep），按停止才能立刻生效。
 #   升級後先跑 pytest：tests/test_YouTube聊天室.py 的保護測試會檢查那個位置還在，不在就失敗並說明要重新檢查停止機制。
+opencc==1.4.2                # 給使用者看的輸出（摘要、翻譯）裡的簡體字轉繁體（Apache-2.0，可與 GPLv3 一起發布；見 traditional.py）
 keyring==25.7.0              # API 金鑰存進 Windows 認證管理員
 openai==3.28.0               # 選用：用 OpenAI 相容服務時才需要（OpenAI、DeepSeek、Ollama 等）
 nvidia-cublas-cu12==12.9.2.10   # 選用：用 NVIDIA 顯示卡轉錄時才需要

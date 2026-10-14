@@ -18,6 +18,7 @@ import stream_clock     # 存檔開頭的說明（直播主、標題、開播時
 import llm
 import model_catalog  # 單價未知時費用是 model_catalog.未知
 import config      # 語言清單（單一來源）
+import traditional  # 譯文裡的簡體字轉繁體
 
 批次秒數 = 8      # 第一句進來後最多等幾秒就翻（開始時由字幕速度段位覆蓋）
 批次句數 = 4      # 累積幾句就翻（開始時由字幕速度段位覆蓋）
@@ -54,7 +55,8 @@ def 要翻譯(模式, 語言, 文字):
 
 def 讀譯文(回答):
     """從模型的回答裡讀出譯文清單。回答前後可能多了說明文字或程式碼框，所以不能整段直接讀：
-    找出回答裡每一個 JSON 陣列，優先用「最後一個」（模型有時會先寫一段說明，最後才給正式答案）。讀不出來回傳 None。"""
+    找出回答裡每一個 JSON 陣列，優先用「最後一個」（模型有時會先寫一段說明，最後才給正式答案）。讀不出來回傳 None。
+    譯文裡的簡體字轉繁體（逐句翻譯、聊天室翻譯都經過這裡）。"""
     解碼 = json.JSONDecoder()
     找到 = []
     for m in re.finditer(r"\[", 回答):
@@ -63,7 +65,7 @@ def 讀譯文(回答):
         except ValueError:
             continue
         if isinstance(物件, list) and 物件 and all(isinstance(x, str) for x in 物件):
-            找到.append([x.strip() for x in 物件])
+            找到.append([traditional.轉繁體(x.strip(), 保護括號=True) for x in 物件])   # 只翻外語：括號裡的原文不轉
     return 找到[-1] if 找到 else None
 
 

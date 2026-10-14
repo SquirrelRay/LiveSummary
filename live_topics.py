@@ -18,6 +18,7 @@ import model_catalog    # 模型的單價（查不到就是未知，不沿用舊
 import timefmt          # 時間格式（未滿 1 小時 mm:ss、滿 1 小時 h:mm:ss）
 import stream_clock     # 這一場的直播時軸（抓不到開播時間時，時間字前面加 +）
 import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
+import traditional      # 給使用者看的輸出裡的簡體字轉繁體
 import platforms        # Twitch／YouTube（YouTube 的詞庫鍵、查證脈絡）
 import web_verify       # 上網查證詞庫的候選名詞（預設關）
 import first_run        # 轉錄模型下載失敗的錯誤種類（第一次使用）
@@ -260,6 +261,11 @@ def 單一主題(字):
     return 字
 
 
+def 繁體(文字):
+    """給使用者看的文字裡的簡體字轉繁體。外語直播（含自動偵測）括號裡的原文不轉（日文人名的漢字）。"""
+    return traditional.轉繁體(文字, 保護括號=bool(summarize.語言說明))
+
+
 def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 參考詞=None, 詞庫段=""):
     """問模型話題有沒有換。主題：這個話題開始時定下的「一件事」（之後不改寫，判斷一律跟它比對，避免簡述每輪漂移）。
     回傳 (decision, new_topic_start, brief, side_notes, minute, topic)；解析失敗就當 same。
@@ -298,7 +304,7 @@ def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
         回答 = summarize.call_llm(提示詞)
         資料 = 取最後JSON(回答)
         決定 = 資料.get("decision", "same")
-        簡述結果 = str(資料.get("topic_brief", 主題 or ""))
+        簡述結果 = 繁體(str(資料.get("topic_brief", 主題 or "")))
         主題結果 = 單一主題(str(資料.get("topic") or "").strip()[:40] or 簡述結果.strip()[:40])   # 沒給 topic 就用簡述開頭頂替
         if 是雜訊主題(主題結果):
             主題結果 = ""          # 打招呼、感謝、念留言不能當錨點：回傳空字串，引擎不會拿它換錨點
@@ -315,12 +321,12 @@ def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
     if 要分鐘:
         try:
             m = 資料["minute_summary"]
-            摘要字 = str(m["summary"]).strip()
+            摘要字 = 繁體(str(m["summary"]).strip())
             標 = 時間標記.match(摘要字)
             if 標:          # 開頭的時間：補回漏掉的小時，格式統一（例如 [83:45] → [1:23:45]）
                 摘要字 = f"[{秒轉字(對齊時間(timefmt.組秒(*標.groups()), 有的秒))}]" + 摘要字[標.end():]
             if 摘要字:
-                分鐘 = (摘要字, str(m.get("audience", "")).strip() if 聊天們 else "")
+                分鐘 = (摘要字, 繁體(str(m.get("audience", "")).strip()) if 聊天們 else "")
         except Exception:
             分鐘 = None
     # 支線：欄位缺失或格式不對就當作沒有；時間必須真的出現在新文字裡
@@ -328,7 +334,7 @@ def 問話題(主題, 最後幾行, 新行們, 聊天們=None, 要分鐘=False, 
     try:
         for 項 in (資料.get("side_notes") or [])[:MAX_SIDE_PER_CHECK]:
             秒 = 對齊時間(轉秒(f"[{項['time']}]"), 有的秒)
-            note = str(項["note"]).strip()
+            note = 繁體(str(項["note"]).strip())
             if 秒 in 有的秒 and note:
                 支線們.append((秒, note))
     except Exception:
@@ -441,6 +447,7 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None, 查證=None):
     if not 內文:                      # 找不到格式：不顯示原文（可能整段都是自言自語），這一題留一個說明
         內文 = f"【話題標題】（摘要無法顯示）\n【時間範圍】{起} - {訖}\n【摘要】模型這次沒有照格式回覆，這一題的摘要無法顯示。"
     內文, 名詞們 = glossary.拆名詞(內文)     # 【名詞】只給詞庫用，不顯示、不存檔
+    內文 = 繁體(內文)                        # 【名詞】照模型原樣給詞庫（要和語音稿比對），顯示與存檔的內文才轉繁體
     if 詞庫 is not None and 名詞們:
         try:
             新的 = 詞庫.自動加入(名詞們, 原稿="\n".join(話題["行們"]))
