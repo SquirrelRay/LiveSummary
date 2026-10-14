@@ -215,3 +215,104 @@ def test_中文路徑實際讀寫設定與詞庫(中文帳號, monkeypatch):
     庫 = glossary.詞庫("小明頻道", 資料夾路徑=str(中文帳號["資料"] / "詞庫"))
     assert not 庫.讀錯誤 and [e.寫法 for e in 庫.條目們] == ["艾倫"]
     assert 庫.路徑 == str(中文帳號["資料"] / "詞庫" / "小明頻道.txt")
+
+
+# ---------- 除錯用音訊：位置與只留最近 5 場 ----------
+def 做音訊場(根, 名, 檔=("0001_00-12.wav", "0002_12-24.wav")):
+    d = 根 / 名
+    d.mkdir(parents=True)
+    for f in 檔:
+        (d / f).write_bytes(b"RIFF")
+    return d
+
+
+def test_音訊放在資料資料夾底下_不在輸出資料夾():
+    assert app_paths.音訊資料夾() == os.path.join(app_paths.資料資料夾(), "音訊")
+    assert not app_paths.音訊資料夾().startswith(app_paths.輸出資料夾())
+    assert app_paths.音訊場資料夾名("@abc", "20261014_144017") == "@abc_20261014_144017_音訊"
+
+
+def test_超過保留場數_刪最舊的(tmp_path):
+    名們 = [f"abc_2026101{i}_120000_音訊" for i in range(1, 8)]          # 7 場，1 號最舊
+    for 名 in 名們:
+        做音訊場(tmp_path, 名)
+    刪掉 = app_paths.清理舊音訊(目錄=str(tmp_path))                        # 預設留 4 個舊的（+ 新的這場 = 5）
+    assert sorted(刪掉) == sorted(名們[:3])
+    assert sorted(os.listdir(tmp_path)) == sorted(名們[3:])
+
+
+def test_不同直播主混在一起_照時間排_不看名稱開頭(tmp_path):
+    做音訊場(tmp_path, "zzz_20261001_100000_音訊")           # 名稱字母最大、但時間最舊
+    for i in range(2, 6):
+        做音訊場(tmp_path, f"aaa_2026100{i}_100000_音訊")
+    assert app_paths.清理舊音訊(目錄=str(tmp_path)) == ["zzz_20261001_100000_音訊"]
+
+
+def test_沒超過保留場數_不刪(tmp_path):
+    for i in range(1, 5):
+        做音訊場(tmp_path, f"abc_2026101{i}_120000_音訊")
+    assert app_paths.清理舊音訊(目錄=str(tmp_path)) == []
+    assert len(os.listdir(tmp_path)) == 4
+
+
+def test_名稱不符合格式的東西一律不碰(tmp_path):
+    for i in range(1, 8):
+        做音訊場(tmp_path, f"abc_2026101{i}_120000_音訊")
+    不碰 = [做音訊場(tmp_path, "我的重要資料", ("a.wav",)),
+          做音訊場(tmp_path, "abc_20261001_音訊", ("a.wav",)),               # 少了時間
+          做音訊場(tmp_path, "abc_20261001_120000_音訊備份", ("a.wav",)),
+          做音訊場(tmp_path, "_20261001_120000_音訊x", ("a.wav",)),
+          做音訊場(tmp_path, "舊_20260101_010101_音訊", ("a.wav", "筆記.txt")),   # 格式對但有 wav 以外的檔案
+          ]
+    (tmp_path / "abc_20260101_000000_音訊.txt").write_text("檔案不是資料夾", encoding="utf-8")
+    (tmp_path / "readme.txt").write_text("x", encoding="utf-8")
+    刪掉 = app_paths.清理舊音訊(目錄=str(tmp_path))
+    assert len(刪掉) == 3 and all(n.startswith("abc_2026101") for n in 刪掉)
+    for d in 不碰:
+        assert d.exists()
+    assert (tmp_path / "abc_20260101_000000_音訊.txt").exists() and (tmp_path / "readme.txt").exists()
+
+
+def test_音訊位置不存在_不出錯(tmp_path):
+    assert app_paths.清理舊音訊(目錄=str(tmp_path / "沒有這個資料夾")) == []
+    assert app_paths.清理舊音訊() == []          # conftest 的暫存資料夾裡也還沒有 音訊\
+
+
+def test_音訊根目錄是檔案不是資料夾_不出錯(tmp_path):
+    f = tmp_path / "音訊"
+    f.write_text("x", encoding="utf-8")
+    assert app_paths.清理舊音訊(目錄=str(f)) == []
+
+
+def test_刪不掉一個_其他照刪不出錯(tmp_path, monkeypatch):
+    for i in range(1, 8):
+        做音訊場(tmp_path, f"abc_2026101{i}_120000_音訊")
+    真 = app_paths.shutil.rmtree
+
+    def 壞一個(路徑, *a, **k):
+        if "20261001" in 路徑 or "20261011" in 路徑:
+            raise PermissionError("被占用")
+        return 真(路徑, *a, **k)
+    monkeypatch.setattr(app_paths.shutil, "rmtree", 壞一個)
+    刪掉 = app_paths.清理舊音訊(目錄=str(tmp_path))
+    assert "abc_20261011_120000_音訊" not in 刪掉 and len(刪掉) == 2
+
+
+def test_開始新的一場_音訊進資料資料夾_並清掉最舊的(tmp_path, monkeypatch):
+    """live_session 建立時：音訊資料夾在 app_paths.音訊資料夾() 底下、舊的只留 4 場（加這一場 = 5）。"""
+    import live_capture as lc
+    根 = tmp_path / "音訊"
+    monkeypatch.setattr(app_paths, "_覆寫", {**app_paths._覆寫, "資料": str(tmp_path)})
+    舊們 = [f"taiji_2026100{i}_120000_音訊" for i in range(1, 8)]
+    for 名 in 舊們:
+        做音訊場(根, 名)
+    monkeypatch.setattr(lc, "檢查直播", lambda *a, **k: "audio_only")
+    monkeypatch.setattr(lc.stream_info, "背景查詢", lambda *a, **k: None)
+    monkeypatch.setattr(lc, "取得時軸", lambda *a, **k: None)
+    monkeypatch.setattr(lc, "找ffmpeg", lambda: "ffmpeg")
+    s = lc.live_session("https://www.twitch.tv/taiji", 稿目錄=str(tmp_path / "輸出"), 用聊天室=False, 存音訊=True)
+    assert os.path.dirname(s.音訊資料夾) == str(根)
+    assert os.path.basename(s.音訊資料夾).startswith("taiji_") and s.音訊資料夾.endswith("_音訊")
+    assert sorted(os.listdir(根)) == sorted(舊們[3:])             # 舊的剩 4 場
+    s2 = lc.live_session("https://www.twitch.tv/taiji", 稿目錄=str(tmp_path / "輸出"), 用聊天室=False, 存音訊=False)
+    assert s2.音訊資料夾 is None and sorted(os.listdir(根)) == sorted(舊們[3:])      # 沒開存音訊：不清理

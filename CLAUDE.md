@@ -11,7 +11,8 @@
 - 所有路徑只由 `app_paths.py` 決定，其他 .py 不准自己用 `__file__`、`os.chdir`、相對路徑組資料或輸出的位置。
 - 第一次啟動時（新位置沒有任何檔案）從專案資料夾「複製」程式資料過去，舊檔不動；舊的輸出檔不搬。
 - 測試：`tests/conftest.py` 在 import 其他模組前就把 app_paths 換成暫存資料夾，測試絕不碰真的 %LOCALAPPDATA%、「文件」。新的模組變數路徑一律從 app_paths 拿，才會被換掉。
-- 從 Claude 桌面版裡啟動 app.py 時，寫進 %LOCALAPPDATA% 的檔案會被 Windows 轉到 Claude 的套件資料夾（LocalCache）；要實機確認真正的位置，請從檔案總管或一般終端機啟動。
+- 除錯用音訊放 `%LOCALAPPDATA%\直播摘要\音訊`（`app_paths.音訊資料夾()`，不放「文件」避免 OneDrive 上傳），開始新的一場時自動只留最近 5 場；只准刪該位置底下、名稱符合 `開頭_YYYYMMDD_HHMMSS_音訊` 且只含 wav 的資料夾。
+- **實機 UI 測試要從檔案總管啟動 app.py（例如雙擊 .bat），不能從 Claude 桌面版裡啟動**：從 Claude 裡啟動時，寫進 %LOCALAPPDATA% 的檔案會被 Windows 轉到 Claude 的套件資料夾（`AppData\Local\Packages\Claude_…\LocalCache\Local\直播摘要`），真正的位置不會有東西。
 
 ## 完成前的固定檢查（強制）
 每次修改完成前，必須在專案根目錄跑過：

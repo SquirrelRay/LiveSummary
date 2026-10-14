@@ -431,7 +431,7 @@ class live_session:
     沒有聊天室 = False          # YouTube 觀看頁顯示這場關閉聊天室（__init__ 判斷）
 
     def __init__(self, 網址, 語言="zh", 稿目錄=None, 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
-        """稿目錄：直播稿、聊天室、音訊存在哪裡；沒給就是「文件」裡的「直播摘要」（app_paths.輸出資料夾）。"""
+        """稿目錄：直播稿、聊天室存在哪裡（音訊另放 app_paths.音訊資料夾）；沒給就是「文件」裡的「直播摘要」（app_paths.輸出資料夾）。"""
         self.網址 = 網址
         稿目錄 = 稿目錄 or app_paths.輸出資料夾()
         os.makedirs(稿目錄, exist_ok=True)
@@ -462,7 +462,10 @@ class live_session:
         self.稿路徑 = os.path.join(稿目錄, f"{開頭}_{時間字}_直播稿.txt")
         self.存稿 = 存稿          # False：直播稿只送到介面、不寫檔（稿路徑仍用來決定其他檔名）
         # 每段音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
-        self.音訊資料夾 = os.path.join(稿目錄, f"{開頭}_{時間字}_音訊") if 存音訊 else None
+        self.音訊資料夾 = None
+        if 存音訊:      # 音訊放 %LOCALAPPDATA%\直播摘要\音訊（不放「文件」），只留最近 5 場（含這一場）
+            app_paths.清理舊音訊()
+            self.音訊資料夾 = os.path.join(app_paths.音訊資料夾(), app_paths.音訊場資料夾名(開頭, 時間字))
         self.存了段數 = 0
         self.存了位元組 = 0
         self._警告過 = False

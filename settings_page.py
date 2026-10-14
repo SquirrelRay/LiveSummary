@@ -763,7 +763,7 @@ class 設定頁(QScrollArea):
         return 框
 
     存檔項目 = (("save_summary", "摘要（分鐘摘要與話題摘要）"), ("save_transcript", "直播稿"),
-              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（每段一個 wav，段長依字幕速度 8～20 秒，檔案較大）"))
+              ("save_chat", "聊天室"), ("save_translation", "逐句翻譯"), ("save_audio", "音訊（除錯用，每段一個 wav，檔案較大；存在本機 AppData 的「直播摘要/音訊」，只留最近 5 場）"))
 
     def _做存檔區(self):
         """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
