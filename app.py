@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QSizePolicy,
 )
 
-專案目錄 = os.path.dirname(os.path.abspath(__file__))
+專案目錄 = os.path.dirname(os.path.abspath(__file__))     # 只用來 import 同資料夾的模組；檔案位置一律見 app_paths
 sys.path.insert(0, 專案目錄)
 
 import events
@@ -38,6 +38,7 @@ import language_state    # 目前語言（狀態列的語言藥丸與重新偵�
 import config            # 設定檔 config.json 的讀取、語言清單
 import model_catalog     # 模型服務目錄與單價（單價未知 → 費用顯示「單價未知，無法估算」）
 import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
+import app_paths         # 檔案位置（資料在 %LOCALAPPDATA%\直播摘要、輸出在「文件」\直播摘要）
 import timefmt           # 時間格式與「幾分鐘前」
 
 語言選項 = config.語言選項()          # 中文、日文、英文、韓文、自動偵測
@@ -1322,7 +1323,7 @@ class 主控台(QMainWindow):
         self.速度選.setVisible(not 直播)
 
     def _選檔案(self):
-        路徑, _ = QFileDialog.getOpenFileName(self, "選擇文字稿", 專案目錄, "文字稿 (*.txt);;所有檔案 (*)")
+        路徑, _ = QFileDialog.getOpenFileName(self, "選擇文字稿", app_paths.輸出資料夾(), "文字稿 (*.txt);;所有檔案 (*)")
         if 路徑:
             self.檔案框.setText(路徑)
 
@@ -1935,7 +1936,7 @@ def 選字型():
 
 
 def main():
-    os.chdir(專案目錄)            # 結果檔和命令列一樣存在專案資料夾（放在啟動時，import app 不會改工作目錄）
+    搬家 = app_paths.啟動準備()      # 第一次啟動：從專案資料夾複製舊資料；建好資料與輸出資料夾（結果都寫在 logs\搬家紀錄.txt）
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     try:
@@ -1947,6 +1948,10 @@ def main():
     app.setQuitOnLastWindowClosed(False)      # 主控台、啟動面板都可能收著；只有「結束程式」才結束
     窗 = 主控台()                # 主控台先建好但不顯示（可從膠囊選單「顯示主控台」打開）
     窗.開程式()                 # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板（第一次是首次引導）；面板等按了「開始」才依版面出現
+    if 搬家:                    # 搬了舊資料（或搬不成）：膠囊旁說一聲，主控台的提示條也留一份
+        print(搬家)
+        窗._訊息(搬家, 錯誤="失敗" in 搬家, 秒=20)
+        窗.膠囊.小提示(搬家, 15, 錯誤="失敗" in 搬家)
     sys.exit(app.exec())
 
 

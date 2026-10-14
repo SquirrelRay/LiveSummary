@@ -10,6 +10,7 @@
 """
 import argparse
 import glob
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import app_paths
 import config
 import glossary
 import llm
@@ -73,7 +75,7 @@ def main():
     if 錯誤:
         print(錯誤)
         sys.exit(1)
-    稿們 = args.transcript or sorted(glob.glob(str(ROOT / f"{glossary.檔名安全(args.直播主)}_*_直播稿.txt")))
+    稿們 = args.transcript or sorted(glob.glob(os.path.join(glob.escape(app_paths.輸出資料夾()), f"{glossary.檔名安全(args.直播主)}_*_直播稿.txt")))
     print(f"直播稿：{'、'.join(稿們) or '（沒有，只用名詞本身查）'}")
     脈絡 = {"直播主": args.直播主, "分類": args.category, "標題": args.title}
     try:

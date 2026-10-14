@@ -21,6 +21,7 @@ import glossary         # 直播主專有名詞詞庫（詞庫/直播主.txt）
 import platforms        # Twitch／YouTube（YouTube 的詞庫鍵、查證脈絡）
 import web_verify       # 上網查證詞庫的候選名詞（預設關）
 import first_run        # 轉錄模型下載失敗的錯誤種類（第一次使用）
+import app_paths        # 啟動準備（第一次執行時搬舊資料、建資料夾）
 
 # ---- 可以調整的設定 ----
 # 下面三個由 執行() 依設定改寫，起始值 = config.py 的出廠預設
@@ -638,6 +639,9 @@ def main():
     ap.add_argument("--show-config", action="store_true", help="印出目前實際生效的設定與來源，然後結束")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
+    搬家 = app_paths.啟動準備()      # 讀設定前：第一次執行時從專案資料夾複製舊資料
+    if 搬家:
+        print(搬家)
 
     設定, 來源, 警告們 = config.載入設定({
         "chat": args.chat, "minute_summary": args.minute, "save_audio": args.save_audio,

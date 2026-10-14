@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 import api_key
+import app_paths
 import config
 import cost_estimate
 import llm
@@ -767,7 +768,7 @@ class 設定頁(QScrollArea):
     def _做存檔區(self):
         """存檔：五個開關（預設全關）＋打開存檔資料夾。關掉的內容只顯示在畫面上，不寫檔。"""
         框, 格 = self._面板("存檔")
-        說明 = QLabel("打開的項目才會存成檔案（存在專案資料夾）。關掉的內容只顯示在畫面上，超過顯示上限的較早內容會直接移除。")
+        說明 = QLabel("打開的項目才會存成檔案（存在「文件」裡的「直播摘要」資料夾）。關掉的內容只顯示在畫面上，超過顯示上限的較早內容會直接移除。")
         說明.setObjectName("小標")
         說明.setWordWrap(True)
         格.addWidget(說明, 0, 0, 1, 4)
@@ -819,7 +820,8 @@ class 設定頁(QScrollArea):
             self.主.套用開發者選項()
 
     def 打開資料夾(self):
-        os.startfile(os.path.dirname(config.設定檔路徑))
+        os.makedirs(app_paths.輸出資料夾(), exist_ok=True)
+        os.startfile(app_paths.輸出資料夾())      # noqa: S606 程式自己的輸出資料夾
 
     # ---------- 表單 ⇄ 設定 ----------
     def 載入(self, 設定=None):

@@ -8,6 +8,16 @@ import pytest
 # 讓測試能直接 import 專案根目錄的模組
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# ---------- 保護：測試絕不碰真的 %LOCALAPPDATA%\直播摘要、「文件」\直播摘要，也不從專案資料夾搬資料 ----------
+# 一定要在 import 其他專案模組前做：config、ui_state、panel、glossary 等模組載入時就把路徑存成模組變數。
+import shutil
+import tempfile
+
+import app_paths
+
+測試根 = tempfile.mkdtemp(prefix="直播摘要測試_")
+app_paths.設定根目錄(資料=os.path.join(測試根, "資料"), 輸出=os.path.join(測試根, "輸出"), 舊=None)
+
 import events
 import live_capture as lc
 import startup_timeline as st
@@ -117,6 +127,7 @@ def pytest_sessionstart(session):
 
 
 def pytest_sessionfinish(session, exitstatus):
+    shutil.rmtree(測試根, ignore_errors=True)
     新增 = sorted(專案檔案們() - session.config._專案檔案前)
     if 新增:
         sys.stderr.write("\n【失敗】測試在專案資料夾留下了新檔案（請改用 tmp_path）：\n"

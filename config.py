@@ -8,9 +8,10 @@ import os
 import shutil
 import tempfile
 
+import app_paths
 import subtitle_speed
 
-設定檔路徑 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+設定檔路徑 = app_paths.設定檔()      # %LOCALAPPDATA%\直播摘要\config.json（位置見 app_paths）
 備份檔名 = "config.backup.json"      # 和 config.json 放在同一個資料夾
 
 # ---- 語言（單一來源）----

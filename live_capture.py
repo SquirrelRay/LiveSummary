@@ -17,6 +17,7 @@ from datetime import datetime
 
 import numpy as np
 
+import app_paths   # 結果檔位置（「文件」\直播摘要）
 import transcribe  # 沿用 GPU 優先的作法
 import events      # 提示訊息改成送出事件
 import config      # 語言清單（單一來源）
@@ -429,8 +430,11 @@ class live_session:
     平台 = platforms.TWITCH     # __init__ 依網址判斷；測試可以直接指定
     沒有聊天室 = False          # YouTube 觀看頁顯示這場關閉聊天室（__init__ 判斷）
 
-    def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
+    def __init__(self, 網址, 語言="zh", 稿目錄=None, 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
+        """稿目錄：直播稿、聊天室、音訊存在哪裡；沒給就是「文件」裡的「直播摘要」（app_paths.輸出資料夾）。"""
         self.網址 = 網址
+        稿目錄 = 稿目錄 or app_paths.輸出資料夾()
+        os.makedirs(稿目錄, exist_ok=True)
         self.語言 = 語言
         self.平台 = platforms.判斷(網址).平台 or platforms.TWITCH
         if self.平台 == platforms.YOUTUBE:      # 讀觀看頁，和 streamlink 的開播檢查並行；失敗時也拿來寫白話原因

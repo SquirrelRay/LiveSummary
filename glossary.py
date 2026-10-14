@@ -17,7 +17,9 @@ import re
 import tempfile
 import threading
 
-資料夾 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "詞庫")    # 測試會改成暫存資料夾
+import app_paths
+
+資料夾 = app_paths.詞庫資料夾()    # %LOCALAPPDATA%\直播摘要\詞庫（位置見 app_paths）；測試會改成暫存資料夾
 上限 = 30                 # 提示詞最多附幾個名詞
 每題最多新增 = 10         # 一次話題摘要最多自動加入幾個
 來源們 = ("手動", "候選", "自動", "上網", "忽略")      #「自動」是舊檔的寫法，讀進來當候選

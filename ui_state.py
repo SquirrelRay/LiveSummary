@@ -8,9 +8,10 @@ import json
 import time
 from urllib.parse import urlparse, parse_qs, unquote
 
-專案目錄 = os.path.dirname(os.path.abspath(__file__))
-網址紀錄檔 = os.path.join(專案目錄, "網址紀錄.json")
-介面設定檔 = os.path.join(專案目錄, "介面設定.json")
+import app_paths
+
+網址紀錄檔 = app_paths.網址紀錄檔()      # 位置見 app_paths（%LOCALAPPDATA%\直播摘要）
+介面設定檔 = app_paths.介面設定檔()
 最近上限 = 10         # 沒釘選的網址最多留幾個（釘選的不算）
 
 

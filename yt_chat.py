@@ -25,9 +25,9 @@ import tempfile
 import threading
 import time
 
+import app_paths  # log 檔位置（%LOCALAPPDATA%\直播摘要\logs）
 import chat_capture  # 只用 是洗版（和 Twitch 同一套洗版規則）
 import events
-import startup_timeline  # log 資料夾（logs/）
 import stream_clock  # 存檔開頭的說明
 import timefmt
 
@@ -160,7 +160,7 @@ class _可中斷時間:
 替換模組 = "yt_dlp.downloader.youtube_live_chat"
 替換位置 = "time.sleep("        # 那個模組在兩批之間等待的寫法（2026.08.19 是 real_download 裡的 time.sleep(timeout_ms / 1000)）
 無法快速停止 = "聊天室的快速停止機制無法啟用（yt-dlp 版本可能變了），按停止後可能要多等幾秒；聊天室照常運作。"
-紀錄檔 = os.path.join(startup_timeline.日誌資料夾, "YouTube聊天室_紀錄.txt")
+紀錄檔 = app_paths.YouTube聊天室紀錄檔()
 _說過 = False                 # 無法快速停止：整個程式只說一次
 
 

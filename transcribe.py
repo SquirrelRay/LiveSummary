@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 
+import app_paths
 import config
 import timefmt
 
@@ -89,7 +90,8 @@ def main():
         if 來源.startswith("http"):
             print("下載音訊中...")
             音檔, 名稱 = 下載音訊(來源, 暫存)
-            輸出檔 = f"直播_{名稱}.txt"
+            os.makedirs(app_paths.輸出資料夾(), exist_ok=True)
+            輸出檔 = os.path.join(app_paths.輸出資料夾(), f"直播_{名稱}.txt")
         else:
             if not os.path.exists(來源):
                 print(f"找不到檔案：{來源}")

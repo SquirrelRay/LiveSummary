@@ -9,9 +9,10 @@ import os
 import threading
 import time
 
+import app_paths
 import events
 
-日誌資料夾 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+日誌資料夾 = app_paths.日誌資料夾()      # %LOCALAPPDATA%\直播摘要\logs（位置見 app_paths）
 
 # 里程碑名稱（引擎與介面共用同一份，避免打錯字）
 直播檢查完成 = "直播檢查完成"

@@ -11,6 +11,7 @@ import time
 import queue
 import threading
 
+import app_paths
 import events
 import startup_timeline as 里程碑
 import stream_clock     # 存檔開頭的說明（直播主、標題、開播時間）
@@ -276,7 +277,7 @@ class 字幕器:
     def _記錄失敗(self, 批, 回答, 錯誤):
         """翻譯失敗時把模型原始回傳、停止原因、句數寫進 翻譯錯誤紀錄.txt（找原因用）。"""
         try:
-            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "翻譯錯誤紀錄.txt"), "a", encoding="utf-8") as f:
+            with open(app_paths.翻譯錯誤紀錄檔(), "a", encoding="utf-8") as f:
                 f.write(f"=== {time.strftime('%H:%M:%S')} 送 {len(批)} 句；停止原因={llm.最後停止原因}；"
                         f"錯誤={type(錯誤).__name__}；回傳 {len(回答)} 字 ===" + chr(10) + 回答 + chr(10) + chr(10))
         except Exception:

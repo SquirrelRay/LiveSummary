@@ -4,6 +4,23 @@
 
 本文件裡的「python …」指令都是指開發環境 .venv 的 Python 3.13（建立與啟動方法見最後的「開發環境」）。
 
+檔案放在哪裡（2026-10-14 起；直接跑 python app.py 和打包版都一樣，不再往程式資料夾寫東西，位置只由 app_paths.py 決定）：
+  程式資料：%LOCALAPPDATA%\直播摘要（通常是 C:\Users\你的帳號\AppData\Local\直播摘要）
+    config.json、config.backup.json、介面設定.json、網址紀錄.json、版面配置.json、翻譯錯誤紀錄.txt、詞庫\、logs\
+  輸出：「文件」\直播摘要（直播稿、分鐘摘要、話題摘要、聊天室、逐句翻譯、音訊資料夾）
+    「文件」用 Windows 正式的方式取得（Known Folder）：被 OneDrive 或其他磁碟接管時跟著走，例如 C:\Users\你的帳號\OneDrive\文件\直播摘要。
+    設定框「存檔」區的「打開存檔資料夾」直接打開這裡。
+  API 金鑰仍只存在 Windows 認證管理員，不在上面任何檔案裡。
+  搬家：第一次啟動時，程式資料位置還沒有任何檔案、專案資料夾有舊資料 → 把上面那些程式資料「複製」過去（專案資料夾的舊檔不動、不刪），
+    膠囊旁與主控台提示條說一聲複製了什麼，也記在 logs\搬家紀錄.txt。程式資料位置已經有檔案就完全不碰（只有空資料夾不算）。
+    舊的輸出檔（直播稿、摘要、音訊）不搬，留在專案資料夾；overlay_位置.json 已經沒有程式讀，也不搬。
+    想重新搬一次：關掉程式，把 %LOCALAPPDATA%\直播摘要 整個資料夾改名或刪掉，再開程式。
+  注意：從 Claude 桌面版等「市集安裝的 App」裡面啟動 python app.py 時，Windows 會把寫進 %LOCALAPPDATA% 的檔案轉到那個 App 自己的
+    AppData\Local\Packages\…\LocalCache\Local\直播摘要（套件虛擬化），從一般終端機或檔案總管啟動才會用真正的位置。
+  例外（不屬於上面兩類，維持原樣）：轉錄模型在 Hugging Face 的快取（%USERPROFILE%\.cache\huggingface）；
+    YouTube 聊天室的暫存在系統暫存資料夾（結束就刪）；文字稿重播模式與 transcribe.py 處理本機檔案時，結果存在來源檔旁邊；
+    開發用的 測試素材\（scripts/vod_to_transcript.py）在專案資料夾。
+
 第一次設定：
 1. 安裝套件：建立開發環境 .venv（見最後的「開發環境」；套件版本見 requirements.txt 與 requirements-lock.txt；ffmpeg 另外裝）
 2. 設定金鑰：打開程式，啟動面板會顯示「尚未設定 API 金鑰」→ 按「設定金鑰」→ 貼上金鑰 → 按「測試連線」（成功就會記住）。
@@ -42,11 +59,11 @@
 
 結果會印在畫面上，並存成「原檔名_摘要.md」。
 
-設定檔 config.json（用 live_topics.py 時）：
+設定檔 config.json（用 live_topics.py 時；放在 %LOCALAPPDATA%\直播摘要，見最上面「檔案放在哪裡」）：
   功能開關和常用數字都寫在 config.json，用記事本打開改就好，改完存檔，下次執行就生效。
   config.json 是本機檔案，不進 git；git 裡只有範例 config.example.json（內容 = 出廠預設）。
   沒有 config.json 時（例如剛 clone）程式照常啟動、全部用出廠預設，不會自動建立；
-  想用記事本改就把 config.example.json 複製成 config.json 再改，或直接在設定框按「儲存」（會建立 config.json）。
+  想用記事本改就把 config.example.json 複製成 %LOCALAPPDATA%\直播摘要\config.json 再改，或直接在設定框按「儲存」（會建立 config.json）。
   預設值、欄位檢查、欄位說明、語言清單、讀寫 config.json 的程式都在 config.py（新增欄位只要改那裡，加上設定框）。
   命令列參數只是「這一次」臨時覆蓋，優先順序：命令列 > config.json > 程式內建預設。
   欄位：chat（聊天室）、minute_summary（分鐘摘要）、save_audio（存音訊）、fix_with_chat（聊天室參考詞修正）、
@@ -186,7 +203,7 @@
   膠囊／系統匣選單另有「使用說明」（首次引導）、「設定」（和齒輪同一個設定視窗）、「顯示主控台」。關閉主控台只是收起，要結束程式請用「結束程式」。
 
 存檔（設定的「存檔」區，config.json 的 save_summary、save_transcript、save_chat、save_translation、save_audio，預設全關）：
-  打開的項目才寫檔（存在專案資料夾，「打開存檔資料夾」可直接打開）；關掉的內容只顯示在畫面上，
+  打開的項目才寫檔（存在「文件」\直播摘要，「打開存檔資料夾」可直接打開）；關掉的內容只顯示在畫面上，
   分頁與面板超過顯示上限時顯示「較早的內容已移除」（沒有「打開檔案」）。直播稿、聊天室、音訊只在直播網址模式有作用。
 
 版本存檔（Git，只存在這台電腦，不會上傳）：
@@ -293,7 +310,7 @@
 
 直播主專有名詞詞庫（glossary.py；一律開著，沒有 config.json 欄位）：
   用途：讓同一個直播主的人名、作品名、遊戲名、地名、梗名在摘要裡寫法前後一致（這一場之後的摘要、下一場都沿用）。詞庫本身不上網、不增加模型呼叫次數（上網查證另見下一段，預設關）。
-  放哪：專案資料夾的 詞庫/直播主.txt（本機檔案，不進 git）。檔案不存在就當作空的，第一次自動加入名詞時才建立。
+  放哪：%LOCALAPPDATA%\直播摘要\詞庫\直播主.txt（本機檔案，不進 git）。檔案不存在就當作空的，第一次自動加入名詞時才建立。
   哪個直播主：直播網址模式用頻道名稱（網址最後一段，例如 https://www.twitch.tv/abc → 詞庫/abc.txt）；
             文字稿模式用 --streamer 指定，例如  python live_topics.py 稿.txt --lang ja --streamer abc
             沒給 --streamer（或從介面用文字稿重播）就不讀、不寫詞庫，其他照舊。
@@ -408,7 +425,7 @@
         其餘各項照官方單價約：字幕翻譯 $0.02、聊天室翻譯 $0.02、話題追蹤 $0.01、分鐘摘要 $0.01、話題摘要 <$0.01，合計約 $0.28／小時）。
   開發／整理詞庫用的小工具（會花 API 費用，只支援 anthropic）：把指定直播主詞庫裡所有還沒查過的候選查一遍，不跑直播、不做摘要：
         python scripts/verify_glossary.py 直播主 --transcript 稿.txt [--max 10] [--category 分類] [--title 標題]
-        --transcript 用來找名詞出現的句子（可給多個；沒給就找專案資料夾的 直播主_*_直播稿.txt）；--max 預設 10，可調。
+        --transcript 用來找名詞出現的句子（可給多個；沒給就找「文件」\直播摘要 裡的 直播主_*_直播稿.txt）；--max 預設 10，可調。
   已知限制：
   - 可靠來源由模型判斷，網址只保證「真的是搜尋結果」，不保證那一頁真的支持這個寫法；上網的詞條請偶爾點網址確認。
     實測有把一般詞彙（蛋白粉）也查成上網、來源是品牌官網的情況；現在【名詞】與查證兩個提示詞都要求一般詞彙不列／回查無（只靠提示詞，程式沒有過濾）。

@@ -26,8 +26,9 @@ import subtitle
 import live_topics   # 只用 時間標記（摘要開頭的 [mm:ss]）
 import config
 import startup_timeline
+import app_paths
 
-版面檔 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "版面配置.json")
+版面檔 = app_paths.版面檔()        # 位置見 app_paths（%LOCALAPPDATA%\直播摘要）
 種類們 = ["分鐘摘要", "話題摘要", "逐句翻譯", "直播稿", "聊天室"]
 上限鍵 = {"分鐘摘要": "ui_max_summary", "話題摘要": "ui_max_summary", "直播稿": "ui_max_transcript",
          "逐句翻譯": "ui_max_translation", "聊天室": "ui_max_chat"}
