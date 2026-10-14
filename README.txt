@@ -212,7 +212,7 @@
   網址錯誤、頻道沒開播等錯誤直接顯示在啟動面板裡。收起後可從膠囊／系統匣選單「開始…」打開（直播中沒有這項）。
   膠囊／系統匣選單另有「使用說明」（首次引導）、「設定」（和齒輪同一個設定視窗）、「顯示主控台」。關閉主控台只是收起，要結束程式請用「結束程式」。
 
-存檔（設定的「存檔」區，config.json 的 save_summary、save_transcript、save_chat、save_translation、save_audio，預設全關）：
+存檔（設定的「存檔」區，config.json 的 save_summary、save_transcript、save_chat、save_translation、save_audio；出廠預設只有摘要開，其他四個關。已有 config.json 的人照原本的值）：
   打開的項目才寫檔（存在「文件」\直播摘要，「打開存檔資料夾」可直接打開）；關掉的內容只顯示在畫面上，
   分頁與面板超過顯示上限時顯示「較早的內容已移除」（沒有「打開檔案」）。直播稿、聊天室、音訊只在直播網址模式有作用。
 

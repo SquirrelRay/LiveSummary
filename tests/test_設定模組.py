@@ -177,3 +177,35 @@ def test_語言清單():
     assert config.語言代碼們 == ("zh", "ja", "en", "ko", "auto")
     assert config.外語們 == ("ja", "en", "ko")
     assert config.語言選項()[-1] == ("自動偵測", "auto") and config.語言選項(自動在前=True)[0] == ("自動偵測", "auto")
+
+
+# ---------- 存檔項目的出廠預設：只有摘要開 ----------
+存檔開關們 = ("save_summary", "save_transcript", "save_chat", "save_translation", "save_audio")
+
+
+def test_沒有config_摘要存檔預設開_其他四個關(設定檔):
+    assert not 設定檔.exists()
+    設定, _, 警告們 = config.載入設定()
+    assert 警告們 == []
+    assert {k: 設定[k] for k in 存檔開關們} == {
+        "save_summary": True, "save_transcript": False, "save_chat": False, "save_translation": False, "save_audio": False}
+
+
+def test_範例檔與還原預設值的存檔項目一致():
+    with open(範例檔, encoding="utf-8") as f:
+        範例 = json.load(f)
+    assert [範例[k] for k in 存檔開關們] == [True, False, False, False, False]
+    assert [config.出廠預設()[k] for k in 存檔開關們] == [True, False, False, False, False]
+
+
+def test_舊config的存檔值照舊_沒寫的欄位用新預設(設定檔):
+    設定檔.write_text(json.dumps({"save_summary": False, "save_transcript": True, "save_chat": True}), encoding="utf-8")
+    設定, _, _ = config.載入設定()
+    assert 設定["save_summary"] is False and 設定["save_transcript"] is True and 設定["save_chat"] is True
+    assert 設定["save_translation"] is False and 設定["save_audio"] is False
+
+
+def test_舊config完全沒有存檔欄位_摘要存檔用新預設(設定檔):
+    設定檔.write_text(json.dumps({"model": "舊的模型"}), encoding="utf-8")
+    設定, _, _ = config.載入設定()
+    assert 設定["model"] == "舊的模型" and 設定["save_summary"] is True

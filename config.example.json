@@ -3,7 +3,7 @@
   "minute_summary": true,
   "save_audio": false,
   "fix_with_chat": false,
-  "save_summary": false,
+  "save_summary": true,
   "save_transcript": false,
   "save_chat": false,
   "save_translation": false,

@@ -31,7 +31,7 @@ def 語言選項(自動在前=False):
 # ---- 出廠預設：固定常數，不讀任何執行時會被改寫的全域值（「還原預設值」與不合法時的退回都用這份）----
 _出廠預設 = {
     "chat": True, "minute_summary": True, "save_audio": False, "fix_with_chat": False,
-    "save_summary": False, "save_transcript": False, "save_chat": False, "save_translation": False,
+    "save_summary": True, "save_transcript": False, "save_chat": False, "save_translation": False,
     "summary_thinking": True,
     "ui_max_transcript": 500, "ui_max_chat": 1000, "ui_max_translation": 500, "newest_on_top": False, "ui_max_summary": 300,
     "check_minutes": 1, "min_topic_min": 3, "max_topic_min": 15,
