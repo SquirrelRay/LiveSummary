@@ -14,7 +14,6 @@ VOD 的 HLS 分段約 10 秒，streamlink 只能從分段邊界開始，所以�
 """
 import argparse
 import re
-import subprocess
 import sys
 import time
 import urllib.request
@@ -25,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import config
+import external
 import timefmt
 
 預設資料夾 = ROOT / "測試素材"
@@ -127,21 +127,22 @@ def 取得播放清單(網址, 串流名="audio_only"):
         return r.read().decode("utf-8", "replace")
 
 
-def 下載音訊(網址, 起點, 時長, 輸出, 執行=subprocess.run):
+def 下載音訊(網址, 起點, 時長, 輸出, 執行=None):
     """只下載 起點 開始、約 時長 秒的音訊（streamlink 依播放清單只抓需要的分段）。時長 None = 到 VOD 結尾。"""
-    指令 = [sys.executable, "-m", "streamlink_cli", "--loglevel", "warning", "--force",
-          "--hls-start-offset", 時間參數(起點)]
+    執行 = 執行 or external.執行
+    指令 = external.streamlink指令("--loglevel", "warning", "--force", "--hls-start-offset", 時間參數(起點))
     if 時長 is not None:
         指令 += ["--hls-duration", 時間參數(時長)]
     指令 += ["-o", str(輸出), 網址, "audio_only"]
-    r = 執行(指令, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    r = 執行(指令, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0 or not Path(輸出).exists() or Path(輸出).stat().st_size == 0:
         raise RuntimeError("下載音訊失敗：" + ((r.stderr or r.stdout or "").strip()[-300:] or f"結束碼 {r.returncode}"))
 
 
-def 轉成wav(來源, 輸出, ffmpeg, 執行=subprocess.run):
+def 轉成wav(來源, 輸出, ffmpeg, 執行=None):
+    執行 = 執行 or external.執行
     指令 = [ffmpeg, "-y", "-loglevel", "error", "-i", str(來源), "-vn", "-ac", "1", "-ar", "16000", str(輸出)]
-    r = 執行(指令, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    r = 執行(指令, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise RuntimeError("ffmpeg 轉檔失敗：" + (r.stderr or "").strip()[-300:])
 

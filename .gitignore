@@ -49,3 +49,6 @@ logs/
 
 # 開發用的 Python 3.13 虛擬環境（用 requirements-lock.txt 建，見 README「開發環境」）
 .venv/
+
+# 隨附的外部程式（scripts/下載ffmpeg.py 下載的 ffmpeg 與壓縮檔備份；二進位檔不進 git）
+vendor/

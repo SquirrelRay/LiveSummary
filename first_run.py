@@ -21,6 +21,7 @@ import threading
 import time
 
 import events
+import external
 
 好, 注意, 錯 = "好", "注意", "錯"
 符號 = {好: "✓", 注意: "⚠", 錯: "✕"}
@@ -67,8 +68,7 @@ def 有NVIDIA驅動():
     if not 路徑:
         return False
     try:
-        r = subprocess.run([路徑, "-L"], check=False, capture_output=True, text=True, timeout=2,       # noqa: S603  固定的指令與參數
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        r = external.執行([路徑, "-L"], capture_output=True, text=True, timeout=2)       # 固定的指令與參數
     except (OSError, subprocess.SubprocessError):
         return False
     return r.returncode == 0 and "GPU" in r.stdout

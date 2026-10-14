@@ -4,12 +4,9 @@
 #          開播超過 24 小時（24 小時不停播的頻道）當作連續直播，時間改從開始擷取起算（+ 模式）。
 import os
 import re
-import sys
 import json
-import glob
 import time
 import queue
-import shutil
 import wave
 import threading
 import subprocess
@@ -19,6 +16,7 @@ import numpy as np
 
 import app_paths   # 結果檔位置（「文件」\直播摘要）
 import transcribe  # 沿用 GPU 優先的作法
+import external    # 另開程序（streamlink、ffmpeg）一律經過這裡：不開黑色視窗、開發／打包後的指令
 import events      # 提示訊息改成送出事件
 import config      # 語言清單（單一來源）
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
@@ -77,15 +75,12 @@ class 直播錯誤(Exception):
 
 
 def 找ffmpeg():
-    路徑 = shutil.which("ffmpeg")
-    if 路徑:
-        return 路徑
-    # 剛用 winget 裝好時，目前視窗可能還找不到，到安裝位置找
-    候選 = glob.glob(os.path.expandvars(
-        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\**\bin\ffmpeg.exe"), recursive=True)
-    if 候選:
-        return 候選[0]
-    raise 直播錯誤("找不到 ffmpeg，請先安裝（winget install Gyan.FFmpeg）後重開視窗。")
+    """要用的 ffmpeg 路徑：隨附的優先、沒有才用系統上的（位置由 app_paths.ffmpeg位置 決定）；找到哪一個寫進啟動里程碑紀錄。"""
+    路徑, 來源 = app_paths.ffmpeg位置()
+    if not 路徑:
+        raise 直播錯誤("找不到 ffmpeg，請先安裝（winget install Gyan.FFmpeg）後重開視窗。")
+    里程碑.標記(里程碑.找到ffmpeg, 來源=來源, 路徑=路徑)
+    return 路徑
 
 
 def 頻道名稱(網址):
@@ -121,8 +116,8 @@ def YouTube檔名開頭(網址, 資訊):
 def _跑streamlink(參數):
     """跑一次 streamlink（不抓音訊），回傳 (stdout, stderr)。等的時候每 0.2 秒看一次有沒有按「結束」，
     按了就殺掉子程序、丟出「已取消啟動」，不會卡住、也不留下背景程序。"""
-    子 = subprocess.Popen([sys.executable, "-m", "streamlink_cli", *參數],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    子 = external.開啟(external.streamlink指令(*參數),
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     while True:
         try:
             return 子.communicate(timeout=0.2)
@@ -527,15 +522,14 @@ class live_session:
         里程碑.標記(里程碑.模型載入完成)
         片段時刻 = None
         if self.平台 == platforms.YOUTUBE:
-            p1 = subprocess.Popen([sys.executable, yt_audio.__file__, self.網址, self.串流名],     # noqa: S603  自己的 yt_audio.py
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p1 = external.開啟(external.yt_audio指令(self.網址, self.串流名),
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             片段時刻 = 片段時刻讀取(p1.stderr)
         else:
-            p1 = subprocess.Popen(
-                [sys.executable, "-m", "streamlink_cli", "--loglevel", "error", "--stdout",
-                 self.網址, self.串流名],
+            p1 = external.開啟(
+                external.streamlink指令("--loglevel", "error", "--stdout", self.網址, self.串流名),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        p2 = subprocess.Popen(
+        p2 = external.開啟(
             [self.ffmpeg, "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1",
              "-ar", str(取樣率), "-f", "s16le", "pipe:1"],
             stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)

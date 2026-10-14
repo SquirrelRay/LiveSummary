@@ -41,17 +41,20 @@ def 下載音訊(網址, 資料夾):
         sys.exit(1)
 
 
+_加過 = set()       # 已經加過的顯示卡函式庫資料夾
+
+
 def 找顯示卡函式庫():
-    """pip 裝的 CUDA 函式庫放在 site-packages/nvidia/*/bin，要告訴系統去哪找。"""
-    import site
-    for 根 in site.getsitepackages():
-        nv = os.path.join(根, "nvidia")
-        if os.path.isdir(nv):
-            for 子 in os.listdir(nv):
-                bin路徑 = os.path.join(nv, 子, "bin")
-                if os.path.isdir(bin路徑):
-                    os.add_dll_directory(bin路徑)
-                    os.environ["PATH"] = bin路徑 + os.pathsep + os.environ["PATH"]
+    """告訴系統去哪找 CUDA 函式庫（cuBLAS）：位置由 app_paths.顯示卡函式庫資料夾們 決定
+    （開發 site-packages\\nvidia\\*\\bin、打包版 _internal\\nvidia\\*\\bin）。
+    os.add_dll_directory 和 PATH 兩個都要加：只加前者實測會找不到 cublas64_12.dll（見 docs/打包調查.md）。
+    可以重複呼叫：加過的資料夾不再加（PATH 不會越來越長）。"""
+    for bin路徑 in app_paths.顯示卡函式庫資料夾們():
+        if bin路徑 in _加過:
+            continue
+        os.add_dll_directory(bin路徑)
+        os.environ["PATH"] = bin路徑 + os.pathsep + os.environ.get("PATH", "")
+        _加過.add(bin路徑)
 
 
 def 轉錄(音檔, 語言="zh"):

@@ -27,7 +27,8 @@
     開發用的 測試素材\（scripts/vod_to_transcript.py）在專案資料夾。
 
 第一次設定：
-1. 安裝套件：建立開發環境 .venv（見最後的「開發環境」；套件版本見 requirements.txt 與 requirements-lock.txt；ffmpeg 另外裝）
+1. 安裝套件：建立開發環境 .venv（見最後的「開發環境」；套件版本見 requirements.txt 與 requirements-lock.txt）；
+   ffmpeg：跑 .venv\Scripts\python.exe scripts\下載ffmpeg.py 下載隨附版（優先使用），沒下載時改找系統上裝的（winget install Gyan.FFmpeg）
 2. 設定金鑰：打開程式，啟動面板會顯示「尚未設定 API 金鑰」→ 按「設定金鑰」→ 貼上金鑰 → 按「測試連線」（成功就會記住）。
    金鑰存在 Windows 的「認證管理員」（控制台 → 認證管理員 → Windows 認證，名稱含「直播摘要」），不會寫進任何檔案。
    每家服務（Claude、OpenAI、DeepSeek、其他相容服務）各存一把，切換服務時各自的金鑰都還在。
@@ -478,6 +479,11 @@
       提示字元前面出現 (.venv) 就是啟動了；關掉終端機就恢復。不想啟動的話，把 python 換成 .venv\Scripts\python.exe 也一樣，例如：
         .venv\Scripts\python.exe app.py
         .venv\Scripts\pythonw.exe app.py        （不開黑色命令列視窗）
+   2-1. 隨附的 ffmpeg（和打包版用同一版）：.venv\Scripts\python.exe scripts\下載ffmpeg.py
+      下載 BtbN 的 LGPL shared 版（版本、網址、SHA-256 釘在腳本裡，雜湊不符就拒絕使用），解開到 vendor\ffmpeg（.gitignore，不進 git），
+      壓縮檔備份留在 vendor\下載。程式找 ffmpeg 的順序：vendor\ffmpeg\bin\ffmpeg.exe → 系統上的；用了哪一個寫在 logs\啟動里程碑_*.txt（「找到 ffmpeg」那行）。
+   另開程序：所有外部程式（streamlink、ffmpeg、nvidia-smi）都經過 external.py 的 開啟()／執行()，統一加 CREATE_NO_WINDOW（無視窗模式不閃黑色視窗）；
+      不要在其他檔案直接用 subprocess（tests\test_外部程式.py 會檢查）。打包後 streamlink 改呼叫同資料夾的 helper.exe（進入點 helper.py）。
    3. 確認：python --version 應該是 3.13.x；沒啟動時直接打 python 會是系統上的其他版本（例如 3.10），不要用它跑程式或檢查。
    4. 升級套件：改 requirements.txt → 在乾淨的 3.13 環境裝 requirements.txt 與 requirements-dev.txt → 跑 check.py --all 與真模型實測
       → pip freeze 重新產生 requirements-lock.txt（av 要維持 17.1.0，原因見 requirements.txt）。

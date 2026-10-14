@@ -9,6 +9,7 @@
 ## 檔案位置（開發和打包版相同）
 - 程式資料（config.json、介面設定、網址紀錄、版面配置、詞庫\、logs\、翻譯錯誤紀錄）在 `%LOCALAPPDATA%\直播摘要`；輸出（直播稿、摘要、聊天室、逐句翻譯、音訊）在「文件」`\直播摘要`（Known Folder 取得，OneDrive 接管也對）。
 - 所有路徑只由 `app_paths.py` 決定，其他 .py 不准自己用 `__file__`、`os.chdir`、相對路徑組資料或輸出的位置。
+- 隨附外部程式（ffmpeg、helper.exe）與顯示卡函式庫的位置、開發／打包後的判斷也只在 app_paths.py；另開程序一律用 `external.py` 的 `開啟()`／`執行()`（統一加 CREATE_NO_WINDOW），其他檔案不准直接 subprocess.Popen／run（tests/test_外部程式.py 會檢查）。
 - 第一次啟動時（新位置沒有任何檔案）從專案資料夾「複製」程式資料過去，舊檔不動；舊的輸出檔不搬。
 - 測試：`tests/conftest.py` 在 import 其他模組前就把 app_paths 換成暫存資料夾，測試絕不碰真的 %LOCALAPPDATA%、「文件」。新的模組變數路徑一律從 app_paths 拿，才會被換掉。
 - 除錯用音訊放 `%LOCALAPPDATA%\直播摘要\音訊`（`app_paths.音訊資料夾()`，不放「文件」避免 OneDrive 上傳），開始新的一場時自動只留最近 5 場；只准刪該位置底下、名稱符合 `開頭_YYYYMMDD_HHMMSS_音訊` 且只含 wav 的資料夾。
