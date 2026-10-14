@@ -309,7 +309,7 @@ def 收集(輸出, 建置):
         項目.setdefault("原始碼", _原始碼(項目))
 
     對不到 = sorted(相對 for 相對 in 磁碟
-                 if _正規(相對) not in 對到的磁碟檔 and not 是Python本身(相對, python根))
+                 if _正規(相對) not in 對到的磁碟檔 and not 是Python本身(相對, python根) and not 是本程式的檔案(相對))
     警告們 = []
     沒全文 = [f"{x['名稱']} {x['版本']}" for x in 項目們 if not x["全文們"]]
     if 沒全文:
@@ -324,6 +324,11 @@ def 收集(輸出, 建置):
     if 缺補充:
         警告們.append("third_party_licenses 裡找不到（或版本不符）：" + "、".join(缺補充) + "（重跑 scripts\\取得授權全文.py）")
     return 項目們, 對不到, 警告們
+
+
+def 是本程式的檔案(相對):
+    """_internal 裡本程式自己的資料檔（圖示 assets/icon.ico，GPLv3 的一部分），不是第三方元件。"""
+    return _正規(相對) == _正規(os.path.join("assets", "icon.ico"))
 
 
 def 是Python本身(相對, python根):

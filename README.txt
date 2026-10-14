@@ -506,6 +506,8 @@
       測打包版一樣要從檔案總管雙擊 LiveSummary.exe，不要從 Claude 桌面版裡啟動。
       從壓縮檔內直接點開 exe 會跳英文錯誤、程式碼來不及攔（開機程式在 Python 啟動前就失敗），所以只靠上面最前面那段說明請使用者先解壓縮；
       試過 C# 啟動器、不採用（原因見 docs/打包調查.md「第5步之一結果」）。
+   桌機測試（第三階段）：docs\乾淨電腦測試清單.md（給 Ray 照著做、附打勾格子）。強制 CPU 的測試：scripts\強制CPU測試.bat（設 CUDA_VISIBLE_DEVICES=-1 再開程式，
+      程式判斷成沒有顯示卡、改用 CPU 與 small 模型）；打包時複製到 dist\（LiveSummary 資料夾外面、不進壓縮檔）。
    版本號：只寫在 version.py（v1 = 1.0.0）。顯示在設定框最下面、logs\當機紀錄.txt、三個 exe 的檔案內容（右鍵 → 內容 → 詳細資料）、zip 檔名；
       其他地方都從 version.py 讀（tests\test_版本號.py 會檢查沒有別處寫死）。改版本只改 version.py 的 版本。
    圖示：assets\icon.ico 放了就套用到三個 exe 和視窗（附進 _internal\assets\icon.ico）；沒放用預設，打包不會失敗。說明見 assets\README.txt。

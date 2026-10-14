@@ -29,6 +29,7 @@ import version
 使用說明 = os.path.join(專案, "docs", "使用說明.txt")      # 放在壓縮檔最上層（給一般使用者看）
 使用說明檔名 = "使用說明.txt"          # LiveSummary-v1.0.0.zip（版本號從 version.py 來）
 額外許可檔名 = "LICENSE-ADDITIONAL-PERMISSION.txt"   # GPLv3 第 7 條額外許可（專案根目錄，原樣放在 exe 旁）
+測試bat = "強制CPU測試.bat"            # 只給測試用：dist\ 底下、不進壓縮檔
 PyInstaller版本 = "6.22.3"            # 和 requirements-dev.txt、requirements-lock.txt 一致
 
 # 打包結果裡一定要有的檔案（相對 dist\LiveSummary）；漏了打包版會在某個功能才壞，所以建完就檢查
@@ -212,6 +213,8 @@ def 壓縮():
     缺 = [x for x in 要有 if x not in 名們]
     if 缺:
         停("壓縮檔裡缺少：" + "、".join(缺))
+    if any(測試bat in x for x in 名們):
+        停(f"{測試bat} 是測試用的，不該進壓縮檔")
 
 
 def main():
@@ -227,6 +230,7 @@ def main():
     打包秒 = time.monotonic() - 開始
     print("壓縮中…")
     壓縮()
+    shutil.copyfile(os.path.join(專案, "scripts", 測試bat), os.path.join(輸出根, 測試bat))      # 放在 dist\（LiveSummary 資料夾外面），不進 zip
     總秒 = time.monotonic() - 開始
     print(f"\n完成：{輸出}（{MB(資料夾大小(輸出))}）")
     print(f"      {壓縮檔}（{MB(os.path.getsize(壓縮檔))}）")

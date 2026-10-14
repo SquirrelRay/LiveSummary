@@ -304,3 +304,39 @@ def test_取得授權全文_Qt只收打包會帶到的模組():
     assert not m.Qt要收("src/3rdparty/libpsl/qt_attribution.json", {"QDocModule": "qtnetwork"})       # QtNetwork 沒帶
     assert not m.Qt要收("src/3rdparty/wayland/protocols/xdg-shell/qt_attribution.json", {"QDocModule": "qtgui"})
     assert not m.Qt要收("src/testlib/3rdparty/catch2/qt_attribution.json", {"QDocModule": "qttestlib"})
+
+
+def test_本程式的圖示不算來源待確認(假打包):
+    licenses = _載入("licenses_測試7", 專案 / "scripts" / "licenses.py")
+    輸出, 建置 = 假打包
+    (輸出 / "_internal" / "assets").mkdir()
+    (輸出 / "_internal" / "assets" / "icon.ico").write_bytes(b"x")
+    _, _, 對不到, _ = licenses.寫出(str(輸出), str(建置))
+    assert 對不到 == ["來路不明.dll"]
+
+
+# ---------- 第三階段準備：強制 CPU 測試 bat、測試清單 ----------
+def test_強制CPU的bat設環境變數並啟動程式():
+    bat = 專案 / "scripts" / "強制CPU測試.bat"
+    文字 = bat.read_bytes().decode("utf-8")
+    assert "\r\n" in 文字 and "set CUDA_VISIBLE_DEVICES=-1" in 文字 and "LiveSummary.exe" in 文字
+    打包 = _載入("build_exe_測試6", 專案 / "scripts" / "build_exe.py")
+    assert 打包.測試bat == "強制CPU測試.bat"
+
+
+@pytest.mark.slow
+def test_CUDA_VISIBLE_DEVICES為負一時判斷成沒有顯示卡_改用small():
+    """另開 Python 設環境變數：顯示卡數 0 → 顯示卡可用 False → 要用的模型是 small（和 bat 的做法一樣）。"""
+    import external
+    程式 = ("import first_run; print(first_run.顯示卡數(), first_run.顯示卡可用(), first_run.要用的模型(first_run.顯示卡可用()))")
+    r = external.執行([sys.executable, "-X", "utf8", "-c", 程式], capture_output=True, text=True, encoding="utf-8", timeout=120,
+                    env={**os.environ, "CUDA_VISIBLE_DEVICES": "-1"}, cwd=str(專案))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split()[-3:] == ["0", "False", "small"]
+
+
+def test_測試清單涵蓋必要項目():
+    文字 = (專案 / "docs" / "乾淨電腦測試清單.md").read_text(encoding="utf-8")
+    for 要有 in ("我沒有這個人的登入資訊", "新增沒有 Microsoft 帳戶的使用者", "測試小明", "強制CPU測試.bat", "裝置=cpu", "裝置=cuda",
+               "當機紀錄.txt", "認證管理員", "刪除帳戶和資料", "OpenCC", "VC++", "中文帳號名稱", "模型下載流程", "Twitch", "YouTube", "☐"):
+        assert 要有 in 文字, 要有
