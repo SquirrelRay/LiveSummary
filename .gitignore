@@ -52,3 +52,7 @@ logs/
 
 # 隨附的外部程式（scripts/下載ffmpeg.py 下載的 ffmpeg 與壓縮檔備份；二進位檔不進 git）
 vendor/
+
+# 打包結果（scripts/build_exe.py 產生；不提交，要的話重跑腳本）
+build/
+dist/

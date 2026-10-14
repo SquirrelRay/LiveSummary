@@ -1,4 +1,5 @@
-"""檔案位置（app_paths）：資料在 %LOCALAPPDATA%\\直播摘要、輸出在「文件」\\直播摘要；第一次啟動從專案資料夾複製舊資料。
+"""檔案位置（app_paths）：資料在 %LOCALAPPDATA%\\LiveSummary、輸出在「文件」\\直播摘要；
+第一次啟動從舊位置（%LOCALAPPDATA%\\直播摘要 優先，再來是專案資料夾）複製舊資料。
 全部用暫存資料夾（conftest 已把位置換掉），不碰真的 %LOCALAPPDATA%、「文件」、詞庫、認證管理員；含中文帳號名稱的路徑。"""
 import json
 import os
@@ -43,7 +44,7 @@ def test_測試期間所有位置都在暫存資料夾():
                startup_timeline.日誌資料夾, app_paths.YouTube聊天室紀錄檔(), app_paths.翻譯錯誤紀錄檔(),
                app_paths.搬家紀錄檔(), app_paths.輸出資料夾()):
         assert os.path.abspath(路徑).startswith(os.path.abspath(conftest.測試根)), 路徑
-    assert app_paths.舊資料位置() is None       # 測試不會從專案資料夾搬東西
+    assert app_paths.舊資料位置們() == []       # 測試不會從真的舊位置（AppData、專案資料夾）搬東西
 
 
 def test_各模組的路徑都來自路徑模組():
@@ -65,9 +66,9 @@ def test_文件與LocalAppData用KnownFolder取得_不寫死使用者資料夾(m
     monkeypatch.setattr(app_paths, "_覆寫", {})
     monkeypatch.setattr(app_paths, "_known_folder", lambda 編號: 回答[編號])
     assert app_paths.輸出資料夾() == r"D:\OneDrive - 公司\文件\直播摘要"
-    assert app_paths.資料資料夾() == r"C:\Users\小明\AppData\Local\直播摘要"
-    assert app_paths.設定檔() == r"C:\Users\小明\AppData\Local\直播摘要\config.json"
-    assert app_paths.詞庫資料夾() == r"C:\Users\小明\AppData\Local\直播摘要\詞庫"
+    assert app_paths.資料資料夾() == r"C:\Users\小明\AppData\Local\LiveSummary"
+    assert app_paths.設定檔() == r"C:\Users\小明\AppData\Local\LiveSummary\config.json"
+    assert app_paths.詞庫資料夾() == r"C:\Users\小明\AppData\Local\LiveSummary\詞庫"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Known Folder 是 Windows API")
@@ -84,14 +85,17 @@ def test_KnownFolder拿不到時用備援(monkeypatch):
     monkeypatch.setattr(app_paths, "_覆寫", {})
     monkeypatch.setattr(app_paths, "_known_folder", lambda 編號: None)
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\小明\AppData\Local")
-    assert app_paths.資料資料夾() == r"C:\Users\小明\AppData\Local\直播摘要"
+    assert app_paths.資料資料夾() == r"C:\Users\小明\AppData\Local\LiveSummary"
     assert app_paths.輸出資料夾().endswith(os.path.join("Documents", "直播摘要"))
 
 
-def test_打包版沒有舊位置(monkeypatch):
+def test_舊位置順序_改名前的AppData優先_專案資料夾只有開發時(monkeypatch):
     monkeypatch.setattr(app_paths, "_覆寫", {})
+    monkeypatch.setattr(app_paths, "_known_folder", lambda 編號: r"C:\Users\小明\AppData\Local")
+    專案 = os.path.dirname(os.path.abspath(app_paths.__file__))
+    assert app_paths.舊資料位置們() == [r"C:\Users\小明\AppData\Local\直播摘要", 專案]
     monkeypatch.setattr(app_paths.sys, "frozen", True, raising=False)
-    assert app_paths.舊資料位置() is None
+    assert app_paths.舊資料位置們() == [r"C:\Users\小明\AppData\Local\直播摘要"]      # 打包版沒有專案資料夾
 
 
 # ---------- 搬家 ----------
@@ -215,6 +219,96 @@ def test_中文路徑實際讀寫設定與詞庫(中文帳號, monkeypatch):
     庫 = glossary.詞庫("小明頻道", 資料夾路徑=str(中文帳號["資料"] / "詞庫"))
     assert not 庫.讀錯誤 and [e.寫法 for e in 庫.條目們] == ["艾倫"]
     assert 庫.路徑 == str(中文帳號["資料"] / "詞庫" / "小明頻道.txt")
+
+
+# ---------- 改名搬家：%LOCALAPPDATA%\直播摘要 → %LOCALAPPDATA%\LiveSummary ----------
+@pytest.fixture
+def 改名(tmp_path):
+    """中文帳號：改名前的資料在 AppData\\Local\\直播摘要，新位置 AppData\\Local\\LiveSummary，專案資料夾在桌面。"""
+    本機 = tmp_path / "Users" / "小明" / "AppData" / "Local"
+    return {"舊AppData": 本機 / "直播摘要", "新": 本機 / "LiveSummary",
+            "專案": tmp_path / "Users" / "小明" / "Desktop" / "直播摘要",
+            "輸出": tmp_path / "Users" / "小明" / "Documents" / "直播摘要"}
+
+
+def 做改名前資料(舊AppData):
+    """模擬第2步後的 %LOCALAPPDATA%\\直播摘要：程式資料＋除錯用音訊（音訊不搬）。"""
+    舊AppData.mkdir(parents=True)
+    (舊AppData / "config.json").write_text(json.dumps({"model": "AppData的模型"}), encoding="utf-8")
+    (舊AppData / "介面設定.json").write_text("{}", encoding="utf-8")
+    (舊AppData / "詞庫").mkdir()
+    (舊AppData / "詞庫" / "小明頻道.txt").write_text("艾倫｜エレン｜手動\n", encoding="utf-8")
+    (舊AppData / "logs").mkdir()
+    (舊AppData / "logs" / "搬家紀錄.txt").write_text("從專案資料夾搬過\n", encoding="utf-8")
+    做音訊場(舊AppData / "音訊", "abc_20261014_111227_音訊")
+
+
+def test_改名_AppData舊資料優先_不混專案資料夾的_舊檔不動(改名):
+    做改名前資料(改名["舊AppData"])
+    做舊資料(改名["專案"])           # 專案資料夾也有（比較舊的）資料
+    舊快照 = 全部檔案(改名["舊AppData"])
+    專案快照 = 全部檔案(改名["專案"])
+    搬了 = app_paths.搬舊資料(舊=[str(改名["舊AppData"]), str(改名["專案"])], 新=str(改名["新"]))
+    assert 搬了 == ["config.json", "介面設定.json", "詞庫", "logs"]
+    新 = 改名["新"]
+    assert json.loads((新 / "config.json").read_text(encoding="utf-8")) == {"model": "AppData的模型"}
+    assert (新 / "詞庫" / "小明頻道.txt").read_text(encoding="utf-8") == "艾倫｜エレン｜手動\n"
+    assert not (新 / "網址紀錄.json").exists()          # 只從一個來源搬，不拿專案資料夾的補
+    assert not (新 / "音訊").exists()                   # 除錯用音訊不搬
+    assert 全部檔案(改名["舊AppData"]) == 舊快照 and 全部檔案(改名["專案"]) == 專案快照
+    assert not os.path.exists(str(新) + ".搬家中")
+
+
+def test_改名_AppData只有音訊沒有程式資料_退回專案資料夾(改名):
+    做音訊場(改名["舊AppData"] / "音訊", "abc_20261014_111227_音訊")
+    做舊資料(改名["專案"])
+    來源, 要搬 = app_paths.搬家來源([str(改名["舊AppData"]), str(改名["專案"])], str(改名["新"]))
+    assert 來源 == str(改名["專案"]) and "config.json" in 要搬
+
+
+def test_改名_AppData不存在_退回專案資料夾(改名):
+    做舊資料(改名["專案"])
+    assert "網址紀錄.json" in app_paths.搬舊資料(舊=[str(改名["舊AppData"]), str(改名["專案"])], 新=str(改名["新"]))
+
+
+def test_改名_新位置已有資料_不搬(改名):
+    做改名前資料(改名["舊AppData"])
+    (改名["新"] / "logs").mkdir(parents=True)
+    (改名["新"] / "logs" / "啟動里程碑_1.txt").write_text("x\n", encoding="utf-8")
+    assert app_paths.搬家來源([str(改名["舊AppData"])], str(改名["新"])) == (None, [])
+    assert app_paths.搬舊資料(舊=[str(改名["舊AppData"])], 新=str(改名["新"])) == []
+    assert not (改名["新"] / "config.json").exists()
+
+
+def test_改名_打包版啟動準備_從AppData搬_訊息寫來源(改名, monkeypatch):
+    """打包版沒有專案資料夾，但改名前的 AppData 照樣搬（這台電腦第一次開 LiveSummary.exe 就讀得到原本的設定）。"""
+    做改名前資料(改名["舊AppData"])
+    monkeypatch.setattr(app_paths, "_覆寫", {})
+    monkeypatch.setattr(app_paths, "_known_folder", lambda 編號: str(改名["舊AppData"].parent)
+                        if 編號 == app_paths.FOLDERID_LocalAppData else str(改名["輸出"].parent))
+    monkeypatch.setattr(app_paths.sys, "frozen", True, raising=False)
+    assert app_paths.資料資料夾() == str(改名["新"])
+    訊息 = app_paths.啟動準備()
+    assert str(改名["舊AppData"]) in 訊息 and str(改名["新"]) in 訊息 and "舊檔沒有刪除" in 訊息
+    assert json.loads((改名["新"] / "config.json").read_text(encoding="utf-8")) == {"model": "AppData的模型"}
+    紀錄 = (改名["新"] / "logs" / "搬家紀錄.txt").read_text(encoding="utf-8")
+    assert "從專案資料夾搬過" in 紀錄 and str(改名["舊AppData"]) in 紀錄      # 舊紀錄跟著搬，新的一行接在後面
+    assert app_paths.啟動準備() == ""                                         # 第二次不再搬
+
+
+def test_改名_複製失敗_訊息寫AppData來源_下次再試(改名, monkeypatch):
+    做改名前資料(改名["舊AppData"])
+    monkeypatch.setattr(app_paths, "_覆寫", {"資料": str(改名["新"]), "輸出": str(改名["輸出"]),
+                                            "舊": [str(改名["舊AppData"]), str(改名["專案"])]})
+
+    def 壞掉(*a, **k):
+        raise OSError("磁碟滿了")
+    monkeypatch.setattr(app_paths.shutil, "copytree", 壞掉)
+    訊息 = app_paths.啟動準備()
+    assert "失敗" in 訊息 and str(改名["舊AppData"]) in 訊息
+    assert not (改名["新"] / "config.json").exists()
+    monkeypatch.undo()
+    assert "config.json" in app_paths.搬舊資料(舊=[str(改名["舊AppData"])], 新=str(改名["新"]))
 
 
 # ---------- 除錯用音訊：位置與只留最近 5 場 ----------

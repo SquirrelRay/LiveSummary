@@ -1,3 +1,5 @@
-# 開發用依賴（檢查與測試），不是執行程式必需的（確切版本含相依套件見 requirements-lock.txt）
+# 開發用依賴（檢查、測試、打包），不是執行程式必需的（確切版本含相依套件見 requirements-lock.txt）
 ruff==0.17.0
 pytest==9.1.1
+pyinstaller==6.22.3                 # 打包成 .exe（scripts/build_exe.py、LiveSummary.spec）
+pyinstaller-hooks-contrib==2026.8   # PyInstaller 的第三方套件 hook（固定版本，打包內容才穩定）

@@ -28,7 +28,7 @@ import config
 import startup_timeline
 import app_paths
 
-版面檔 = app_paths.版面檔()        # 位置見 app_paths（%LOCALAPPDATA%\直播摘要）
+版面檔 = app_paths.版面檔()        # 位置見 app_paths（%LOCALAPPDATA%\LiveSummary）
 種類們 = ["分鐘摘要", "話題摘要", "逐句翻譯", "直播稿", "聊天室"]
 上限鍵 = {"分鐘摘要": "ui_max_summary", "話題摘要": "ui_max_summary", "直播稿": "ui_max_transcript",
          "逐句翻譯": "ui_max_translation", "聊天室": "ui_max_chat"}

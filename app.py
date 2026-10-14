@@ -38,7 +38,7 @@ import language_state    # 目前語言（狀態列的語言藥丸與重新偵�
 import config            # 設定檔 config.json 的讀取、語言清單
 import model_catalog     # 模型服務目錄與單價（單價未知 → 費用顯示「單價未知，無法估算」）
 import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
-import app_paths         # 檔案位置（資料在 %LOCALAPPDATA%\直播摘要、輸出在「文件」\直播摘要）
+import app_paths         # 檔案位置（資料在 %LOCALAPPDATA%\LiveSummary、輸出在「文件」\直播摘要）
 import timefmt           # 時間格式與「幾分鐘前」
 
 語言選項 = config.語言選項()          # 中文、日文、英文、韓文、自動偵測
@@ -1936,8 +1936,9 @@ def 選字型():
 
 
 def main():
-    搬家 = app_paths.啟動準備()      # 第一次啟動：從專案資料夾複製舊資料；建好資料與輸出資料夾（結果都寫在 logs\搬家紀錄.txt）
+    搬家 = app_paths.啟動準備()      # 第一次啟動：從舊位置複製舊資料；建好資料與輸出資料夾（結果都寫在 logs\搬家紀錄.txt）
     app = QApplication(sys.argv)
+    app.setApplicationName(app_paths.程式名)     # 沒設的話 Qt 用 exe 檔名（LiveSummary）當沒設標題的視窗標題；介面維持中文
     app.setStyle("Fusion")
     try:
         app.styleHints().setColorScheme(Qt.ColorScheme.Dark)   # 讓標題列也變深色（Qt 6.8 以上才有）

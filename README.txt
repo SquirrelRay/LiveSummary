@@ -5,10 +5,10 @@
 本文件裡的「python …」指令都是指開發環境 .venv 的 Python 3.13（建立與啟動方法見最後的「開發環境」）。
 
 檔案放在哪裡（2026-10-14 起；直接跑 python app.py 和打包版都一樣，不再往程式資料夾寫東西，位置只由 app_paths.py 決定）：
-  程式資料：%LOCALAPPDATA%\直播摘要（通常是 C:\Users\你的帳號\AppData\Local\直播摘要）
+  程式資料：%LOCALAPPDATA%\LiveSummary（通常是 C:\Users\你的帳號\AppData\Local\LiveSummary；2026-10-14 打包第4步以前是 …\Local\直播摘要）
     config.json、config.backup.json、介面設定.json、網址紀錄.json、版面配置.json、翻譯錯誤紀錄.txt、詞庫\、logs\
-  輸出：「文件」\直播摘要（直播稿、分鐘摘要、話題摘要、聊天室、逐句翻譯）
-  除錯用音訊：%LOCALAPPDATA%\直播摘要\音訊\（每場一個「頻道_日期_時間_音訊」資料夾，裡面是每段一個 wav）。
+  輸出：「文件」\直播摘要（直播稿、分鐘摘要、話題摘要、聊天室、逐句翻譯；給人看的，維持中文名稱）
+  除錯用音訊：%LOCALAPPDATA%\LiveSummary\音訊\（每場一個「頻道_日期_時間_音訊」資料夾，裡面是每段一個 wav）。
     不放「文件」：音訊很大，「文件」常被 OneDrive 接管、會自動上傳。程式沒有任何功能會讀這些音訊，只供人工除錯。
     只保留最近 5 場（含正在錄的這場）：每次開始新的一場（且打開存音訊）時，刪掉最舊的；只刪這個資料夾底下、名稱符合上面格式、
     裡面只有 wav 的資料夾，其他東西一律不碰。想留某一場請先把它的資料夾複製到別處。
@@ -16,12 +16,15 @@
     「文件」用 Windows 正式的方式取得（Known Folder）：被 OneDrive 或其他磁碟接管時跟著走，例如 C:\Users\你的帳號\OneDrive\文件\直播摘要。
     設定框「存檔」區的「打開存檔資料夾」直接打開這裡。
   API 金鑰仍只存在 Windows 認證管理員，不在上面任何檔案裡。
-  搬家：第一次啟動時，程式資料位置還沒有任何檔案、專案資料夾有舊資料 → 把上面那些程式資料「複製」過去（專案資料夾的舊檔不動、不刪），
-    膠囊旁與主控台提示條說一聲複製了什麼，也記在 logs\搬家紀錄.txt。程式資料位置已經有檔案就完全不碰（只有空資料夾不算）。
-    舊的輸出檔（直播稿、摘要、音訊）不搬，留在專案資料夾；overlay_位置.json 已經沒有程式讀，也不搬。
-    想重新搬一次：關掉程式，把 %LOCALAPPDATA%\直播摘要 整個資料夾改名或刪掉，再開程式。
+  搬家：第一次啟動時，程式資料位置（LiveSummary）還沒有任何檔案 → 從舊位置把上面那些程式資料「複製」過去（舊檔不動、不刪），
+    膠囊旁與主控台提示條說一聲從哪裡複製了什麼，也記在 logs\搬家紀錄.txt。程式資料位置已經有檔案就完全不碰（只有空資料夾不算）。
+    舊位置依序找，第一個有程式資料的才搬（只從一個地方搬，不混在一起）：
+      1. %LOCALAPPDATA%\直播摘要（改名前的位置；直接跑 app.py 和打包版都會找）
+      2. 專案資料夾（更早以前的位置；只有直接跑 app.py 時）
+    舊位置的除錯用音訊（直播摘要\音訊）不搬；舊的輸出檔（直播稿、摘要）不搬；overlay_位置.json 已經沒有程式讀，也不搬。
+    舊位置的東西確認不需要後可以自己刪。想重新搬一次：關掉程式，把 %LOCALAPPDATA%\LiveSummary 整個資料夾改名或刪掉，再開程式。
   注意：從 Claude 桌面版等「市集安裝的 App」裡面啟動 python app.py 時，Windows 會把寫進 %LOCALAPPDATA% 的檔案轉到那個 App 自己的
-    AppData\Local\Packages\…\LocalCache\Local\直播摘要（套件虛擬化），從一般終端機或檔案總管啟動才會用真正的位置。
+    AppData\Local\Packages\…\LocalCache\Local\LiveSummary（套件虛擬化），從一般終端機或檔案總管啟動才會用真正的位置。
   例外（不屬於上面兩類，維持原樣）：轉錄模型在 Hugging Face 的快取（%USERPROFILE%\.cache\huggingface）；
     YouTube 聊天室的暫存在系統暫存資料夾（結束就刪）；文字稿重播模式與 transcribe.py 處理本機檔案時，結果存在來源檔旁邊；
     開發用的 測試素材\（scripts/vod_to_transcript.py）在專案資料夾。
@@ -65,11 +68,11 @@
 
 結果會印在畫面上，並存成「原檔名_摘要.md」。
 
-設定檔 config.json（用 live_topics.py 時；放在 %LOCALAPPDATA%\直播摘要，見最上面「檔案放在哪裡」）：
+設定檔 config.json（用 live_topics.py 時；放在 %LOCALAPPDATA%\LiveSummary，見最上面「檔案放在哪裡」）：
   功能開關和常用數字都寫在 config.json，用記事本打開改就好，改完存檔，下次執行就生效。
   config.json 是本機檔案，不進 git；git 裡只有範例 config.example.json（內容 = 出廠預設）。
   沒有 config.json 時（例如剛 clone）程式照常啟動、全部用出廠預設，不會自動建立；
-  想用記事本改就把 config.example.json 複製成 %LOCALAPPDATA%\直播摘要\config.json 再改，或直接在設定框按「儲存」（會建立 config.json）。
+  想用記事本改就把 config.example.json 複製成 %LOCALAPPDATA%\LiveSummary\config.json 再改，或直接在設定框按「儲存」（會建立 config.json）。
   預設值、欄位檢查、欄位說明、語言清單、讀寫 config.json 的程式都在 config.py（新增欄位只要改那裡，加上設定框）。
   命令列參數只是「這一次」臨時覆蓋，優先順序：命令列 > config.json > 程式內建預設。
   欄位：chat（聊天室）、minute_summary（分鐘摘要）、save_audio（存音訊）、fix_with_chat（聊天室參考詞修正）、
@@ -321,7 +324,7 @@
 
 直播主專有名詞詞庫（glossary.py；一律開著，沒有 config.json 欄位）：
   用途：讓同一個直播主的人名、作品名、遊戲名、地名、梗名在摘要裡寫法前後一致（這一場之後的摘要、下一場都沿用）。詞庫本身不上網、不增加模型呼叫次數（上網查證另見下一段，預設關）。
-  放哪：%LOCALAPPDATA%\直播摘要\詞庫\直播主.txt（本機檔案，不進 git）。檔案不存在就當作空的，第一次自動加入名詞時才建立。
+  放哪：%LOCALAPPDATA%\LiveSummary\詞庫\直播主.txt（本機檔案，不進 git）。檔案不存在就當作空的，第一次自動加入名詞時才建立。
   哪個直播主：直播網址模式用頻道名稱（網址最後一段，例如 https://www.twitch.tv/abc → 詞庫/abc.txt）；
             文字稿模式用 --streamer 指定，例如  python live_topics.py 稿.txt --lang ja --streamer abc
             沒給 --streamer（或從介面用文字稿重播）就不讀、不寫詞庫，其他照舊。
@@ -482,6 +485,16 @@
    2-1. 隨附的 ffmpeg（和打包版用同一版）：.venv\Scripts\python.exe scripts\下載ffmpeg.py
       下載 BtbN 的 LGPL shared 版月底版 n9.0.2-17（版本、網址、SHA-256 釘在腳本裡；版本選擇原因見 docs/打包調查.md），雜湊不符就拒絕使用），解開到 vendor\ffmpeg（.gitignore，不進 git），
       壓縮檔備份留在 vendor\下載。程式找 ffmpeg 的順序：vendor\ffmpeg\bin\ffmpeg.exe → 系統上的；用了哪一個寫在 logs\啟動里程碑_*.txt（「找到 ffmpeg」那行）。
+   2-2. 打包成 .exe（PyInstaller 6.22.3，已在 requirements-lock.txt；決定與原因見 docs/打包調查.md）：
+        .venv\Scripts\python.exe scripts\build_exe.py
+      先要有 vendor\ffmpeg（上面 2-1）。設定在 LiveSummary.spec；腳本會清掉舊的、打包、放 LICENSE、驗收（該收的檔案都在、
+      helper.exe 列得出 streamlink 外掛）、壓縮，最後印出花費時間與大小。結果：
+        dist\LiveSummary\LiveSummary.exe   主程式（無視窗）
+        dist\LiveSummary\helper.exe        命令列版，主程式另開 streamlink／yt_audio 用（使用者不用點它）
+        dist\LiveSummary\_internal\        共用的程式庫、隨附 ffmpeg（ffmpeg\bin）、cuBLAS（nvidia\cublas\bin）
+        dist\LiveSummary.zip               整個資料夾的壓縮檔
+      build\、dist\ 不進 git。打包版的程式資料與輸出位置和直接跑 app.py 相同（見最上面「檔案放在哪裡」）。
+      測打包版一樣要從檔案總管雙擊 LiveSummary.exe，不要從 Claude 桌面版裡啟動。
    另開程序：所有外部程式（streamlink、ffmpeg、nvidia-smi）都經過 external.py 的 開啟()／執行()，統一加 CREATE_NO_WINDOW（無視窗模式不閃黑色視窗）；
       不要在其他檔案直接用 subprocess（tests\test_外部程式.py 會檢查）。打包後 streamlink 改呼叫同資料夾的 helper.exe（進入點 helper.py）。
    3. 確認：python --version 應該是 3.13.x；沒啟動時直接打 python 會是系統上的其他版本（例如 3.10），不要用它跑程式或檢查。

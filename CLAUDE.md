@@ -5,15 +5,16 @@
 - 套件一律用鎖定檔安裝：`.venv\Scripts\python.exe -m pip install -r requirements-lock.txt`；`requirements.txt` 是給人看的主要套件與說明。
 - 不要在 `.venv` 裡單獨升級或另裝套件；要升級照 README「開發環境」的步驟重新產生鎖定檔。av 維持 17.1.0（原因見 requirements.txt）。
 - 打包 .exe 的調查、決定與步驟在 `docs/打包調查.md`，做打包相關工作前先讀。
+- 打包：`.venv\Scripts\python.exe scripts\build_exe.py`（設定 `LiveSummary.spec`）→ `dist\LiveSummary\`（LiveSummary.exe＋helper.exe＋_internal）與 `dist\LiveSummary.zip`；build\、dist\ 不提交。英文名稱 LiveSummary（exe、資料夾、AppData）；「文件」\直播摘要、視窗標題、介面文字維持中文。
 
 ## 檔案位置（開發和打包版相同）
-- 程式資料（config.json、介面設定、網址紀錄、版面配置、詞庫\、logs\、翻譯錯誤紀錄）在 `%LOCALAPPDATA%\直播摘要`；輸出（直播稿、摘要、聊天室、逐句翻譯、音訊）在「文件」`\直播摘要`（Known Folder 取得，OneDrive 接管也對）。
+- 程式資料（config.json、介面設定、網址紀錄、版面配置、詞庫\、logs\、翻譯錯誤紀錄）在 `%LOCALAPPDATA%\LiveSummary`；輸出（直播稿、摘要、聊天室、逐句翻譯）在「文件」`\直播摘要`（Known Folder 取得，OneDrive 接管也對）。
 - 所有路徑只由 `app_paths.py` 決定，其他 .py 不准自己用 `__file__`、`os.chdir`、相對路徑組資料或輸出的位置。
 - 隨附外部程式（ffmpeg、helper.exe）與顯示卡函式庫的位置、開發／打包後的判斷也只在 app_paths.py；另開程序一律用 `external.py` 的 `開啟()`／`執行()`（統一加 CREATE_NO_WINDOW），其他檔案不准直接 subprocess.Popen／run（tests/test_外部程式.py 會檢查）。
-- 第一次啟動時（新位置沒有任何檔案）從專案資料夾「複製」程式資料過去，舊檔不動；舊的輸出檔不搬。
+- 第一次啟動時（新位置沒有任何檔案）從舊位置「複製」程式資料過去，舊檔不動；舊的輸出檔、舊的除錯音訊不搬。舊位置依序找、只搬第一個有資料的：`%LOCALAPPDATA%\直播摘要`（改名前，開發和打包版都找）→ 專案資料夾（只有開發時）。
 - 測試：`tests/conftest.py` 在 import 其他模組前就把 app_paths 換成暫存資料夾，測試絕不碰真的 %LOCALAPPDATA%、「文件」。新的模組變數路徑一律從 app_paths 拿，才會被換掉。
-- 除錯用音訊放 `%LOCALAPPDATA%\直播摘要\音訊`（`app_paths.音訊資料夾()`，不放「文件」避免 OneDrive 上傳），開始新的一場時自動只留最近 5 場；只准刪該位置底下、名稱符合 `開頭_YYYYMMDD_HHMMSS_音訊` 且只含 wav 的資料夾。
-- **實機 UI 測試要從檔案總管啟動 app.py（例如雙擊 .bat），不能從 Claude 桌面版裡啟動**：從 Claude 裡啟動時，寫進 %LOCALAPPDATA% 的檔案會被 Windows 轉到 Claude 的套件資料夾（`AppData\Local\Packages\Claude_…\LocalCache\Local\直播摘要`），真正的位置不會有東西。
+- 除錯用音訊放 `%LOCALAPPDATA%\LiveSummary\音訊`（`app_paths.音訊資料夾()`，不放「文件」避免 OneDrive 上傳），開始新的一場時自動只留最近 5 場；只准刪該位置底下、名稱符合 `開頭_YYYYMMDD_HHMMSS_音訊` 且只含 wav 的資料夾。
+- **實機 UI 測試要從檔案總管啟動 app.py（例如雙擊 .bat）或 dist\LiveSummary\LiveSummary.exe，不能從 Claude 桌面版裡啟動**：從 Claude 裡啟動時，寫進 %LOCALAPPDATA% 的檔案會被 Windows 轉到 Claude 的套件資料夾（`AppData\Local\Packages\Claude_…\LocalCache\Local\LiveSummary`），真正的位置不會有東西。
 
 ## 完成前的固定檢查（強制）
 每次修改完成前，必須在專案根目錄跑過：

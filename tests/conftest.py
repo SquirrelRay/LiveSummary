@@ -8,7 +8,7 @@ import pytest
 # 讓測試能直接 import 專案根目錄的模組
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ---------- 保護：測試絕不碰真的 %LOCALAPPDATA%\直播摘要、「文件」\直播摘要，也不從專案資料夾搬資料 ----------
+# ---------- 保護：測試絕不碰真的 %LOCALAPPDATA%\LiveSummary、「文件」\直播摘要，也不從專案資料夾搬資料 ----------
 # 一定要在 import 其他專案模組前做：config、ui_state、panel、glossary 等模組載入時就把路徑存成模組變數。
 import shutil
 import tempfile

@@ -458,7 +458,7 @@ class live_session:
         self.存稿 = 存稿          # False：直播稿只送到介面、不寫檔（稿路徑仍用來決定其他檔名）
         # 每段音訊存成 wav，之後轉錄有問題時可以用同一段音訊重現
         self.音訊資料夾 = None
-        if 存音訊:      # 音訊放 %LOCALAPPDATA%\直播摘要\音訊（不放「文件」），只留最近 5 場（含這一場）
+        if 存音訊:      # 音訊放 %LOCALAPPDATA%\LiveSummary\音訊（不放「文件」），只留最近 5 場（含這一場）
             app_paths.清理舊音訊()
             self.音訊資料夾 = os.path.join(app_paths.音訊資料夾(), app_paths.音訊場資料夾名(開頭, 時間字))
         self.存了段數 = 0
@@ -519,7 +519,9 @@ class live_session:
         events.送出("info", 印出="載入轉錄模型中...")
         model = 載入模型(self.語言)
         events.送出("model", 狀態="就緒")
-        里程碑.標記(里程碑.模型載入完成)
+        # 用顯示卡還是退回 CPU 記進 logs\啟動里程碑（無視窗模式看不到印出的退回訊息，打包版靠這行確認）
+        裝置 = getattr(getattr(model, "model", None), "device", "?")
+        里程碑.標記(里程碑.模型載入完成, 裝置=裝置)
         片段時刻 = None
         if self.平台 == platforms.YOUTUBE:
             p1 = external.開啟(external.yt_audio指令(self.網址, self.串流名),

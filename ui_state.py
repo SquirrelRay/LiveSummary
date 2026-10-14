@@ -10,7 +10,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 import app_paths
 
-網址紀錄檔 = app_paths.網址紀錄檔()      # 位置見 app_paths（%LOCALAPPDATA%\直播摘要）
+網址紀錄檔 = app_paths.網址紀錄檔()      # 位置見 app_paths（%LOCALAPPDATA%\LiveSummary）
 介面設定檔 = app_paths.介面設定檔()
 最近上限 = 10         # 沒釘選的網址最多留幾個（釘選的不算）
 

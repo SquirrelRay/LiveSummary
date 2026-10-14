@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 
-import app_paths  # log 檔位置（%LOCALAPPDATA%\直播摘要\logs）
+import app_paths  # log 檔位置（%LOCALAPPDATA%\LiveSummary\logs）
 import chat_capture  # 只用 是洗版（和 Twitch 同一套洗版規則）
 import events
 import stream_clock  # 存檔開頭的說明
