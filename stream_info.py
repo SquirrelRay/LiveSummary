@@ -150,13 +150,15 @@ def 解析YouTube頁(文):
     """觀看頁（或頻道頁）的 HTML → {頻道ID, 直播主, 帳號, 標題, 分類, 開播(epoch), 直播中(True/False/None), 影片ID,
     狀態, 原因, 預定開始(epoch), 即將開始(True/False), 直播內容(True/False/None)}；
     狀態／原因是 playabilityStatus（OK、LIVE_STREAM_OFFLINE、LOGIN_REQUIRED…），開播檢查失敗時拿來寫白話訊息。
+    聊天室："開放"／"關閉"／None（看不出來），見 聊天室狀態。
     每一項讀不到就是空字串／None。整頁都看不出是哪個頻道時回傳 None。"""
     播放 = _頁內JSON(文, "ytInitialPlayerResponse") or {}
     可播 = _取(播放, "playabilityStatus") or {}
     細節 = _取(播放, "videoDetails") or {}
     微 = _取(播放, "microformat", "playerMicroformatRenderer") or _取(播放, "microformat", "microformatDataRenderer") or {}
     直播 = _取(微, "liveBroadcastDetails") or {}
-    頻道 = _取(_頁內JSON(文, "ytInitialData"), "metadata", "channelMetadataRenderer") or {}
+    初始 = _頁內JSON(文, "ytInitialData")
+    頻道 = _取(初始, "metadata", "channelMetadataRenderer") or {}
     頻道ID = next((x for x in (_字(_取(細節, "channelId")), _字(_取(微, "externalChannelId")), _字(_取(頻道, "externalId")))
                  if YouTube頻道ID.match(x)), "")
     if not 頻道ID:
@@ -180,7 +182,21 @@ def 解析YouTube頁(文):
                              "liveStreamOfflineSlateRenderer", "scheduledStartTime")),
         "即將開始": _取(細節, "isUpcoming") is True,
         "直播內容": 細節.get("isLiveContent") if isinstance(細節.get("isLiveContent"), bool) else None,
+        "聊天室": 聊天室狀態(初始),
     }
+
+
+def 聊天室狀態(初始資料):
+    """觀看頁 ytInitialData 的 conversationBar → "開放"（有 liveChatRenderer）、"關閉"（只有 conversationBarRenderer，
+    頁面寫「這場直播的聊天室已關閉」）或 None（看不出來：頻道頁、YouTube 改版）。2026-10-14 實測 Sky News、NHK WORLD、DW 是關閉。"""
+    列 = _取(初始資料, "contents", "twoColumnWatchNextResults", "conversationBar")
+    if not isinstance(列, dict):
+        return None
+    if "liveChatRenderer" in 列:
+        return "開放"
+    if "conversationBarRenderer" in 列:
+        return "關閉"
+    return None
 
 
 def _讀頁(網址, 取得):

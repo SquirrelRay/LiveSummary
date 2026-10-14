@@ -12,7 +12,9 @@
 # 停止：關閉() 後讀取執行緒最多 停止等待秒 內結束（關存檔、不再送事件）。yt-dlp 在兩批之間的等待（time.sleep）換成
 #       收到停止就中斷的版本，下載中的進度回呼也會中斷；網路卡住時 yt-dlp 的執行緒是背景執行緒、不擋程式結束，
 #       之後不會再寫我們的存檔，暫存資料夾等它結束時再刪。
-# 失效：一輪下來一則都沒收到算失敗，重試 3 次後在主控台與膠囊提示說明，摘要和字幕照常。
+# 失效：一輪下來一則都沒收到算失敗，重試 3 次後在主控台、膠囊與聊天室面板提示說明，摘要和字幕照常；每次失敗的原因寫進 logs。
+# 沒有聊天室：直播關閉聊天室時 yt-dlp 不報錯、也不寫檔就結束 → 再讀一次觀看頁，確定是關閉就說「沒有開放聊天室」，不當成失效。
+# 狀態用 chat_status 事件送出（狀態＝已連上／沒有聊天室／失效），介面在聊天室面板顯示一行；Twitch 不送這個事件。
 import gc
 import importlib
 import inspect
@@ -38,11 +40,39 @@ import timefmt
 停止等待秒 = 4.0          # 關閉() 後最多等 yt-dlp 這麼久（加上讀取間隔，5 秒內收尾）
 等基準秒 = 30             # + 模式還沒收到音訊（不知道零點）時，留言最多先等這麼久，之後用收到時刻換算
 失效訊息 = "YouTube 聊天室暫時抓不到（可能是 YouTube 改版），摘要和字幕照常；更新程式後可能會恢復。"
+沒有聊天室訊息 = "這場直播沒有開放聊天室，摘要和字幕照常。"
 暫存前綴 = "直播摘要_YT聊天室_"
 舊暫存秒 = 600            # 超過這麼久沒動過的暫存資料夾當作上次留下的
 檔名 = "chat"             # yt-dlp 寫成 chat.live_chat.json.part（結束時改名成 chat.live_chat.json）
 
+沒有資料 = "yt-dlp 沒有錯誤也沒有寫出聊天室資料"
 留言種類 = ("liveChatTextMessageRenderer", "liveChatPaidMessageRenderer", "liveChatPaidStickerRenderer")
+
+
+def 已連上訊息(舊留言):
+    舊 = f"（連上前的 {舊留言} 則舊留言不顯示）" if 舊留言 else ""
+    return f"已連上 YouTube 聊天室，等待新留言{舊}。"
+
+
+def 告知沒有聊天室(網址, 根據):
+    """這場直播關閉聊天室：寫進 logs，主控台、膠囊、聊天室面板都說「沒有開放聊天室」。"""
+    _記錄(f"{沒有聊天室訊息}（{根據}）網址：{網址}")
+    送狀態("沒有聊天室", 沒有聊天室訊息, 提醒=True)
+
+
+def 送狀態(狀態, 說明, 提醒=False):
+    """chat_status 事件：聊天室面板顯示 說明；提醒＝True 時主控台與膠囊旁也提示（沒有聊天室、失效）。"""
+    if 提醒:
+        events.送出("chat_status", 狀態=狀態, 說明=說明, 印出="\n" + 說明, 膠囊=說明)
+    else:
+        events.送出("chat_status", 狀態=狀態, 說明=說明, 印出=說明)
+
+
+def 查聊天室(網址):
+    """重讀觀看頁 → "開放"／"關閉"／None（讀不到）。"""
+    import stream_info
+    資訊 = stream_info.查YouTube(網址)
+    return 資訊.get("聊天室") if 資訊 else None
 
 
 def 是機器人(名稱):
@@ -317,8 +347,8 @@ class 增量讀取:
 
 
 class 聊天室:
-    def __init__(self, 網址, 存檔路徑, 下載=yt_dlp下載):
-        """網址：YouTube 直播網址（最好是 watch?v=影片ID）。下載：測試可換成假的（不連網）。"""
+    def __init__(self, 網址, 存檔路徑, 下載=yt_dlp下載, 查頁=None):
+        """網址：YouTube 直播網址（最好是 watch?v=影片ID）。下載、查頁（預設 查聊天室）：測試可換成假的（不連網）。"""
         self.網址 = 網址
         self.存檔路徑 = 存檔路徑
         self.訊息們 = []        # 通過過濾的留言：(秒, 使用者, 內容)
@@ -328,7 +358,11 @@ class 聊天室:
         self.系統訊息 = 0       # 會員加入、置頂等（不算留言）
         self.連線中 = False
         self.失效 = False
+        self.沒有聊天室 = False
         self._下載 = 下載
+        self._查頁 = 查頁
+        self._說過連上 = False
+        self._上輪原因 = ""     # 上一輪沒收到資料的原因（寫 log 用）
         self._鎖 = threading.Lock()
         self._停 = threading.Event()
         self._起點 = None
@@ -413,11 +447,15 @@ class 聊天室:
                     有資料 = self.連線中 = True
                     self.處理行(行, 檔)
                 self._放出(檔)
+                if 有資料 and not self._說過連上 and not self._停.is_set():
+                    self._說過連上 = True
+                    送狀態("已連上", 已連上訊息(self.舊留言))
                 if 完:
                     break
                 self._停.wait(讀取間隔秒)
         finally:
             工作.收尾(停止等待秒 if self._停.is_set() else 1.0)
+        self._上輪原因 = 工作.錯誤 or 工作.紀錄.最後錯誤 or ("" if 讀.位置 else 沒有資料)
         return 有資料
 
     def _跑(self):
@@ -427,16 +465,30 @@ class 聊天室:
             while not self._停.is_set():
                 try:
                     有資料 = self._一輪(檔)
-                except Exception:      # noqa: BLE001  讀取端出錯也只算這一輪失敗
-                    有資料 = False
+                except Exception as e:      # noqa: BLE001  讀取端出錯也只算這一輪失敗
+                    有資料, self._上輪原因 = False, f"讀取端出錯：{type(e).__name__}: {e}"
                 self.連線中 = False
                 if self._停.is_set():
                     break
+                if not 有資料 and self._上輪原因 == 沒有資料 and self._是關閉的():
+                    self.沒有聊天室 = True
+                    告知沒有聊天室(self.網址, "yt-dlp 沒有聊天室資料，觀看頁顯示聊天室關閉")
+                    break
                 失敗 = 0 if 有資料 else 失敗 + 1
+                if 失敗:
+                    _記錄(f"聊天室第 {失敗} 次沒有收到資料：{self._上輪原因 or '原因不明'}；網址：{self.網址}")
                 if 失敗 > 重試次數:
                     self.失效 = True
-                    events.送出("info", 印出="\n" + 失效訊息, 膠囊=失效訊息)
+                    _記錄(f"{失效訊息}（連續 {失敗} 次沒有收到資料，最後原因：{self._上輪原因 or '原因不明'}）")
+                    送狀態("失效", 失效訊息, 提醒=True)
                     break
                 self._停.wait(重試間隔秒)
             if not self._停.is_set():
                 self._放出(檔, 強制=True)
+
+    def _是關閉的(self):
+        """yt-dlp 沒報錯也沒寫檔就結束時：重讀觀看頁，確定聊天室關閉才回傳 True（讀不到當作不是，照失效流程重試）。"""
+        try:
+            return (self._查頁 or 查聊天室)(self.網址) == "關閉"
+        except Exception:      # noqa: BLE001
+            return False

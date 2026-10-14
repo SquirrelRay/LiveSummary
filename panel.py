@@ -540,6 +540,33 @@ def _值(邊):
 
 
 # ---------- 管理：開關面板、接事件、版面配置 ----------
+class 提示置頂(QObject):
+    """整個程式的滑鼠提示（主控台藥丸、膠囊、面板、設定框…）一顯示、一換內容就拉到最上層。
+    Qt 的提示框是重複使用的同一個視窗：還開著時換到別的藥丸、或膠囊每秒更新提示，只換文字不會重新排到最上面；
+    中間如果面板或膠囊重新設成置頂（開面板、切換置頂、膠囊移到面板上面…），提示就會被它們蓋住。
+    做法：提示框顯示（Show）或重畫（Paint，換文字時）就拉上來；任何元件要顯示提示（ToolTip 事件）時，
+    等 Qt 處理完再把開著的提示框拉上來（文字一樣、不會重畫的情況）。裝在 QApplication 上當事件過濾器。"""
+
+    def eventFilter(self, 物, e):
+        種類 = e.type()
+        if 種類 in (QEvent.Show, QEvent.Paint) and isinstance(物, QWidget) and 物.windowType() == Qt.ToolTip:
+            self._拉上來(物)
+        elif 種類 == QEvent.ToolTip:
+            QTimer.singleShot(0, self._拉開著的)
+        return False
+
+    @staticmethod
+    def _拉上來(提示):
+        h = int(提示.winId())
+        if overlay.上方視窗(h):           # 已經在最上面就不動（避免重畫時一直呼叫）
+            overlay.user32.SetWindowPos(h, overlay.HWND_TOPMOST, 0, 0, 0, 0, overlay.SWP_旗標)
+
+    def _拉開著的(self):
+        for w in QApplication.topLevelWidgets():
+            if w.windowType() == Qt.ToolTip and w.isVisible():
+                self._拉上來(w)
+
+
 class 面板管理(QObject):
     def __init__(self, 台):
         super().__init__(台)
@@ -794,6 +821,9 @@ class 面板管理(QObject):
             if not 內容.get("暫留"):        # 聊天室翻譯開著：等 chat_show 時原文與譯文一起出現
                 資料 = 留言資料(內容)
                 self._加("聊天室", "加留言", (資料,), 留言純文字(資料))
+        elif 種類 == "chat_status":       # YouTube 聊天室狀態（已連上／沒有開放聊天室／失效）：聊天室面板顯示一行
+            說明 = 內容["說明"]
+            self._加("聊天室", "加一行", (f'<span style="color:{淡}; font-style:italic;">{跳脫(說明)}</span>',), 說明)
         elif 種類 == "minute_summary":
             純 = live_topics.時間標記.sub("", 內容["摘要"], count=1).strip()
             self._加("分鐘摘要", "加卡片", (lambda 內容=內容: 台._分鐘html(內容),), 純)     # 傳函式：時間顯示換了可以重畫

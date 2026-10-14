@@ -372,7 +372,7 @@ def 取得時軸(查詢, 平台=platforms.TWITCH):
               "直播稿和聊天室從同一個時間點算起。")
     else:
         印出 = None if 軸.有開播 else "抓不到開播時間，時間改為從開始擷取起算（前面加 +）。"
-    events.送出("stream_info", 有開播=軸.有開播, 連續=bool(連續), 開播=軸.開播, 延遲=軸.延遲, 來源=資訊.get("來源"),
+    events.送出("stream_info", 有開播=軸.有開播, 連續=bool(連續), 開播=軸.開播, 延遲=軸.延遲, 來源=資訊.get("來源"), 平台=平台,
                 直播主=資訊.get("直播主", ""), 標題=資訊.get("標題", ""), 遊戲=資訊.get("遊戲", ""),
                 印出=印出)
     return 軸
@@ -408,8 +408,10 @@ def 對齊YouTube(軸, 片段時刻):
     """用第一個片段的 PDT 對齊時間，並在主控台說一行用了哪一種算法。"""
     if 軸.對齊串流時刻(片段時刻):
         events.送出("info", 印出=f"YouTube：時間依串流片段的時間戳對齊（這次實際串流延遲約 {軸.延遲:.1f} 秒）。")
+        events.送出("stream_sync", 對齊="片段時間戳", 延遲=軸.延遲)      # 時間藥丸的滑鼠提示改寫實際的對齊方式與延遲
     elif 軸.有開播:
         events.送出("info", 印出=f"YouTube：讀不到串流片段的時間戳，改用估計的串流延遲（約 {軸.延遲:.0f} 秒），時間可能差幾秒。")
+        events.送出("stream_sync", 對齊="估計", 延遲=軸.延遲)
 
 
 def YouTube聊天網址(網址):
@@ -425,6 +427,7 @@ class live_session:
     時軸 = None      # 這一場的 stream_clock.時軸（__init__ 建立；測試可以直接指定）
     詞庫名 = None    # 這一場的詞庫名：Twitch＝頻道名稱，YouTube＝YT_頻道ID（查不到是 None＝不用詞庫）
     平台 = platforms.TWITCH     # __init__ 依網址判斷；測試可以直接指定
+    沒有聊天室 = False          # YouTube 觀看頁顯示這場關閉聊天室（__init__ 判斷）
 
     def __init__(self, 網址, 語言="zh", 稿目錄=".", 用聊天室=True, 存音訊=True, 存稿=True, 存聊天=True):
         self.網址 = 網址
@@ -460,7 +463,10 @@ class live_session:
         self.存了位元組 = 0
         self._警告過 = False
         self.聊天 = None     # 有聊天室時，這裡是 chat_capture.聊天室 或 yt_chat.聊天室 物件（對外用法一樣）
-        if 用聊天室 and self.平台 == platforms.YOUTUBE:
+        self.沒有聊天室 = False     # YouTube 觀看頁顯示這場關閉聊天室：不抓，開始擷取時告訴使用者
+        if 用聊天室 and self.平台 == platforms.YOUTUBE and (stream_clock.資訊() or {}).get("聊天室") == "關閉":
+            self.沒有聊天室 = True
+        elif 用聊天室 and self.平台 == platforms.YOUTUBE:
             import yt_chat
             events.送出("stage", 階段="準備聊天室")
             self.聊天 = yt_chat.聊天室(
@@ -470,6 +476,14 @@ class live_session:
             events.送出("stage", 階段="準備聊天室")
             self.聊天 = chat_capture.聊天室(
                 頻道名稱(網址), os.path.join(稿目錄, f"{開頭}_{時間字}_聊天室.txt") if 存聊天 else None)
+
+    def 開始聊天室(self, 軸):
+        """開始擷取時呼叫：聊天室和直播稿用同一個時軸（同一套直播秒）。YouTube 關閉聊天室時改成告訴使用者（主控台、膠囊、聊天室面板）。"""
+        if self.聊天:
+            self.聊天.開始(軸.時鐘(), 軸)
+        elif self.沒有聊天室:
+            import yt_chat
+            yt_chat.告知沒有聊天室(self.網址, "觀看頁顯示聊天室關閉")
 
     def _存音訊(self, 資料, 序號, 起始秒):
         """把這一段音訊存成 wav，檔名像 0001_00-20.wav（序號_起始秒-結束秒）。失敗就停止存檔，不影響轉錄。"""
@@ -523,8 +537,7 @@ class live_session:
         if self.時軸 is None:
             self.時軸 = stream_clock.時軸()
         軸 = self.時軸
-        if self.聊天:
-            self.聊天.開始(軸.時鐘(), 軸)   # 聊天室和直播稿用同一個時軸（同一套直播秒）
+        self.開始聊天室(軸)
 
         佇列 = queue.Queue()
 

@@ -176,3 +176,11 @@ def 不查YouTube(monkeypatch):
     monkeypatch.setattr(查詢, "_查", lambda 資: (None, "連線"))
     monkeypatch.setattr(查詢, "_結果", {})
     return 查詢
+
+
+@pytest.fixture(autouse=True)
+def _YouTube聊天室不寫真logs也不連網(monkeypatch, tmp_path):
+    """yt_chat 的紀錄檔改寫到暫存資料夾；聊天室沒資料時「重讀觀看頁」改成假的（回傳看不出來），測試不連網。"""
+    import yt_chat
+    monkeypatch.setattr(yt_chat, "紀錄檔", str(tmp_path / "logs" / "YouTube聊天室_紀錄.txt"))
+    monkeypatch.setattr(yt_chat, "查聊天室", lambda 網址: None, raising=False)

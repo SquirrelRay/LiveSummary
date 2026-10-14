@@ -394,9 +394,9 @@ def test_重試3次後_主控台與膠囊顯示失效訊息(事件們):
     聊.執行緒.join(5)
     assert not 聊.執行緒.is_alive()
     assert 下載.次數 == 1 + yt_chat.重試次數 and 聊.失效
-    訊息 = [c for k, c in 事件們 if k == "info"]
-    assert len(訊息) == 1
-    assert 訊息[0]["印出"].strip() == 訊息[0]["膠囊"] == (
+    訊息 = [c for k, c in 事件們 if k == "chat_status"]       # 主控台（印出）、膠囊、聊天室面板（說明）同一則
+    assert len(訊息) == 1 and 訊息[0]["狀態"] == "失效"
+    assert 訊息[0]["印出"].strip() == 訊息[0]["膠囊"] == 訊息[0]["說明"] == (
         "YouTube 聊天室暫時抓不到（可能是 YouTube 改版），摘要和字幕照常；更新程式後可能會恢復。")
 
 

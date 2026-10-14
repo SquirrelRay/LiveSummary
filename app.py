@@ -240,6 +240,23 @@ class 分頁基底(QWidget):
         self.頂.layout().setContentsMargins(16, 0, 16, 8) if 置頂 else self.頂.layout().setContentsMargins(16, 8, 16, 0)
 
 
+def 聊天狀態html(說明):
+    """聊天室分頁裡的狀態行（已連上、沒有開放聊天室、失效）：淡色斜體，和留言分得出來。"""
+    return f'<span style="color:{淡字}; font-style:italic;">{跳脫(說明)}</span>'
+
+
+def YouTube時間提示(開播字, 來源, 對齊, 延遲):
+    """YouTube 時間藥丸的滑鼠提示（分行寫，窄一點，不容易被擋掉一半）。
+    對齊：片段時間戳＝這次實際的串流延遲；估計＝讀不到時間戳，扣除估計延遲；None＝還在等第一個串流片段。"""
+    if 對齊 == "片段時間戳":
+        對齊字 = f"時間對齊：依 YouTube 串流片段的時間戳對齊（這次實際串流延遲約 {延遲:.1f} 秒）"
+    elif 對齊 == "估計":
+        對齊字 = f"時間對齊：讀不到串流片段的時間戳，已扣除約 {延遲:.0f} 秒估計的串流延遲"
+    else:
+        對齊字 = "時間對齊：等第一個串流片段，用它的時間戳對齊"
+    return f"直播實際進行時間\n開播：{開播字}\n來源：{來源}\n{對齊字}"
+
+
 def 留言資料(內容):
     """chat_line／chat_show 事件 → 聊天室一則留言的資料（chat_line 沒有譯文）。"""
     return {"編號": 內容.get("編號"), "時間字": 內容["時間字"], "使用者": 內容["使用者"], "內容": 內容["內容"],
@@ -1110,6 +1127,8 @@ class 主控台(QMainWindow):
         self.網址清單 = 網址清單(根, self.網址紀錄, self.網址框)
         self._待記網址 = None
         self.面板 = panel.面板管理(self)        # 面板和分頁接同一條事件
+        self.提示置頂 = panel.提示置頂(self)     # 滑鼠提示永遠在置頂的面板、膠囊之上
+        QApplication.instance().installEventFilter(self.提示置頂)
         self.膠囊 = capsule.膠囊管理(self)       # 浮動膠囊與系統匣（在 main 裡和啟動面板一起顯示）
         self.啟動面板 = launcher.啟動面板(self, 網址欄, 網址清單)
         self.套用開發者選項()
@@ -1681,6 +1700,12 @@ class 主控台(QMainWindow):
                 return
             self.聊天頁.加留言(留言資料(內容))
             self._加計數("聊天室")
+        elif 種類 == "chat_status":           # YouTube 聊天室：已連上／沒有聊天室／失效（聊天室分頁顯示一行，不算留言）
+            self.聊天頁.加一行(聊天狀態html(內容["說明"]))
+            if 內容.get("膠囊"):
+                self._訊息(內容["說明"])
+                if not self.要結束:
+                    self.膠囊.小提示(內容["膠囊"], 10, 錯誤=True if 內容["狀態"] == "失效" else None)
         elif 種類 == "minute_summary":
             self.分鐘頁.加卡片(lambda 內容=內容: self._分鐘html(內容))     # 傳函式：時間顯示換了可以重畫
             self._加計數("分鐘摘要")
@@ -1696,6 +1721,10 @@ class 主控台(QMainWindow):
             elif not 內容["有開播"]:          # 開始時提示一次：時間改從開始擷取起算
                 self.膠囊.小提示("抓不到開播時間：時間改為從開始擷取起算（前面加 +），\n摘要卡片顯示「幾分鐘前」", 8, 錯誤=None)
             self.膠囊.更新()
+        elif 種類 == "stream_sync":            # YouTube 依串流片段時間戳對齊完成（或退回估計延遲）
+            if self.直播資訊 is not None:
+                self.直播資訊.update(對齊=內容["對齊"], 延遲=內容["延遲"])
+                self._更新時間藥丸()
         elif 種類 == "current_topic":
             簡述 = 內容["簡述"] or "（新話題剛開始）"
             self.話題字.setText(f"目前話題（已進行 {內容['進行分鐘']:.0f} 分鐘）：{簡述}")
@@ -1810,7 +1839,10 @@ class 主控台(QMainWindow):
             來源 = {"GQL": "Twitch 公開資料", "網頁": "Twitch 頻道網頁",
                   "YouTube網頁": "YouTube 觀看頁（公開資料）"}.get(資.get("來源"), "公開資料")
             self.時間藥丸.setStyleSheet("")
-            self.時間藥丸.setToolTip(f"直播實際進行時間（{開播字} 開播，來源：{來源}；已扣除約 {資['延遲']:.0f} 秒串流延遲）")
+            if 資.get("平台") == platforms.YOUTUBE:
+                self.時間藥丸.setToolTip(YouTube時間提示(開播字, 來源, 資.get("對齊"), 資["延遲"]))
+            else:
+                self.時間藥丸.setToolTip(f"直播實際進行時間（{開播字} 開播，來源：{來源}；已扣除約 {資['延遲']:.0f} 秒串流延遲）")
         elif 資.get("連續"):
             self.時間藥丸.setStyleSheet("")
             self.時間藥丸.setToolTip("這是連續播出的直播（開播已超過 24 小時）：時間改為從開始擷取起算（前面加 +），摘要卡片顯示「幾分鐘前」。")
