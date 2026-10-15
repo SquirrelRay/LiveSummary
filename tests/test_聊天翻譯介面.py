@@ -134,10 +134,19 @@ def 開始外語直播(台, monkeypatch, 聊天翻譯=True):
     台.聊天翻譯器.語言 = "ja"
 
 
-def 留言們(頁):
-    """畫面上由舊到新的留言內容（最新在上時倒回來）。"""
+def 全部行(頁):
+    """畫面上由舊到新的每一行（含聊天室翻譯的說明行；最新在上時倒回來）。"""
     行們 = 頁.行文字()
     return 行們[::-1] if 頁.置頂 else 行們
+
+
+def 是說明行(行):
+    return 行.startswith("（聊天室翻譯")
+
+
+def 留言們(頁):
+    """畫面上由舊到新的留言內容（不含說明行）。"""
+    return [x for x in 全部行(頁) if not 是說明行(x)]
 
 
 @pytest.mark.parametrize("置頂", [False, True])
@@ -153,13 +162,17 @@ def test_翻譯開啟_譯文回來前不顯示_回來後原文與譯文照順序
     等(lambda: False, 0.6)
     assert 面.清單頁.行文字() == [] and 台.聊天頁.行文字() == []          # 跳過的「草」也不能先跑出來
     模型.放行.set()
-    assert 等(lambda: len(面.清單頁.行文字()) == 4, 10), 面.清單頁.行文字()
+    assert 等(lambda: len(留言們(面.清單頁)) == 4, 10), 面.清單頁.行文字()
     行們 = 留言們(面.清單頁)
+    說明在 = [i for i, x in enumerate(全部行(面.清單頁)) if 是說明行(x)]
+    assert len(說明在) == 1 and 全部行(面.清單頁)[說明在[0] + 1].endswith("草")    # 第一則不翻的留言前面說明一次
+    assert 全部行(面.清單頁)[說明在[0]] == chat_translate.不翻說明
     assert "まだ言ってない" in 行們[0] and "↳ 譯:まだ言ってない" in 行們[0]
     assert 行們[1].endswith("草") and 行們[2].endswith("hitomi32Hahaha") and "↳" not in 行們[1] + 行們[2]   # 跳過的照原文
     assert "↳ 譯:保留やめて" in 行們[3]
     assert [t for 批 in 模型.批們 for t in 批] == ["まだ言ってない", "保留やめて"]   # 跳過的不送翻（批次 0 秒時可能分兩批）
-    assert 等(lambda: len(台.聊天頁.行文字()) == 4)                    # 主控台的聊天室分頁也一樣
+    assert 等(lambda: len(留言們(台.聊天頁)) == 4)                      # 主控台的聊天室分頁也一樣（說明行也有）
+    assert sum(map(是說明行, 台.聊天頁.行文字())) == 1
     assert [x.split(" ↳")[0] for x in 留言們(台.聊天頁)] == [x.split(" ↳")[0] for x in 行們]
     面.改字級(+2)                                                       # 換字級會重建清單：譯文還在
     assert "↳ 譯:まだ言ってない" in 留言們(台.面板.面板們["聊天室"].清單頁)[0]
@@ -184,13 +197,16 @@ def test_翻譯失敗_429_超時_以原文出現不卡住(聊天, monkeypatch, �
     台.面板.開關("聊天室", True)
     面 = 台.面板.面板們["聊天室"]
     送留言(["まだ言ってない", "草"])
-    assert 等(lambda: len(面.清單頁.行文字()) == 2, 10), 面.清單頁.行文字()
-    行們 = 面.清單頁.行文字()
+    assert 等(lambda: len(留言們(面.清單頁)) == 2, 10), 面.清單頁.行文字()
+    行們 = 留言們(面.清單頁)
     assert "まだ言ってない" in 行們[0] and 行們[1].endswith("草") and all("↳" not in x for x in 行們)
+    說明們 = [x for x in 面.清單頁.行文字() if 是說明行(x)]
+    assert chat_translate.不翻說明 in 說明們                            # 「草」不翻：說明一次
+    assert any("沒翻成功（呼叫模型出錯）" in x for x in 說明們) == (情境 == "失敗")   # 失敗才說明失敗
     if 情境 == "超時":
         模型.放行.set()                                                 # 晚到的譯文不再補上
         等(lambda: False, 0.6)
-        assert all("↳" not in x for x in 面.清單頁.行文字())
+        assert all("↳" not in x for x in 留言們(面.清單頁))
     停止並等完(台)
 
 

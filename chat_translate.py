@@ -15,12 +15,18 @@
 #            翻譯失敗、429、超時放棄的留言以原文出現；任何留言最多等 最久顯示秒 就一定出現（API 很慢也不會卡住）。
 #            翻譯關著（設定、面板、中文直播）時，留言照舊立刻顯示。
 # 用量記在 llm.聊天翻譯用量；第一則留言、第一批送出與回來、第一則顯示記在啟動里程碑（查延遲用）。
+# 讓人看得懂：第一則「不翻」的留言出現前，聊天室面板先出現一行說明（哪些留言不翻、直接顯示原文），每場一次；
+#            第一次翻譯失敗（出錯、讀不出譯文、則數對不上）也說明一次。結束時的統計多寫「不翻幾則」。
+# 紀錄：logs\聊天室翻譯紀錄.txt。每次失敗一行（錯誤類型或 stop_reason，讀不出譯文時附模型回答的前 300 字）；
+#            每場結束一行統計（送翻、已翻、各種不翻原因的則數、每批 API 秒數的平均與最大）。不含金鑰。
+import os
 import queue
 import re
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 
+import app_paths
 import config  # 語言清單（單一來源）
 import events
 import llm
@@ -122,13 +128,38 @@ def 跳過原因(內容):
     return None
 
 
+def 不翻原因(內容, 語言):
+    """這則留言在這個直播語言下不送翻的原因（字串）；要送翻回傳 None。"""
+    if 語言 not in config.外語們:
+        return "不是外語直播"
+    原因 = 跳過原因(內容)
+    if 原因:
+        return 原因
+    t = 去雜訊(內容)
+    if not 假名或韓文.search(t) and 漢字.search(t) and any(c in 中文專用字 for c in t):
+        return "中文留言"
+    return None                          # 全漢字的留言在外語直播中當作該外語
+
+
 def 要翻譯(內容, 語言):
     """這則留言在這個直播語言下要不要送翻。語言不是外語（中文、還在自動偵測）一律不翻。"""
-    if 語言 not in config.外語們 or 跳過原因(內容):
-        return False
-    t = 去雜訊(內容)
-    明顯是中文 = not 假名或韓文.search(t) and 漢字.search(t) and any(c in 中文專用字 for c in t)
-    return not 明顯是中文                 # 全漢字的留言在外語直播中當作該外語
+    return 不翻原因(內容, 語言) is None
+
+
+# 聊天室面板的說明行（每場各一次）：不翻的留言不是壞掉
+不翻說明 = ("（聊天室翻譯開著：只有表情、草／www、888、數字、常見短語（例如 おつ、かわいい、ナイス）"
+          "或中文的留言不翻，直接顯示原文；其他留言會在原文下面出現 ↳ 譯文）")
+失敗說明 = "（聊天室翻譯有一批沒翻成功（{原因}），那幾則只顯示原文；之後的留言照常翻譯）"
+
+
+def 寫紀錄(文字):
+    """寫一行到 logs\\聊天室翻譯紀錄.txt；寫不進去不影響翻譯。"""
+    try:
+        os.makedirs(app_paths.日誌資料夾(), exist_ok=True)
+        with open(app_paths.聊天翻譯紀錄檔(), "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {文字}\n")
+    except OSError:
+        pass
 
 
 def 抽樣(項目們, n):
@@ -205,6 +236,14 @@ class 聊天翻譯器:
         self._額度時間 = None       # 上次補額度的時間
         self._最近送翻 = deque()    # 最近 60 秒每一則送翻留言的時間
         self.統計 = self._新統計()
+        self._場重設()
+
+    def _場重設(self):
+        self.不翻原因們 = Counter()  # 不翻原因 → 則數（結束時寫進紀錄與統計）
+        self._不翻編號 = set()      # 確定不翻、還沒放出的留言編號（放出第一則時先出說明行）
+        self._已說明 = set()        # 這一場已經在聊天室面板說明過的事："不翻"、"失敗"
+        self._API秒們 = []          # 每批翻譯的 API 秒數
+        self._已寫統計 = False
 
     @staticmethod
     def _新統計():
@@ -231,6 +270,7 @@ class 聊天翻譯器:
         self._暫停到 = 0.0
         self._額度 = self._額度時間 = None
         self._最近送翻 = deque()
+        self._場重設()
         self._停 = threading.Event()
         if 執行緒:
             self._執行緒 = threading.Thread(target=self._跑, daemon=True)
@@ -244,6 +284,27 @@ class 聊天翻譯器:
         self._緩衝 = []
         self._佇列 = queue.Queue()
         self.放出一次(全部=True)
+        self._寫統計()
+
+    def _寫統計(self):
+        """這一場的聊天室翻譯統計寫進紀錄（一場一行；沒收到任何要處理的留言就不寫）。"""
+        s = self.統計
+        if self._已寫統計 or not (s["送翻"] or self.不翻原因們):
+            return
+        self._已寫統計 = True
+        不翻 = "、".join(f"{k} {v}" for k, v in self.不翻原因們.most_common()) or "無"
+        秒們 = self._API秒們
+        秒 = f"平均 {sum(秒們) / len(秒們):.2f}、最大 {max(秒們):.2f}" if 秒們 else "（沒有呼叫）"
+        寫紀錄(f"本場統計：語言={self.語言}，模型={self.模型}；送翻 {s['送翻']} 則（{len(秒們)} 批），已翻 {s['已翻']}，"
+             f"失敗 {s['失敗']}，抽樣略過 {s['抽樣略過']}，逾時放棄 {s['逾時放棄']}，限速放棄 {s['限速放棄']}；"
+             f"不翻 {sum(self.不翻原因們.values())} 則（{不翻}）；每批 API 秒數：{秒}")
+
+    def _說明一次(self, 事, 說明):
+        """聊天室面板出現一行說明（每場每件事一次）。"""
+        if 事 in self._已說明:
+            return
+        self._已說明.add(事)
+        events.送出("chat_status", 狀態="翻譯說明", 說明=說明, 印出=說明)
 
     def 接收(self, 種類, 內容):
         """events 的接收者：只處理 chat_line（另外記下自動偵測到的語言）。
@@ -256,8 +317,12 @@ class 聊天翻譯器:
             return
         現在 = self.時鐘()
         里程碑.標記(里程碑.聊天第一則)
-        等譯文 = 要翻譯(內容["內容"], self.語言)
+        原因 = 不翻原因(內容["內容"], self.語言)
+        等譯文 = 原因 is None
         資料 = {"編號": 內容["編號"], "時間字": 內容["時間字"], "使用者": 內容["使用者"], "內容": 內容["內容"]}
+        if not 等譯文:
+            self.不翻原因們[原因] += 1
+            self._不翻編號.add(內容["編號"])
         self.排隊.加(資料, 現在, 等譯文)
         內容["暫留"] = True
         if 等譯文:
@@ -282,6 +347,9 @@ class 聊天翻譯器:
     def 放出一次(self, 全部=False):
         """把可以顯示的留言照順序送出 chat_show 事件。聊天室翻譯中途關掉（設定、面板、語言）就全部放出。"""
         for 資料, 譯文 in self.排隊.取出(self.時鐘(), 全部 or not self.啟用中()):
+            if 資料["編號"] in self._不翻編號:
+                self._不翻編號.discard(資料["編號"])
+                self._說明一次("不翻", 不翻說明)       # 第一則不翻的留言出現前先說明，不會看起來像翻譯壞掉
             里程碑.標記(里程碑.聊天第一則顯示, 有譯文=bool(譯文))
             events.送出("chat_show", **資料, 譯文=譯文)
 
@@ -355,13 +423,22 @@ class 聊天翻譯器:
             return
         except Exception as e:      # noqa: BLE001  任何錯誤（連線、金鑰、伺服器）都只顯示原文、不重送，不能讓翻譯執行緒停掉
             self._放棄(批, "失敗")
+            錯誤 = llm.錯誤描述(e)
             里程碑.標記(里程碑.聊天第一批回來, 失敗=type(e).__name__)
+            寫紀錄(f"翻譯失敗：{len(批)} 則，錯誤類型={錯誤}，花了 {self.時鐘() - 開始:.2f} 秒")
+            self._說明一次("失敗", 失敗說明.format(原因="呼叫模型出錯"))
             self.送狀態()
             return
-        里程碑.標記(里程碑.聊天第一批回來, API秒=round(self.時鐘() - 開始, 2))
+        秒 = self.時鐘() - 開始
+        self._API秒們.append(秒)
+        里程碑.標記(里程碑.聊天第一批回來, API秒=round(秒, 2))
         譯們 = subtitle.讀譯文(回答) or []
         if len(譯們) != len(批):             # 句數對不上：對得上的照用，缺的只顯示原文
             self.統計["失敗"] += len(批) - min(len(譯們), len(批))
+            原因 = "讀不出譯文" if not 譯們 else f"則數對不上：送 {len(批)} 則、回 {len(譯們)} 則"
+            寫紀錄(f"翻譯失敗：{原因}，stop_reason={llm.停止原因們.get('聊天翻譯') or '（無）'}，API {秒:.2f} 秒，"
+                 f"回答 {len(回答 or '')} 字：{(回答 or '')[:300]!r}")
+            self._說明一次("失敗", 失敗說明.format(原因=原因))
         譯們 = (譯們 + [""] * len(批))[:len(批)]
         for (_, 編號, _), 譯 in zip(批, 譯們, strict=True):
             if 譯:
@@ -384,7 +461,8 @@ class 聊天翻譯器:
         if not u["次數"]:
             return ""
         費用 = self.費用()
-        翻 = f"，翻了 {self.統計['已翻']} 則"
+        不翻 = sum(n for k, n in self.不翻原因們.items() if k != "不是外語直播")
+        翻 = f"，翻了 {self.統計['已翻']} 則" + (f"，{不翻} 則不需要翻（表情、草、常見短語等）" if 不翻 else "")
         if 費用 is None:
             return f"聊天室翻譯（另計）：呼叫 {u['次數']} 次{翻}，token 與費用無法計算"
         if 費用 == model_catalog.未知:

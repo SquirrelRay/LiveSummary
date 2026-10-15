@@ -3,6 +3,8 @@
 #   "anthropic"          ：Claude（預設）
 #   "openai_compatible"  ：OpenAI、DeepSeek、Ollama 等，靠 base_url 與 model 區分
 import sys
+import threading
+from contextlib import contextmanager
 
 import api_key
 import config
@@ -29,6 +31,52 @@ _用量名 = {"摘要": "用量", "翻譯": "翻譯用量", "聊天翻譯": "聊
 摘要_思考 = config.出廠預設()["summary_thinking"]      # False = 摘要相關呼叫關閉延伸思考（config.json 的 summary_thinking）
 最後停止原因 = ""     # 最近一次摘要或逐句翻譯回答的停止原因（max_tokens = 被截斷），翻譯失敗時寫進紀錄；聊天室翻譯不寫這裡
 停止原因們 = {}       # 類別 → 該類別最近一次回答的停止原因（兩條翻譯執行緒各記各的，不會互相覆蓋）
+# 類別 → 最近一次回答的資訊（寫紀錄找原因用）：停止原因、拒絕類別、輸入／輸出 token、內容區塊種類。不含金鑰、不含回答內容
+回應資訊們 = {}
+_本執行緒 = threading.local()    # 關閉思考() 的開關只影響目前這條執行緒
+
+
+@contextmanager
+def 關閉思考():
+    """這段期間（只限目前這條執行緒）的摘要類呼叫關閉延伸思考。話題摘要空回應重試時用：
+    思考把 max_tokens 用光時，同樣設定再問多半又是空的；關掉思考，額度就全部留給正式內容。"""
+    舊 = getattr(_本執行緒, "關思考", False)
+    _本執行緒.關思考 = True
+    try:
+        yield
+    finally:
+        _本執行緒.關思考 = 舊
+
+
+def 停止種類(停止原因):
+    """兩家服務的停止原因 → "截斷"（到了長度上限）、"拒絕"（安全機制擋下）或 "其他"。"""
+    return {"max_tokens": "截斷", "length": "截斷", "refusal": "拒絕", "content_filter": "拒絕"}.get(停止原因 or "", "其他")
+
+
+def 回應紀錄(類別):
+    """這個類別最近一次回答的資訊，寫進紀錄檔的一段文字（沒有就回傳空字串）。"""
+    資 = 回應資訊們.get(類別)
+    if not 資:
+        return ""
+    字 = f"stop_reason={資['停止原因'] or '（無）'}"
+    if 資.get("拒絕類別"):
+        字 += f"，拒絕類別={資['拒絕類別']}"
+    return 字 + f"，輸入={資['輸入']}，輸出={資['輸出']} token，內容區塊={資['區塊'] or '（無）'}"
+
+
+def 是服務錯誤(e):
+    """模型服務套件（anthropic、openai）丟出的錯誤：伺服器錯誤、逾時、請求被拒等。程式本身的錯誤不算。"""
+    return type(e).__module__.split(".")[0] in ("anthropic", "openai")
+
+
+def 錯誤描述(e):
+    """錯誤類型（有 HTTP 狀態碼就附上），給紀錄與畫面用。只用類型名稱，不放錯誤訊息全文（避免帶出請求內容）。"""
+    碼 = getattr(e, "status_code", None)
+    return type(e).__name__ + (f" {碼}" if 碼 else "")
+
+
+def _記回應(類別, 停止原因, 拒絕類別, 輸入, 輸出, 區塊們):
+    回應資訊們[類別] = {"停止原因": 停止原因, "拒絕類別": 拒絕類別, "輸入": 輸入, "輸出": 輸出, "區塊": "、".join(區塊們)}
 
 
 class 模型錯誤(Exception):
@@ -147,7 +195,8 @@ def _問_anthropic(提示詞, 模型, 類別):
         參數["max_retries"] = 0
     client = anthropic.Anthropic(**參數)
     try:
-        額外 = {"thinking": {"type": "disabled"}} if (類別 in 翻譯類 or not 摘要_思考) else {}
+        關思考 = 類別 in 翻譯類 or not 摘要_思考 or getattr(_本執行緒, "關思考", False)
+        額外 = {"thinking": {"type": "disabled"}} if 關思考 else {}
         resp = client.messages.create(
             model=模型,
             max_tokens=_最多token(類別),
@@ -162,9 +211,13 @@ def _問_anthropic(提示詞, 模型, 類別):
         if 類別 == "聊天翻譯":
             raise 限速錯誤("API 速率限制") from None
         raise
-    _記停止原因(類別, str(getattr(resp, "stop_reason", "")))
+    停止 = str(getattr(resp, "stop_reason", "") or "")
+    _記停止原因(類別, 停止)
     u = getattr(resp, "usage", None)
     _記用量(getattr(u, "input_tokens", None), getattr(u, "output_tokens", None), 類別)
+    細節 = getattr(resp, "stop_details", None)          # 只有 stop_reason=refusal 時才有（安全機制擋下的類別）
+    _記回應(類別, 停止, getattr(細節, "category", None) if 細節 else None,
+           getattr(u, "input_tokens", None), getattr(u, "output_tokens", None), [b.type for b in resp.content])
     # 回應可能先有「思考」區塊，只取真正的文字區塊
     return "".join(b.text for b in resp.content if b.type == "text")
 
@@ -192,14 +245,18 @@ def _問_openai相容(提示詞, 模型, 類別):
             raise 限速錯誤("API 速率限制") from None
         raise
     選項們 = getattr(resp, "choices", None)
+    停止 = ""
     if 選項們:                            # 只記在分類別的那一格（原本的 最後停止原因 維持只記 anthropic）
-        停止原因們[類別] = str(getattr(選項們[0], "finish_reason", "") or "")
+        停止 = 停止原因們[類別] = str(getattr(選項們[0], "finish_reason", "") or "")
     u = getattr(resp, "usage", None)
     _記用量(getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None), 類別)
     try:
-        return resp.choices[0].message.content or ""
+        文字 = resp.choices[0].message.content or ""
     except Exception:
-        return ""
+        文字 = ""
+    _記回應(類別, 停止, None, getattr(u, "prompt_tokens", None), getattr(u, "completion_tokens", None),
+           ["text"] if 文字 else [])
+    return 文字
 
 
 # ---- 上網查證（只有 anthropic 有官方的上網搜尋工具）----
