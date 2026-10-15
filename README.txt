@@ -11,6 +11,13 @@
       另依 GPLv3 第 7 條加上額外許可（FSF GPL FAQ 的範本）：允許本程式與 NVIDIA CUDA 函式庫（cuBLAS 等）、
       Intel 函式庫（OpenMP、ctranslate2 內含的 oneMKL）連結並一起散布，條文見 LICENSE-ADDITIONAL-PERMISSION.txt。
 
+系統需求（給使用者的版本在 docs\使用說明.txt「五、系統需求」）：Windows 10／11 64 位元；
+  有 NVIDIA 顯示卡時，驅動程式需為 527.41 版以上；版本太舊會自動改用 CPU（比較慢）。
+  依據：打包版附 cuBLAS 12.9（CUDA 12.x）。NVIDIA 的 CUDA「次版本相容」讓 CUDA 12.x 的執行期程式在 12.0 等級的驅動上就能跑
+  （Windows 527.41、Linux 525.60.13），出處 https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html 。
+  注意：12.9 完整工具組本身列的是 576.02（12.9 Update 1 為 576.57）；我們只附執行期函式庫、沒有裝工具組，所以寫 527.41。
+  沒有拿真的舊驅動實測；驅動夠舊或相容失敗時，程式會退回 CPU（live_capture.載入模型、transcribe.轉錄 都會接住例外）。
+
 本文件裡的「python …」指令都是指開發環境 .venv 的 Python 3.13（建立與啟動方法見最後的「開發環境」）。
 
 檔案放在哪裡（2026-10-14 起；直接跑 python app.py 和打包版都一樣，不再往程式資料夾寫東西，位置只由 app_paths.py 決定）：
