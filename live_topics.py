@@ -8,6 +8,7 @@ import sys
 import json
 import time
 import argparse
+import threading
 
 import summarize  # 重用 call_llm、summarize_chunk，不改動它原本的功能
 import llm        # 呼叫語言模型、錯誤種類、token 用量都在這裡
@@ -32,6 +33,7 @@ MIN_NEW_CHARS = 100   # 新文字少於這麼多字，這一輪跳過判斷
 MINUTE_SENTENCES = config.出廠預設()["minute_sentences"]     # 分鐘摘要句數上限（1 到 3，可在 config.json 改）
 MAX_SIDE_PER_CHECK = 2   # 每次判斷最多回報幾條支線
 MAX_SIDE_PER_TOPIC = 5   # 每個話題最多保留幾條支線（超過就保留較早的）
+收尾上限秒 = 90          # 按停止後，整理最後一個話題＋等上網查證最多花這麼久；超過就照已有的內容存檔，並說明哪部分沒完成
 說話者規則 = (
     "【說話者】語音稿沒有標示誰在說話。\n"
     "- 稿裡出現的人名預設是「被提到、被呼喊的人」，不是說話的人。不可推論「實況主就是某某」，"
@@ -419,6 +421,49 @@ def 記錄格式問題(回答, 來源, 附註=""):
 沒照格式說明 = "模型這次沒有照格式回覆，這一題的摘要無法顯示。"
 
 
+class 不等了(Exception):
+    """按了停止、收尾超過時間上限，或使用者要直接結束程式：不再等背景那一次模型呼叫。"""
+
+
+def 收尾截止():
+    """按停止後收尾的時間上限（time.monotonic() 的時刻）：第一次發現停了才定下；還沒停、也沒 Ctrl+C 就是 None（不限）。"""
+    if 收尾["截止"] is None and events.停止.is_set():
+        收尾["截止"] = time.monotonic() + 收尾上限秒
+    return 收尾["截止"]
+
+
+def 等呼叫(工作, *參數, 停了就不等=False, 限時=False, **具名):
+    """在另一條執行緒做 工作(*參數, **具名)，這條執行緒一邊等一邊看要不要放棄；做完就回傳結果（出錯照樣丟出）。
+    停了就不等：按了停止就不等（直播中那一輪的話題判斷）。限時：按停止後超過收尾時間上限就不等（話題摘要）。
+    使用者要直接結束程式（events.放棄收尾）一律不等。不等時丟出 不等了；那一次呼叫在背景自己跑完，結果丟掉（用量照記）。"""
+    結果 = {}
+    完 = threading.Event()
+
+    def 跑():
+        try:
+            結果["值"] = 工作(*參數, **具名)
+        except BaseException as e:      # noqa: BLE001 交回等的那條執行緒處理
+            結果["錯"] = e
+        finally:
+            完.set()
+
+    threading.Thread(target=跑, daemon=True).start()
+    while not 完.wait(0.1):
+        if events.放棄收尾.is_set() or (停了就不等 and events.停止.is_set()):
+            raise 不等了
+        if 限時 and (截止 := 收尾截止()) is not None and time.monotonic() >= 截止:
+            raise 不等了
+    if "錯" in 結果:
+        raise 結果["錯"]
+    return 結果["值"]
+
+
+def 來不及說明():
+    if events.放棄收尾.is_set():
+        return "結束程式時這一段還沒整理完，內容請看直播稿。"
+    return f"按停止後 {收尾上限秒} 秒內沒有整理完，這一段的內容請看直播稿。"
+
+
 def 問話題摘要(問):
     """問：呼叫一次模型、回傳回答文字的函式。回傳 (回答, 說明)：拿到文字時說明是 None；
     拿不到文字時回答是空字串，說明是給卡片顯示的一句話。
@@ -468,7 +513,8 @@ def 結果檔名(基底, 要分鐘):
 def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None, 查證=None):
     """詞庫：這一場的直播主詞庫（沒有就傳 None）。有詞庫時提示詞附上詞庫，並請模型在最後一行列出【名詞】；
     【名詞】那一行從顯示與存檔的內文拿掉，新的名詞自動加進詞庫。
-    查證：上網查證（web_verify.背景查證，開關關著就是 None）；新加入的候選丟給它在背景查，不等結果。"""
+    查證：上網查證（web_verify.背景查證，開關關著就是 None）；新加入的候選丟給它在背景查，不等結果。
+    按停止（或 Ctrl+C）後有收尾時間上限（收尾截止()）：來不及就這一題留一個說明照樣存檔，回傳 False。"""
     起, 訖 = 秒轉字(話題["開始"]), 秒轉字(話題["最後"])
     支線文字 = "\n".join(f"- [{秒轉字(s)}] {n}" for s, n in 話題["支線"]) or "（無）"
     聊天們 = [字 for _, 字 in 話題["聊天"]]
@@ -480,9 +526,16 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None, 查證=None):
     if 詞庫 is not None:
         詞庫段 = 詞庫.提示段("\n".join(話題["行們"]))
         格式 = 加詞庫例外(格式, 詞庫段).replace("每一項的標籤", glossary.名詞格式 + "每一項的標籤", 1)
-    回答, 說明 = 問話題摘要(lambda: summarize.summarize_chunk(
-        詞庫段 + 參考段 + "已知支線：\n" + 支線文字 + "\n\n以下是文字稿：\n" + "\n".join(話題["行們"]), 類型="chat",
-        聊天室紀錄=聊天們 or None, 格式=格式))
+    def 問():
+        return 問話題摘要(lambda: summarize.summarize_chunk(
+            詞庫段 + 參考段 + "已知支線：\n" + 支線文字 + "\n\n以下是文字稿：\n" + "\n".join(話題["行們"]), 類型="chat",
+            聊天室紀錄=聊天們 or None, 格式=格式))
+    完成 = True
+    try:
+        回答, 說明 = 等呼叫(問, 限時=True)
+    except 不等了:                       # 背景那一次回來也只是丟掉，不會再寫一次
+        回答, 說明, 完成 = "", 來不及說明(), False
+        收尾["未完成"].append(f"話題（{起} - {訖}）的摘要")
     內文 = ""
     if not 說明:
         內文, 來源 = 取正式內容(回答)
@@ -510,6 +563,7 @@ def 輸出話題摘要(話題, 結束秒, 輸出檔, 詞庫=None, 查證=None):
                 印出="\n" + 區塊)
     if 存檔["摘要"]:
         寫入結果檔(輸出檔, 區塊 + "\n")
+    return 完成
 
 
 def 寫入結果檔(路徑, 文字):
@@ -550,6 +604,7 @@ def 加入(話題, 新行們):
 
 
 統計 = {"分鐘摘要": 0, "JSON失敗": 0}
+收尾 = {"截止": None, "未完成": []}  # 按停止後：收尾的時間上限（time.monotonic()）與來不及完成的項目（給結束訊息）
 存檔 = {"摘要": True}               # 由 執行() 依設定 save_summary 填入：關掉時摘要照常產生，只是不寫檔
 單價 = {"輸入": config.出廠預設()["price_input"], "輸出": config.出廠預設()["price_output"]}   # 由 執行() 依設定填入，只用來估算費用；None = 單價未知
 
@@ -584,6 +639,7 @@ def 引擎(行來源, check_min, 輸出檔, 聊天=None, 分鐘檔=None, 修正=
     聊天：聊天室物件（沒有就傳 None，引擎照舊只用語音稿）。詞庫：直播主詞庫（沒有就傳 None，不讀不寫）。
     查證：上網查證（沒開就是 None）。"""
     迭代 = iter(行來源)
+    收尾["截止"], 收尾["未完成"] = None, []
     try:
         return _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫, 查證)
     except (Exception, KeyboardInterrupt):    # 任何錯誤都要先關掉音訊擷取，不留下 ffmpeg
@@ -600,18 +656,22 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
     話題數 = 0
     現在 = 0
     已送聊天 = -1        # 重播聊天室：已經送出到哪個秒數
+    中斷 = False         # 按了停止或 Ctrl+C（收尾才有時間上限；直播自己結束、文字稿讀完不限）
 
     while True:
         try:
             秒, 行 = next(迭代)
         except StopIteration:
             if events.停止.is_set():
+                中斷 = True
                 events.送出("info", 印出="\n收到停止，正在結束並輸出最後一個話題...")
             break
         except KeyboardInterrupt:
+            中斷 = True
             events.送出("info", 印出="\n收到 Ctrl+C，正在結束並輸出最後一個話題...")
             break
         if events.停止.is_set():      # 介面按了停止：和 Ctrl+C 一樣收尾
+            中斷 = True
             events.送出("info", 印出="\n收到停止，正在結束並輸出最後一個話題...")
             break
         現在 = 秒
@@ -639,13 +699,18 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
             詞庫.記下出現("\n".join(l for _, l in 待處理))      # 名詞清單的「這一場」欄
             詞庫段 = 詞庫.提示段("\n".join(話題["行們"][-10:] + [l for _, l in 待處理]))
         try:
-            決定, 切點字, 簡述, 支線們, 分鐘, 主題 = 問話題(
-                話題["主題"], 話題["行們"][-10:], [l for _, l in 待處理],
-                [字 for _, 字 in 本輪聊天] or None, 要分鐘=bool(分鐘檔), 參考詞=本輪詞 or None, 詞庫段=詞庫段)
+            # 在背景問：等的時候按了停止就不等這一輪（判斷可能要幾十秒，甚至卡住），直接整理最後一個話題
+            決定, 切點字, 簡述, 支線們, 分鐘, 主題 = 等呼叫(
+                問話題, 話題["主題"], 話題["行們"][-10:], [l for _, l in 待處理],
+                [字 for _, 字 in 本輪聊天] or None, 要分鐘=bool(分鐘檔), 參考詞=本輪詞 or None, 詞庫段=詞庫段,
+                停了就不等=True)
+        except 不等了:
+            中斷 = True
+            events.送出("info", 印出="\n收到停止，不等這一輪的話題判斷，正在整理最後一個話題...")
+            break
         except KeyboardInterrupt:      # 等模型回答時按 Ctrl+C：照一般的 Ctrl+C 流程收尾
+            中斷 = True
             events.送出("info", 印出="\n已中斷，正在整理最後一個話題...")
-            if hasattr(迭代, "close"):
-                迭代.close()           # 先關掉音訊擷取與 ffmpeg
             break
         上次檢查 = 秒
         送狀態()
@@ -703,9 +768,16 @@ def _引擎(迭代, check_min, 輸出檔, 聊天, 分鐘檔, 修正, 詞庫=None
         events.送出("current_topic", 秒=秒, 簡述=簡述, 進行分鐘=進行,
                     印出=f"[{秒轉字(秒)}] 目前話題：{簡述 or '（新話題剛開始）'}（已進行 {進行:.0f} 分鐘）")
 
+    # 先關掉音訊擷取（ffmpeg、streamlink）與聊天室，再整理最後一個話題：按停止後擷取、轉錄馬上停
+    if hasattr(迭代, "close"):
+        迭代.close()
     # 文字稿讀完：剩下的也要輸出
     加入(話題, 待處理)
+    if 中斷 and 收尾截止() is None:      # Ctrl+C（沒按停止）：一樣有收尾時間上限
+        收尾["截止"] = time.monotonic() + 收尾上限秒
     if 話題["行們"]:
+        if 中斷:
+            events.送出("wrapup", 階段="話題摘要", 上限=收尾上限秒)
         輸出話題摘要(話題, 現在, 輸出檔, 詞庫, 查證)
         送狀態()
         話題數 += 1
@@ -910,9 +982,15 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
         聊天.關閉()
     查證行 = None
     if 查證:
-        if 查證.進行中():
-            events.送出("info", 印出=f"等待上網查證收尾（最多 {web_verify.收尾等待秒} 秒）...")
-        查證行 = 查證.收尾() + "；" + llm.查證用量文字(單價["輸入"], 單價["輸出"])
+        最久 = web_verify.收尾等待秒
+        if 收尾["截止"] is not None:      # 按了停止：和最後的話題摘要共用收尾時間上限
+            最久 = max(0.0, min(最久, 收尾["截止"] - time.monotonic()))
+        if 查證.進行中() and 最久 > 0 and not events.放棄收尾.is_set():
+            events.送出("wrapup", 階段="上網查證", 上限=收尾上限秒)
+            events.送出("info", 印出=f"等待上網查證收尾（最多 {最久:.0f} 秒）...")
+        查證行 = 查證.收尾(最久, 放棄=events.放棄收尾) + "；" + llm.查證用量文字(單價["輸入"], 單價["輸出"])
+        if 收尾["截止"] is not None and (沒查完 := 查證.進行中()):
+            收尾["未完成"].append(f"上網查證還有 {沒查完} 個名詞沒查完（保持未查）")
 
     行們 = ["\n完成：切出 " + str(話題數) + " 個話題，" + llm.用量文字(單價["輸入"], 單價["輸出"])]
     音訊行 = 行來源.音訊統計() if hasattr(行來源, "音訊統計") else None
@@ -928,7 +1006,9 @@ def 執行(設定, 檔案=None, 網址=None, speed=0, 聊天檔=None, 直播主=
     檔案們 = [f for f in (輸出檔, 分鐘檔) if f and 存檔["摘要"] and os.path.exists(f)]
     行們.append(("已存成：" + "、".join(檔案們)) if 檔案們 else
               "沒有產生任何內容，所以沒有建立結果檔。" if 存檔["摘要"] else "摘要存檔已關閉（save_summary），沒有建立結果檔。")
-    events.送出("finished", 話題數=話題數, 檔案們=檔案們, 印出="\n".join(行們))
+    if 收尾["未完成"]:
+        行們.append("收尾來不及完成：" + "、".join(收尾["未完成"]))
+    events.送出("finished", 話題數=話題數, 檔案們=檔案們, 未完成=list(收尾["未完成"]), 印出="\n".join(行們))
     return True
 
 

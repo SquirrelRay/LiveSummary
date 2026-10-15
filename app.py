@@ -127,9 +127,9 @@ QHeaderView::section {{ background: {卡片}; color: {淡字}; border: none; bor
 """
 
 
-結束中文字 = "正在產生最後一個話題的摘要，約需 10 秒…"
-翻譯收尾文字 = "正在翻譯剩下的句子…"
+收尾階段字 = {"話題摘要": "正在整理最後的話題摘要…", "上網查證": "正在等上網查證收尾…"}    # 引擎的 wrapup 事件 → 顯示的字
 翻譯收尾最多秒 = 10     # 收尾翻譯最多等幾秒，超時就放棄
+放棄後最多等秒 = 5      # 收尾中確定直接結束程式後，引擎沒在這麼久內收掉也照樣關閉（已有的內容都是邊做邊存的）
 
 
 def 跳脫(字):
@@ -1087,6 +1087,9 @@ class 主控台(QMainWindow):
         self.要關閉 = False
         self.要結束 = False        # True = 真的結束程式（膠囊或系統匣的「結束程式」）；False = 關主控台只是收起來
         self.結束中 = False
+        self._收尾計時 = None
+        self._收尾開始, self._收尾階段, self._收尾翻譯中 = 0.0, "", False
+        self._不等引擎 = False     # 收尾中確定結束程式、引擎又沒及時收掉：關閉時不再等它
         self.本次段位 = None       # 啟動面板選的字幕速度段位（只用在下一次開始；None = 用 config.json）
         self.語言狀態 = language_state.語言狀態()
         self._待記網址 = None
@@ -1449,6 +1452,7 @@ class 主控台(QMainWindow):
         self._設燈(綠)
 
         events.停止.clear()
+        events.放棄收尾.clear()
         self.開始鈕.setEnabled(False)
         self.停止鈕.setEnabled(True)
         self.停止鈕.setText("停止")
@@ -1472,42 +1476,65 @@ class 主控台(QMainWindow):
         self.執行緒.start()
 
     def 停止(self):
-        """等同 Ctrl+C：引擎會整理最後一個話題、關掉音訊擷取與聊天室。"""
+        """按下就停：擷取、轉錄、聊天室馬上關（引擎不等這一輪的話題判斷）。最後一個話題的摘要、剩下的逐句翻譯、
+        上網查證都在背景收尾，有時間上限（live_topics.收尾上限秒）；畫面不等它們，只顯示目前在做什麼。"""
         if self.結束中:
             return
         self.結束中 = True
+        self._收尾開始 = time.monotonic()
+        self._收尾階段 = "話題摘要"
+        events.停止.set()
+        self._收尾翻譯中 = self.字幕器.有待翻()
+        if self._收尾翻譯中:        # 還沒翻的句子在背景翻完（最多 10 秒），和整理最後話題同時進行
+            self.字幕器.收尾()
+        else:
+            self.字幕器.結束()
+        self.聊天翻譯器.結束()      # 聊天室翻譯不收尾：還沒翻的留言只顯示原文
         self.停止鈕.setEnabled(False)
         self._設燈(黃)
-        if self.字幕器.有待翻():       # 先把還沒翻的句子翻完（最多等 10 秒），再整理最後一個話題
-            self.停止鈕.setText(翻譯收尾文字)
-            self._訊息(翻譯收尾文字)
-            self.字幕器.收尾()
-            self._收尾開始 = time.time()
-            self._收尾計時 = QTimer(self)
-            self._收尾計時.timeout.connect(self._看收尾)
-            self._收尾計時.start(100)
-        else:
-            self._進入整理()
+        self._收尾計時 = QTimer(self)
+        self._收尾計時.timeout.connect(self._看收尾)
+        self._收尾計時.start(200)
+        self._顯示收尾階段()
+        self.膠囊.更新()
 
     def _看收尾(self):
-        if self.字幕器.收尾完成.is_set() or time.time() - self._收尾開始 >= 翻譯收尾最多秒:
-            self._收尾計時.stop()
-            self._進入整理()
+        if self._收尾翻譯中 and (self.字幕器.收尾完成.is_set() or time.monotonic() - self._收尾開始 >= 翻譯收尾最多秒):
+            self._收尾翻譯中 = False
+            self.字幕器.結束()          # 超時沒翻完的句子就放棄（不重送）
+        self.停止鈕.setText(f"整理中… {self.收尾秒數()} 秒")
 
-    def _進入整理(self):
-        """翻譯收尾完成（或超時放棄）後，才通知引擎整理最後一個話題。"""
-        events.停止.set()
-        self.字幕器.結束()          # 超時沒翻完的句子就放棄（不重送）
-        self.聊天翻譯器.結束()      # 聊天室翻譯不收尾：還沒翻的留言只顯示原文
-        self.停止鈕.setText(結束中文字)
-        self._訊息(結束中文字 + "（同時關閉音訊擷取與聊天室）")
+    def 收尾秒數(self):
+        return int(time.monotonic() - self._收尾開始) if self.結束中 else 0
+
+    def 收尾字(self):
+        """收尾中顯示的一句話（主控台提示條、膠囊旁提示、膠囊滑鼠提示共用）。"""
+        return (f"已停止擷取與轉錄。{收尾階段字.get(self._收尾階段, '正在收尾…')}"
+                f"（最多約 {live_topics.收尾上限秒} 秒，畫面可以照常操作）")
+
+    def _顯示收尾階段(self):
+        self.停止鈕.setText(f"整理中… {self.收尾秒數()} 秒")
+        self._訊息(self.收尾字(), 秒=live_topics.收尾上限秒)
+        if not self.要結束:
+            self.膠囊.小提示(self.收尾字(), 8, 錯誤=None)
+
+    def 放棄收尾(self):
+        """收尾中使用者確定要直接結束程式：不再等最後的話題摘要與上網查證，已有的照樣存檔（引擎約 0.1 秒內收掉）。
+        引擎萬一沒在幾秒內結束，也照樣關閉：直播稿、聊天室、已完成的摘要都是邊做邊存的。"""
+        events.放棄收尾.set()
+        QTimer.singleShot(放棄後最多等秒 * 1000, self._放棄後關閉)
+
+    def _放棄後關閉(self):
+        if self.要關閉 and self.執行緒 and self.執行緒.is_alive():
+            self._不等引擎 = True
+            self.close()
 
     def 跑完了(self):
         self.執行緒 = None
         self.結束中 = False
         self.語言狀態.結束()
         self.更新語言顯示()
-        if getattr(self, "_收尾計時", None):
+        if self._收尾計時:
             self._收尾計時.stop()
         self.字幕器.結束()
         self.聊天翻譯器.結束()
@@ -1531,10 +1558,10 @@ class 主控台(QMainWindow):
                 ui_state.存旗標("主控台收起提示過")
                 self.膠囊.小提示("主控台已收起，可從膠囊選單重新打開", 秒=6)
             return
-        if self.執行緒 and self.執行緒.is_alive():   # 還在跑：先乾淨結束，完成後自動關窗
+        if self.執行緒 and self.執行緒.is_alive() and not self._不等引擎:   # 還在跑：先乾淨結束，完成後自動關窗
             self.要關閉 = True
             self.停止()
-            self._訊息("正在結束，完成後視窗會自動關閉…")
+            self._訊息("正在結束，收尾完成後程式會自動關閉…")
             e.ignore()
             return
         events.接收者們.remove(self.橋.接收) if self.橋.接收 in events.接收者們 else None
@@ -1760,15 +1787,32 @@ class 主控台(QMainWindow):
             self._錯誤框("已停止：" + 內容["訊息"])
             if not self.啟動面板.等待中 and not self.要結束:      # 啟動中的錯誤由啟動面板顯示；直播中途的錯誤顯示在膠囊旁
                 self.膠囊.錯誤提示("已停止：" + 內容["訊息"])
+        elif 種類 == "wrapup":
+            if self.結束中:
+                self.提示層.移除(self.收尾字())      # 換成新階段的那一句
+            self._收尾階段 = 內容["階段"]
+            if self.結束中:
+                self._顯示收尾階段()
         elif 種類 == "finished":
+            if self.結束中:
+                self.提示層.移除(self.收尾字())
             self.結束中 = False
+            if self._收尾計時:
+                self._收尾計時.stop()
             if 內容["檔案們"]:
                 檔案 = "結果已存成：" + "、".join(os.path.basename(f) for f in 內容["檔案們"])
             else:
                 檔案 = "沒有產生內容，所以沒有建立結果檔。"
             統計們 = [x for x in (self.字幕器.統計文字(), self.聊天翻譯器.統計文字()) if x]     # 逐句翻譯、聊天室翻譯各一行
-            self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + "".join("\n" + x for x in 統計們))
-            self.膠囊.小提示("已結束，已存檔" if self._有存檔(內容["檔案們"]) else "已結束")   # 不跳彈窗，膠囊旁幾秒後自動消失
+            未完成 = 內容.get("未完成") or []
+            沒完成 = ("收尾來不及完成：" + "、".join(未完成) + "；其他內容都已存檔。") if 未完成 else ""
+            self._訊息(f"完成：切出 {內容['話題數']} 個話題。{檔案}" + "".join("\n" + x for x in (沒完成, *統計們) if x),
+                     錯誤=bool(未完成), 秒=30 if 未完成 else 8)
+            字 = "已結束，已存檔" if self._有存檔(內容["檔案們"]) else "已結束"
+            if 未完成:              # 時間上限到了：哪一部分沒完成，收著主控台的人也要看得到
+                self.膠囊.小提示(字 + "\n來不及完成：" + "、".join(未完成), 15, 錯誤=None)
+            else:
+                self.膠囊.小提示(字)   # 不跳彈窗，膠囊旁幾秒後自動消失
             self.話題字.setText(self.話題字.text().replace("目前話題", "最後話題"))
             self.話題頁.移除進行中()        # 最後一個話題已經有摘要卡片了
 

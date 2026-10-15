@@ -195,11 +195,12 @@ class 背景查證:
         with self._鎖:
             return self._進行中
 
-    def 收尾(self, 最久=收尾等待秒):
-        """不再接新的，最多等 最久 秒讓排隊中的查完；沒查完的保持未查（之後回來的結果仍照規則寫回或丟掉）。回傳結束訊息那一行。"""
+    def 收尾(self, 最久=收尾等待秒, 放棄=None):
+        """不再接新的，最多等 最久 秒讓排隊中的查完；沒查完的保持未查（之後回來的結果仍照規則寫回或丟掉）。回傳結束訊息那一行。
+        放棄：threading.Event，設起來就不再等（收尾中使用者要直接結束程式）。"""
         截止 = time.monotonic() + 最久
         with self._鎖:
-            while self._進行中 and time.monotonic() < 截止:
+            while self._進行中 and time.monotonic() < 截止 and not (放棄 and 放棄.is_set()):
                 self._閒.wait(min(0.2, max(0.0, 截止 - time.monotonic())))
             self._停.set()
             c = dict(self.計數)

@@ -355,6 +355,29 @@ def test_收尾逾時_沒查完的保持未查_晚回來的不寫回(乾淨, mon
     assert 讀(路徑) == 原本                                      # 沒有標已查，也沒有寫成上網
 
 
+def test_收尾中放棄_不再等背景查證(乾淨, monkeypatch):
+    """按停止後收尾中使用者確定直接結束程式（events.放棄收尾）：收尾() 馬上回來，沒查完的保持未查。"""
+    放行, 開始了 = threading.Event(), threading.Event()
+
+    def 卡住(提示詞, 模型, 最多搜尋=3):
+        開始了.set()
+        放行.wait(40)
+        return 回覆(找到)
+    monkeypatch.setattr(llm, "上網搜尋", 卡住)
+    寫詞庫(乾淨, "")
+    庫 = glossary.詞庫("某主")
+    查 = wv.背景查證(庫, {}, "m")
+    查.加入(庫.自動加入([("稻妻11", "稻妻イレブン")]), [])
+    assert 開始了.wait(5)
+    放棄 = threading.Event()
+    threading.Timer(0.2, 放棄.set).start()
+    t0 = time.monotonic()
+    行 = 查.收尾(30, 放棄=放棄)
+    assert time.monotonic() - t0 < 1.5
+    assert 行 == "上網查證：查 1 個，確認 0 個，查無 0 個，未完成 1 個"
+    放行.set()
+
+
 def test_收尾等待秒是30():
     assert wv.收尾等待秒 == 30 and wv.每場上限 == 10 and wv.每詞最多搜尋 == 2
 
