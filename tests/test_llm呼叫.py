@@ -86,13 +86,14 @@ def test_anthropic_翻譯一律關思考_限制長度_用量分開記(甲):
 def test_anthropic_金鑰與網址傳給client(甲, monkeypatch):
     monkeypatch.setattr(llm, "BASE_URL", "http://localhost:9/v1")
     llm.call_llm("q", "m")
-    assert 甲.建立參數 == {"api_key": "sk-fake", "base_url": "http://localhost:9/v1"}
+    assert 甲.建立參數 == {"api_key": "sk-fake", "base_url": "http://localhost:9/v1",
+                         "timeout": llm.摘要逾時秒, "max_retries": llm.摘要最多重試}
 
 
 def test_anthropic_不需要金鑰時不傳api_key(甲, monkeypatch):
     monkeypatch.setattr(llm, "API_KEY_ENV", "")
     llm.call_llm("q", "m")
-    assert 甲.建立參數 == {}
+    assert 甲.建立參數 == {"timeout": llm.摘要逾時秒, "max_retries": llm.摘要最多重試}
 
 
 def test_anthropic_沒有用量就記缺token(甲):
@@ -159,7 +160,7 @@ def test_openai_正常回傳文字並記用量(乙):
     p = 乙.呼叫參數
     assert p["model"] == "gpt" and p["max_tokens"] == llm.MAX_TOKENS
     assert p["messages"] == [{"role": "user", "content": "問"}]
-    assert 乙.建立參數 == {"api_key": "sk-fake", "base_url": None}
+    assert 乙.建立參數 == {"api_key": "sk-fake", "base_url": None, "timeout": llm.摘要逾時秒, "max_retries": llm.摘要最多重試}
 
 
 def test_openai_翻譯用較小的輸出上限且分開記用量(乙):
@@ -172,7 +173,8 @@ def test_openai_沒有金鑰時填假字串_網址照傳(乙, monkeypatch):
     monkeypatch.setattr(llm, "API_KEY_ENV", "")
     monkeypatch.setattr(llm, "BASE_URL", "http://localhost:11434/v1")
     llm.call_llm("q", "m")
-    assert 乙.建立參數 == {"api_key": "ollama", "base_url": "http://localhost:11434/v1"}
+    assert 乙.建立參數 == {"api_key": "ollama", "base_url": "http://localhost:11434/v1",
+                         "timeout": llm.摘要逾時秒, "max_retries": llm.摘要最多重試}
 
 
 def test_openai_內容為空或結構壞掉回傳空字串(乙):
@@ -268,7 +270,7 @@ def test_429_聊天翻譯改寫成限速錯誤_其他類別維持原樣(甲, 聊
     for 類別 in ("摘要", "翻譯"):
         with pytest.raises(anthropic.RateLimitError):
             llm.call_llm("q", "m", 類別)
-    assert "max_retries" not in 甲.建立參數            # 摘要與逐句翻譯照舊用 SDK 預設的重試
+    assert "max_retries" not in 甲.建立參數            # 逐句翻譯照舊用 SDK 預設的重試（摘要的上限見 test_摘要逾時.py）
 
 
 def test_openai_聊天翻譯不重試_429改寫(乙, 聊天用量):

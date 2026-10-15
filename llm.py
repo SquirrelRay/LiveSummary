@@ -16,6 +16,13 @@ API_KEY_ENV = config.出廠預設()["api_key_env"]     # 舊設定的環境變�
 MAX_TOKENS = 8000                 # 摘要類呼叫：延伸思考也佔這個額度，4000 時偶爾被思考用光、沒寫出文字（2026-10-15 乾淨電腦測試）；只有真的用到才計費
 翻譯_MAX_TOKENS = 600             # 逐句翻譯：關掉思考後只剩譯文，一批 4 到 8 句這樣就夠用
 聊天翻譯_MAX_TOKENS = 1500        # 聊天室翻譯：一批最多 40 則短留言
+# 摘要類呼叫（話題判斷、分鐘摘要、話題摘要）的逾時與重試。SDK 預設單次 600 秒、再自動重試 2 次，
+# API 卡住時直播中的話題判斷最久會停將近 30 分鐘（2026-10-15 有一次話題判斷超過 4.5 分鐘沒回來）。
+# 180 秒：延伸思考開著、寫滿 MAX_TOKENS 8000 也夠（Haiku 一題正常 10～30 秒；較慢的模型約 60～80 token/秒，寫滿 8000 token 約 100～130 秒）；
+# 重試 1 次：伺服器過載（529）等一下就好的錯誤還能再試一次，卡住時最久約 6 分鐘就放棄這一輪，下一輪照常。
+# 逾時不算「連線錯誤」（不會讓整場停下）：照一般呼叫出錯處理，話題判斷當作 same、話題摘要顯示說明。
+摘要逾時秒 = 180
+摘要最多重試 = 1
 
 # 累計 API 呼叫次數與 token（給 live_topics.py 統計用）
 # 缺token：有幾次呼叫拿不到 token 數（有就無法計算總量與費用）
@@ -184,6 +191,7 @@ def _記停止原因(類別, 原因):
 def _問_anthropic(提示詞, 模型, 類別):
     # 翻譯、聊天翻譯：關閉延伸思考、限制輸出長度（省錢）；摘要維持原樣
     # 聊天翻譯：不自動重試（max_retries=0），碰到速率限制直接丟出 限速錯誤，由聊天室翻譯自己暫停
+    # 摘要：逾時 摘要逾時秒、重試 摘要最多重試 次；逾時照原樣丟出（服務錯誤），不改寫成 連線錯誤
     import anthropic
     參數 = {}
     金鑰 = _金鑰()
@@ -193,6 +201,8 @@ def _問_anthropic(提示詞, 模型, 類別):
         參數["base_url"] = BASE_URL
     if 類別 == "聊天翻譯":
         參數["max_retries"] = 0
+    elif 類別 == "摘要":
+        參數.update(timeout=摘要逾時秒, max_retries=摘要最多重試)
     client = anthropic.Anthropic(**參數)
     try:
         關思考 = 類別 in 翻譯類 or not 摘要_思考 or getattr(_本執行緒, "關思考", False)
@@ -205,6 +215,8 @@ def _問_anthropic(提示詞, 模型, 類別):
         )
     except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
         raise 金鑰錯誤(_金鑰訊息()) from None
+    except anthropic.APITimeoutError:     # 是 APIConnectionError 的子類別，要先接：逾時不是連不上，不讓整場停下
+        raise
     except anthropic.APIConnectionError:
         raise 連線錯誤(_連線訊息()) from None
     except anthropic.RateLimitError:
@@ -229,6 +241,8 @@ def _問_openai相容(提示詞, 模型, 類別):
         raise 模型錯誤("模型服務選了「OpenAI 相容服務」，但還沒安裝 openai 套件，請先執行：pip install openai") from None
     # openai 套件一定要有金鑰字串；Ollama 不檢查金鑰，隨便填一個就好
     額外 = {"max_retries": 0} if 類別 == "聊天翻譯" else {}
+    if 類別 == "摘要":
+        額外 = {"timeout": 摘要逾時秒, "max_retries": 摘要最多重試}
     client = openai.OpenAI(api_key=_金鑰() or "ollama", base_url=BASE_URL or None, **額外)
     try:
         resp = client.chat.completions.create(
@@ -238,6 +252,8 @@ def _問_openai相容(提示詞, 模型, 類別):
         )
     except (openai.AuthenticationError, openai.PermissionDeniedError):
         raise 金鑰錯誤(_金鑰訊息()) from None
+    except openai.APITimeoutError:        # 同上：逾時照原樣丟出，不改寫成 連線錯誤
+        raise
     except openai.APIConnectionError:
         raise 連線錯誤(_連線訊息()) from None
     except openai.RateLimitError:
