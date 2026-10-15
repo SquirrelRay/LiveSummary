@@ -78,6 +78,9 @@ class 介面一場:
         def 不准連網(*a, **k):
             raise OSError("測試不連網")
         monkeypatch.setattr(urllib.request, "urlopen", 不准連網)
+        # 假觀看頁的開播時間是固定的 2026-10-14：真正的「現在」過了 24 小時就會被當成連續直播，這裡把「現在」固定成開播後 1 小時
+        真的判斷 = sc.是連續直播
+        monkeypatch.setattr(sc, "是連續直播", lambda 開, 現在=None: 真的判斷(開, 開播 + 3600))
 
         class 假背景查詢:              # 真的解析觀看頁（查YouTube直播），只是頁面內容是假的
             def __init__(self, 頻道, 取得=None, 查法=None):
