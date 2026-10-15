@@ -567,3 +567,12 @@
       （PowerShell：$env:PYTHONUTF8='1'），專案路徑有中文，沒設的話平行的子程序啟動失敗（INTERNALERROR EOFError）。
    什麼時候要跑完整檢查：改到視窗層級相關的程式（置頂、滑鼠提示、膠囊、面板的視窗樣式或前後順序，panel.py／capsule.py／overlay.py／提示置頂）、
    打包成 .exe 前、發版前。標慢測試的方法：在測試函式上加 @pytest.mark.slow（設定在 pyproject.toml）；慢測試不能刪、--all 要全過。
+
+檢查更新：update_check.py。程式啟動後（app.py main()，測試不會觸發）在背景向 GitHub API（SquirrelRay/LiveSummary 的 releases/latest，逾時 5 秒）查最新發布版，
+   逐段比整數版本號（1.0.10 比 1.0.9 新）；有新版跳出視窗（前往下載／稍後／略過這個版本，略過的版本記在介面設定.json 的 略過版本）。
+   只通知，不自動下載安裝；不傳送個人資料。網路不通、404（專案或發布版還不存在）、逾時、格式不對一律安靜跳過，只在 logs\更新檢查紀錄.txt 記一行。
+   設定框「關於」有開關「啟動時檢查更新」（config.json 的 check_update，預設開）。倉庫與贊助網址只寫在 version.py。
+
+如果喜歡這個程式：
+   ⭐ 到 GitHub 給個星星：https://github.com/SquirrelRay/LiveSummary
+   ☕ 請我喝杯咖啡：https://ko-fi.com/squirrelray

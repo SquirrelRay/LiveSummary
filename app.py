@@ -39,6 +39,7 @@ import config            # 設定檔 config.json 的讀取、語言清單
 import model_catalog     # 模型服務目錄與單價（單價未知 → 費用顯示「單價未知，無法估算」）
 import stream_clock      # 這一場的直播時軸（「幾分鐘前」要知道現在是直播的第幾秒）
 import crash_log         # 當機紀錄（沒被接住的錯誤寫進 logs\當機紀錄.txt 並跳出提示）
+import update_check      # 啟動時背景檢查 GitHub 有沒有新版（只通知）
 import version           # 版本號（只寫在 version.py）
 import app_paths         # 檔案位置（資料在 %LOCALAPPDATA%\LiveSummary、輸出在「文件」\直播摘要）
 import timefmt           # 時間格式與「幾分鐘前」
@@ -1587,6 +1588,20 @@ class 主控台(QMainWindow):
             self.設定框 = settings_page.設定框(self)
         self.設定框.打開(self.膠囊.膠囊._所在螢幕(), 捲到金鑰=bool(捲到金鑰))
 
+    # ---------- 檢查更新（開程式後背景查一次；只有 main() 會呼叫，測試不會連網）----------
+    def 啟動更新檢查(self):
+        if not config.目前設定().get("check_update", True):
+            return
+        self.更新檢查器 = update_check.更新檢查器(self)
+        self.更新檢查器.有新版.connect(self.顯示更新視窗)
+        self.更新檢查器.開始()
+
+    def 顯示更新視窗(self, 結):
+        self.更新視窗 = update_check.更新視窗(結)
+        self.更新視窗.show()
+        self.更新視窗.raise_()
+        self.更新視窗.activateWindow()
+
     # ---------- 首次引導（開程式、膠囊／系統匣選單「使用說明」）----------
     def 開程式(self):
         """開程式時：出現浮動膠囊；還沒看過引導就打開引導（關掉後才出現啟動面板），看過就直接出現啟動面板。"""
@@ -2001,6 +2016,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)      # 主控台、啟動面板都可能收著；只有「結束程式」才結束
     窗 = 主控台()                # 主控台先建好但不顯示（可從膠囊選單「顯示主控台」打開）
     窗.開程式()                 # 開程式：只出現浮動膠囊（含系統匣圖示）和啟動面板（第一次是首次引導）；面板等按了「開始」才依版面出現
+    窗.啟動更新檢查()            # 背景向 GitHub 查新版；失敗只寫 logs\更新檢查紀錄.txt，不跳視窗
     if 搬家:                    # 搬了舊資料（或搬不成）：膠囊旁說一聲，主控台的提示條也留一份
         print(搬家)
         窗._訊息(搬家, 錯誤="失敗" in 搬家, 秒=20)

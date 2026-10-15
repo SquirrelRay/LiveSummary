@@ -15,8 +15,8 @@ import os
 import re
 import threading
 
-from PySide6.QtCore import Qt, QObject, QEvent, QTimer, Signal, QPointF
-from PySide6.QtGui import QPainter, QPainterPath, QPen, QColor
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer, Signal, QPointF, QUrl
+from PySide6.QtGui import QPainter, QPainterPath, QPen, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSpinBox,
     QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
@@ -867,6 +867,16 @@ class 設定頁(QScrollArea):
             self.授權鈕.setEnabled(False)
             self.授權鈕.setToolTip("打包版才有授權清單（開發環境沒有）")
         格.addWidget(self.授權鈕, 2, 0, 1, 2)
+        self.欄["check_update"] = QCheckBox("啟動時檢查更新（只向 GitHub 查版本號，不傳送任何個人資料；下次開啟程式生效）")
+        格.addWidget(self.欄["check_update"], 3, 0, 1, 4)
+        self.星星鈕 = QPushButton("⭐ 喜歡的話到 GitHub 給個星星")
+        self.咖啡鈕 = QPushButton("☕ 請我喝杯咖啡")
+        for 鈕, 網址 in ((self.星星鈕, version.專案網址), (self.咖啡鈕, version.贊助網址)):
+            鈕.setCursor(Qt.PointingHandCursor)
+            鈕.setToolTip(網址)
+            鈕.clicked.connect(lambda _=False, u=網址: QDesktopServices.openUrl(QUrl(u)))
+        格.addWidget(self.星星鈕, 4, 0, 1, 2)
+        格.addWidget(self.咖啡鈕, 4, 2, 1, 2)
         return 框
 
     def 打開授權清單(self):
@@ -1011,6 +1021,7 @@ class 設定頁(QScrollArea):
             "summary_thinking": e["summary_thinking"].isChecked(),
             "chat_translate": e["chat_translate"].isChecked(),
             "web_verify": e["web_verify"].isChecked(),
+            "check_update": e["check_update"].isChecked(),
             "chat_translate_max_per_min": e["chat_translate_max_per_min"].value(),
             "minute_sentences": e["minute_sentences"].value(),
             "ui_max_transcript": e["ui_max_transcript"].value(), "ui_max_chat": e["ui_max_chat"].value(),

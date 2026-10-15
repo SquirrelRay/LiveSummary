@@ -53,6 +53,8 @@
 五、系統需求
   - Windows 10 或 Windows 11（64 位元）。
   - 需要網路連線（看直播、使用 AI 服務）。
+  - 程式啟動時會在背景向 GitHub 查詢有沒有新版本。只會查詢版本號，不會傳送任何個人資料，
+    也不會自動下載或安裝（有新版只會跳出通知）；可以在「設定」→「關於」關掉「啟動時檢查更新」。
   - 有 NVIDIA 顯示卡會比較快、比較準，但不是必要。沒有的話會改用處理器（CPU）轉錄，
     可以用，但比較慢，字幕可能會越來越晚。
   - 硬碟空間：程式約 1.3 GB，加上轉錄模型 0.5～1.6 GB。
@@ -103,3 +105,8 @@
   本程式以 GNU GPLv3 授權開放原始碼（全文：LiveSummary 資料夾裡的 LICENSE.txt），
   並依 GPLv3 第 7 條加上額外許可，允許與 NVIDIA、Intel 的函式庫一起使用（LICENSE-ADDITIONAL-PERMISSION.txt）。
   使用 FFmpeg（LGPL v3）等第三方元件，授權清單在 LiveSummary 資料夾的 licenses 資料夾。
+
+
+九、喜歡這個程式的話
+  ⭐ 到 GitHub 給個星星：https://github.com/SquirrelRay/LiveSummary
+  ☕ 請我喝杯咖啡：https://ko-fi.com/squirrelray

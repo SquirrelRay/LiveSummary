@@ -44,6 +44,7 @@ _出廠預設 = {
     "chat_translate": False, "chat_translate_max_per_min": 30,
     "time_display": "stream",
     "web_verify": False,
+    "check_update": True,
 }
 
 
@@ -87,6 +88,7 @@ def 出廠預設():
     "subtitle_speed": "字幕速度段位：fast 速度、balanced 平衡（預設）、accurate 準度；決定分段秒數與翻譯批次，下次開始生效",
     "time_display": "摘要卡片的時間（介面才有）：stream 直播時間（預設，例如 1:23:45）、ago 幾分鐘前；當場生效",
     "web_verify": "上網查證詞庫的候選名詞（--web / --no-web）：只支援 anthropic，另外計費，預設關",
+    "check_update": "啟動時檢查更新（介面才有）：背景向 GitHub 查最新版本號，只通知、不自動下載；不傳送任何個人資料，預設開，下次開啟程式生效",
 }
 
 # 已停用的舊欄位（舊的摘要框／字幕框 overlay、精簡模式快捷鍵 hotkey_compact、
@@ -156,6 +158,7 @@ def _句數(v):
     "chat_translate": _布林, "chat_translate_max_per_min": _每分上限,
     "time_display": _時間顯示,
     "web_verify": _布林,
+    "check_update": _布林,
 }
 
 

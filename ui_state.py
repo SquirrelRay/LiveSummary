@@ -186,3 +186,14 @@ def 讀旗標(名):
 
 def 存旗標(名, 值=True):
     _更新介面設定(**{名: bool(值)})
+
+
+def 讀略過版本():
+    """檢查更新時按過「略過這個版本」的版本號；沒有或壞掉回傳空字串。"""
+    原始 = _讀(介面設定檔, {})
+    v = 原始.get("略過版本") if isinstance(原始, dict) else None
+    return v if isinstance(v, str) else ""
+
+
+def 存略過版本(版本號):
+    _更新介面設定(略過版本=str(版本號))

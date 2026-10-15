@@ -32,5 +32,6 @@
   "chat_translate": false,
   "chat_translate_max_per_min": 30,
   "time_display": "stream",
-  "web_verify": false
+  "web_verify": false,
+  "check_update": true
 }

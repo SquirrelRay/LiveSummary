@@ -166,6 +166,10 @@ def 聊天翻譯紀錄檔():
     return os.path.join(日誌資料夾(), "聊天室翻譯紀錄.txt")
 
 
+def 更新檢查紀錄檔():
+    return os.path.join(日誌資料夾(), "更新檢查紀錄.txt")
+
+
 def 當機紀錄檔():
     return os.path.join(日誌資料夾(), "當機紀錄.txt")
 

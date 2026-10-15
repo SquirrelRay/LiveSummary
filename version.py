@@ -6,6 +6,10 @@
 產品名 = "直播摘要"
 英文名 = "LiveSummary"
 授權 = "GPL-3.0"
+GitHub倉庫 = "SquirrelRay/LiveSummary"                       # 檢查更新查這個專案的最新發布版
+專案網址 = f"https://github.com/{GitHub倉庫}"                 # 設定框「關於」的星星按鈕
+發布頁網址 = f"{專案網址}/releases"                           # 查不到下載連結時退回這裡
+贊助網址 = "https://ko-fi.com/squirrelray"                    # 設定框「關於」的咖啡按鈕
 著作權人 = "SquirrelRay"          # LICENSE-ADDITIONAL-PERMISSION.txt、exe 檔案內容的版權欄位（改這裡時兩處一起改）
 
 
