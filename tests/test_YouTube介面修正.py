@@ -370,6 +370,7 @@ def _前後順序(裝過濾, tmp_path):
 
 
 @pytest.mark.slow          # 真的 Windows 視窗＋兩個子程序：git hook 預設不跑，python scripts/check.py --all 才跑
+@pytest.mark.依序          # 視窗前後順序是整個桌面共用的：不和其他測試同時跑
 @pytest.mark.skipif(sys.platform != "win32", reason="提示框的前後順序是 Windows 原生行為")
 def test_提示框_面板重新置頂後_再顯示仍在面板上面(tmp_path):
     assert _前後順序(False, tmp_path) == ["True", "False", "同一個提示框"]     # 沒裝：換內容後被面板蓋住（重現問題）

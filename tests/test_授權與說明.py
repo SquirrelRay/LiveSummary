@@ -19,12 +19,23 @@ import tray_tip
 使用說明 = 專案 / "docs" / "使用說明.txt"
 
 
+_套件索引快取 = []      # .venv 裡每個檔案 → 所屬套件：整場測試不會變，真的掃一次（約 2.5 萬個檔、1 秒）就好，各測試共用（只讀不改）
+
+
 def _載入(名稱, 路徑):
     sys.path.insert(0, str(專案 / "scripts"))
     try:
         spec = importlib.util.spec_from_file_location(名稱, 路徑)
         模組 = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(模組)
+        if hasattr(模組, "_套件索引"):
+            真的 = 模組._套件索引
+
+            def 共用索引():
+                if not _套件索引快取:
+                    _套件索引快取.append(真的())
+                return _套件索引快取[0]
+            模組._套件索引 = 共用索引
         return 模組
     finally:
         sys.path.remove(str(專案 / "scripts"))

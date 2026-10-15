@@ -8,7 +8,10 @@ extend-select = ["S", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: 慢測試（真的 Windows 視窗、子程序等）：一般檢查與 git hook 不跑，python scripts/check.py --all 或 pytest（不加 -m）才跑"]
+markers = [
+    "slow: 慢測試（真的 Windows 視窗、子程序等）：一般檢查與 git hook 不跑，python scripts/check.py --all 或 pytest -m \"\" 才跑",
+    "依序: 不能和其他測試同時跑的（真的 Windows 視窗與前後順序、共用固定位置的檔案等）：scripts/check.py 平行跑完其他測試後，再單獨依序跑這些",
+]
 addopts = "-m 'not slow'"
 
 [tool.ruff.lint.per-file-ignores]

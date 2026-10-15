@@ -529,7 +529,7 @@
       build\、dist\ 不進 git。打包版的程式資料與輸出位置和直接跑 app.py 相同（見最上面「檔案放在哪裡」）。
       測打包版一樣要從檔案總管雙擊 LiveSummary.exe，不要從 Claude 桌面版裡啟動。
       從壓縮檔內直接點開 exe 會跳英文錯誤、程式碼來不及攔（開機程式在 Python 啟動前就失敗），所以只靠上面最前面那段說明請使用者先解壓縮；
-      試過 C# 啟動器、不採用（原因見 docs/打包調查.md「第5步之一結果」）。
+      試過 C# 啟動器、不採用（原因見 docs/封存/打包調查_已完成紀錄.md「第5步之一結果」）。
    桌機測試（第三階段）：docs\乾淨電腦測試清單.md（給 Ray 照著做、附打勾格子）。強制 CPU 的測試：scripts\強制CPU測試.bat（設 CUDA_VISIBLE_DEVICES=-1 再開程式，
       程式判斷成沒有顯示卡、改用 CPU 與 small 模型）；打包時複製到 dist\（LiveSummary 資料夾外面、不進壓縮檔）。
    版本號：只寫在 version.py（v1 = 1.0.0）。顯示在設定框最下面、logs\當機紀錄.txt、三個 exe 的檔案內容（右鍵 → 內容 → 詳細資料）、zip 檔名；
@@ -540,7 +540,7 @@
       套件沒附的全文（ctranslate2、tokenizers、Intel OpenMP、Qt 內含的第三方元件）放在 third_party_licenses\（提交進 git，打包不連網），
       由 scripts\取得授權全文.py 從上游取得——套件升級後重跑一次；cuBLAS 聲明、VC++ 說明是那裡的手寫檔。
       打包時印警告（不讓打包失敗）：沒附全文、來源待確認的檔案、*.libs 隨附函式庫沒收錄授權、沒有原始碼網址、third_party_licenses 版本不符。
-      單獨跑：.venv\Scripts\python.exe scripts\licenses.py（用現有的 dist、build）。現況與待決定的項目見 docs\打包調查.md「授權收尾結果」。
+      單獨跑：.venv\Scripts\python.exe scripts\licenses.py（用現有的 dist、build）。現況與待決定的項目見 docs\封存\打包調查_已完成紀錄.md「授權收尾結果」（目前有效的規則與待辦在 docs\打包調查.md）。
    OpenSSL：打包只用 Python 自己的 libcrypto-3.dll／libssl-3.dll（打包時 PATH 只留 Python 與 Windows 系統資料夾，驗收比對 SHA-256，不同就失敗）。
    使用說明：給一般使用者的 docs\使用說明.txt，打包時放在 zip 最上層。
    系統匣圖示說明：tray_tip.py（首次引導第 3 頁、設定框共用），按鈕打開 ms-settings:taskbar。
@@ -558,7 +558,12 @@
       → pip freeze 重新產生 requirements-lock.txt（av 要維持 17.1.0，原因見 requirements.txt）。
    提交前檢查：git hook 固定用 .venv\Scripts\python.exe 跑（找不到 .venv 會擋下 commit 並說明）；check.py 不是 Python 3.13 也會直接失敗並說明。
    之後每次 git commit 會自動跑 pytest 與 ruff（警告數不得超過 .ruff-baseline），沒過就不能提交。
-   手動檢查：python scripts/check.py（一般檢查，約 1.5～2 分鐘；git hook 跑的就是這個）
-   完整檢查：python scripts/check.py --all（多跑標成 slow 的慢測試：真的 Windows 視窗、子程序，約多 10 秒）
+   例外：commit 沒有任何檔案變更（git commit --allow-empty 的存檔點）時，hook（check.py --commit）不跑檢查、直接通過；有變更照常完整檢查。
+   手動檢查：python scripts/check.py（一般檢查，約 35 秒；git hook 跑的就是這個）
+   完整檢查：python scripts/check.py --all（多跑標成 slow 的慢測試：真的 Windows 視窗、子程序，時間差不多）
+   平行執行（2026-10-15 起）：check.py 用 pytest-xdist 平行跑（-n，最多 8 個；20 執行緒的筆電 1 個要 105 秒、8 個 28 秒），
+      標成 @pytest.mark.依序 的測試（真的 Windows 視窗的前後順序等，不能和別的測試同時跑）平行的跑完後再單獨依序跑。
+      直接打 python -m pytest 仍是依序跑（約 100 秒），適合只跑一兩個測試檔。自己加 -n 平行跑要先設 PYTHONUTF8=1
+      （PowerShell：$env:PYTHONUTF8='1'），專案路徑有中文，沒設的話平行的子程序啟動失敗（INTERNALERROR EOFError）。
    什麼時候要跑完整檢查：改到視窗層級相關的程式（置頂、滑鼠提示、膠囊、面板的視窗樣式或前後順序，panel.py／capsule.py／overlay.py／提示置頂）、
    打包成 .exe 前、發版前。標慢測試的方法：在測試函式上加 @pytest.mark.slow（設定在 pyproject.toml）；慢測試不能刪、--all 要全過。

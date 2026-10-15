@@ -293,7 +293,7 @@ def test_引擎用設定的單價_查不到就送出未知(monkeypatch):
 
 
 # ================= 3. 上網查證只有直接連 Claude =================
-def test_選非Claude時上網查證停用並寫原因_切回Claude還原(環境):
+def test_選非Claude時上網查證停用並寫原因_切回Claude還原(環境, 假服務):      # 假服務：選 Ollama 會自動讀本機模型，不連真的 localhost
     _寫設定(環境, web_verify=True)
     頁 = _頁(環境["台"])
     w = 頁.欄["web_verify"]

@@ -122,12 +122,21 @@ def 專案檔案們():
     return 結果
 
 
+def _平行的子程序(config):
+    """pytest-xdist 平行跑時的子程序（worker）。專案資料夾的檢查只在主程序做：它在所有子程序開始前、全部結束後各看一次，
+    涵蓋整場；子程序各自看的話，會把別的子程序正在跑的測試算進來，而且每個子程序都要多走一遍整個專案資料夾。"""
+    return hasattr(config, "workerinput")
+
+
 def pytest_sessionstart(session):
-    session.config._專案檔案前 = 專案檔案們()
+    if not _平行的子程序(session.config):
+        session.config._專案檔案前 = 專案檔案們()
 
 
 def pytest_sessionfinish(session, exitstatus):
-    shutil.rmtree(測試根, ignore_errors=True)
+    shutil.rmtree(測試根, ignore_errors=True)        # 每個程序（含平行的子程序）各有自己的暫存根目錄，各自清
+    if _平行的子程序(session.config):
+        return
     新增 = sorted(專案檔案們() - session.config._專案檔案前)
     if 新增:
         sys.stderr.write("\n【失敗】測試在專案資料夾留下了新檔案（請改用 tmp_path）：\n"

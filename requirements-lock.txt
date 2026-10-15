@@ -9,6 +9,8 @@
 # 2026-10-14 加入 PyInstaller 6.22.3＋pyinstaller-hooks-contrib 2026.8（打包第4步）：乾淨的 3.13 環境用這份當限制條件裝
 #   requirements.txt＋requirements-dev.txt 後 pip freeze，原有 70 個套件版本全部不變，只多了 PyInstaller 自己和它的相依套件
 #   altgraph、pefile、setuptools（共 5 行，都在下面「只有開發用」）。
+# 2026-10-15 加入 pytest-xdist 3.8.0（測試平行執行）：乾淨的 3.13 環境裝這份＋pytest-xdist 後 pip freeze，原有套件版本全部不變，
+#   只多了 pytest-xdist 和它的相依套件 execnet（共 2 行，在下面「只有開發用」）。
 # 系統：Windows 64 位元、Python 3.13（其他版本沒測過）。
 
 # ---- 執行程式需要的（requirements.txt 與它們的相依套件）----
@@ -80,6 +82,7 @@ yt-dlp==2026.8.19
 
 # ---- 只有開發用（requirements-dev.txt：檢查、測試、打包；不會被收進打包結果）----
 altgraph==0.17.5
+execnet==2.1.2
 iniconfig==2.3.1
 pefile==2024.8.26
 pluggy==1.6.0
@@ -87,5 +90,6 @@ Pygments==2.21.0
 pyinstaller-hooks-contrib==2026.8
 pyinstaller==6.22.3
 pytest==9.1.1
+pytest-xdist==3.8.0
 ruff==0.17.0
 setuptools==84.0.0

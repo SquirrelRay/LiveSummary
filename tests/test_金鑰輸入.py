@@ -283,7 +283,7 @@ def test_設定框_切換服務後金鑰欄顯示對應狀態(環境, monkeypatc
     assert 頁.金鑰字.text() == "Claude：已儲存在這台電腦"
 
 
-def test_設定框_DeepSeek_其他相容服務_本機各自顯示(環境):
+def test_設定框_DeepSeek_其他相容服務_本機各自顯示(環境, 假服務):      # 假服務：本機網址會自動讀模型清單，不連真的 localhost
     台 = 環境["台"]
     for 網址, 預期字, 連結 in (("https://api.deepseek.com", "DeepSeek：尚未設定", "platform.deepseek.com/api_keys"),
                           ("https://example.com/api/v1", "OpenAI 相容服務（example.com/api/v1）：尚未設定", ""),

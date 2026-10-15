@@ -8,4 +8,5 @@ if [ ! -x "$PY" ]; then
   echo "找不到開發環境 .venv（Python 3.13），無法執行提交前檢查。建立方法見 README「開發環境」。"
   exit 1
 fi
-exec "$PY" scripts/check.py
+# --commit：沒有任何檔案變更的 commit（空的存檔點）直接通過；有變更照常完整檢查（見 scripts/check.py）
+exec "$PY" scripts/check.py --commit

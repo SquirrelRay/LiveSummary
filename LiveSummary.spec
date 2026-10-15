@@ -5,7 +5,7 @@
 #   - helper.exe：命令列版（helper.py），streamlink／yt_audio 模式給主程式另開程序用（console=True；主程式開它時加 CREATE_NO_WINDOW）。
 #   - 兩個 exe 放同一個資料夾、共用 _internal（一個 COLLECT）。
 #   - cuBLAS 只帶 cublas64_12.dll、cublasLt64_12.dll → _internal\nvidia\cublas\bin（不帶 cuDNN、nvrtc、nvblas）。
-#     ctranslate2 自帶的 cudnn64_9.dll 也不帶（實測顯示卡轉錄用不到，見 docs\打包調查.md「授權收尾結果」）。
+#     ctranslate2 自帶的 cudnn64_9.dll 也不帶（實測顯示卡轉錄用不到，見 docs\封存\打包調查_已完成紀錄.md「授權收尾結果」）。
 #   - 不帶 PySide6.QtNetwork：程式沒用到；PySide6\__init__.py 裡有條件式的 import，會讓 PyInstaller 把它連同
 #     PATH 上找到的 OpenSSL（例如 Git 的 libssl-3-x64.dll）一起收進來。OpenSSL 只用 Python 自己的那份（build_exe.py 驗收）。
 #   - ffmpeg 從 vendor\ffmpeg 帶 ffmpeg.exe＋DLL → _internal\ffmpeg\bin，授權檔 → _internal\ffmpeg\LICENSE.txt（ffplay、ffprobe 不帶）。
