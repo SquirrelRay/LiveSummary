@@ -15,7 +15,8 @@ import os
 import re
 import threading
 
-from PySide6.QtCore import Qt, QObject, QEvent, QTimer, Signal
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer, Signal, QPointF
+from PySide6.QtGui import QPainter, QPainterPath, QPen, QColor
 from PySide6.QtWidgets import (
     QApplication, QWidget, QScrollArea, QFrame, QLabel, QPushButton, QComboBox, QCheckBox, QSpinBox,
     QLineEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
@@ -45,6 +46,58 @@ def 小標(字):
     w = QLabel(字)
     w.setObjectName("淡")
     return w
+
+
+class 眼睛按鈕(QPushButton):
+    """金鑰欄的顯示／隱藏按鈕：自己畫的向量眼睛（任何縮放比例都清楚，不靠表情符號字型）。
+    按下（checked）= 金鑰正在顯示：睜眼＋紫色瞳孔；沒按 = 金鑰已遮起來：閉眼（眼睛上有一條斜線）。
+    顏色和介面一致：平常用淡字色、滑過或按下用主文字色、停用用暗灰。"""
+    淡字, 文字色, 主色, 停用色 = "#8a91a5", "#e7e9ef", "#8b6cff", "#5a6072"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setFixedWidth(44)
+        self.setAccessibleName("顯示或隱藏金鑰")
+
+    def _線色(self):
+        if not self.isEnabled():
+            return self.停用色
+        return self.文字色 if self.isChecked() or self.underMouse() else self.淡字
+
+    def enterEvent(self, e):
+        super().enterEvent(e)
+        self.update()
+
+    def leaveEvent(self, e):
+        super().leaveEvent(e)
+        self.update()
+
+    def paintEvent(self, e):
+        super().paintEvent(e)                       # 先畫按鈕底與邊框（沒有文字）
+        畫 = QPainter(self)
+        畫.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        中 = QPointF(w / 2, h / 2)
+        寬 = 20.0                                   # 眼睛寬（邏輯像素；高解析度螢幕上自動以實體像素繪製）
+        半 = 寬 / 2
+        弧高 = 半 * 0.62
+        筆 = QPen(QColor(self._線色()), 1.7, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        畫.setPen(筆)
+        畫.setBrush(Qt.NoBrush)
+        輪廓 = QPainterPath(QPointF(中.x() - 半, 中.y()))
+        輪廓.quadTo(QPointF(中.x(), 中.y() - 弧高 * 2), QPointF(中.x() + 半, 中.y()))
+        輪廓.quadTo(QPointF(中.x(), 中.y() + 弧高 * 2), QPointF(中.x() - 半, 中.y()))
+        畫.drawPath(輪廓)
+        if self.isChecked():                        # 睜眼：瞳孔
+            顏色 = QColor(self.主色 if self.isEnabled() else self.停用色)
+            畫.setPen(Qt.NoPen)
+            畫.setBrush(顏色)
+            畫.drawEllipse(中, 3.4, 3.4)
+        else:                                       # 閉眼：斜線劃過
+            畫.setPen(筆)
+            畫.drawLine(QPointF(中.x() - 半 * 0.62, 中.y() + 弧高 * 1.15), QPointF(中.x() + 半 * 0.62, 中.y() - 弧高 * 1.15))
+        畫.end()
 
 
 class 滾輪過濾(QObject):
@@ -198,8 +251,7 @@ class 模型金鑰區(QWidget):
         """金鑰輸入欄（遮蔽）＋眼睛＋測試連線＋清除；下面一行狀態與「如何取得金鑰」，再下面是測試結果與進階小字。"""
         self.金鑰欄 = QLineEdit()
         self.金鑰欄.setEchoMode(QLineEdit.Password)
-        self.眼睛鈕 = QPushButton("👁")
-        self.眼睛鈕.setCheckable(True)
+        self.眼睛鈕 = 眼睛按鈕()
         self.眼睛鈕.setToolTip("暫時顯示剛輸入的金鑰（再按一次遮起來）")
         self.眼睛鈕.toggled.connect(
             lambda 開: self.金鑰欄.setEchoMode(QLineEdit.Normal if 開 else QLineEdit.Password))

@@ -478,3 +478,41 @@ def test_任何輸出與檔案都不含金鑰(環境, 真的檢查, 假服務, c
         for 金鑰 in 全部假金鑰:
             assert 金鑰 not in 字
     assert "API 金鑰：已儲存在這台電腦" in 輸出.out
+
+
+def _畫面(鈕):
+    from PySide6.QtGui import QImage
+    鈕.resize(44, 36)
+    圖 = QImage(88, 72, QImage.Format_ARGB32)       # 2 倍解析度
+    圖.setDevicePixelRatio(2.0)
+    圖.fill(0)
+    鈕.render(圖)
+    return 圖
+
+
+def _紫點數(圖):
+    from PySide6.QtGui import QColor
+    n = 0
+    for y in range(圖.height()):
+        for x in range(圖.width()):
+            c = QColor(圖.pixel(x, y))
+            if abs(c.red() - 0x8b) < 40 and abs(c.green() - 0x6c) < 40 and abs(c.blue() - 0xff) < 40:
+                n += 1
+    return n
+
+
+def test_眼睛按鈕_自己畫的圖_睜眼閉眼兩種狀態不同(環境):
+    頁 = _設定頁(環境["台"])
+    鈕 = 頁.眼睛鈕
+    assert 鈕.text() == ""                              # 不再是表情符號
+    from settings_page import 眼睛按鈕
+    assert isinstance(鈕, 眼睛按鈕)
+    鈕.setChecked(False)
+    閉 = _畫面(鈕)
+    鈕.setChecked(True)
+    睜 = _畫面(鈕)
+    assert 睜 != 閉
+    assert _紫點數(睜) > 20                             # 睜眼有紫色瞳孔
+    assert _紫點數(閉) == 0                             # 閉眼沒有瞳孔，只有斜線
+    鈕.setEnabled(False)
+    assert _畫面(鈕) != 睜                              # 停用時變暗灰

@@ -7,7 +7,7 @@
   → 全部解壓縮，再到解壓縮出來的 LiveSummary 資料夾裡雙擊 LiveSummary.exe。
 ==============================================================================
 
-授權：GNU General Public License v3（GPLv3），全文見 LICENSE（未修改）。著作權人：RAYPORK。
+授權：GNU General Public License v3（GPLv3），全文見 LICENSE（未修改）。著作權人：SquirrelRay。
       另依 GPLv3 第 7 條加上額外許可（FSF GPL FAQ 的範本）：允許本程式與 NVIDIA CUDA 函式庫（cuBLAS 等）、
       Intel 函式庫（OpenMP、ctranslate2 內含的 oneMKL）連結並一起散布，條文見 LICENSE-ADDITIONAL-PERMISSION.txt。
 

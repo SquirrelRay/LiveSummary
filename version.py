@@ -6,7 +6,7 @@
 產品名 = "直播摘要"
 英文名 = "LiveSummary"
 授權 = "GPL-3.0"
-著作權人 = "RAYPORK"          # LICENSE-ADDITIONAL-PERMISSION.txt、exe 檔案內容的版權欄位（改這裡時兩處一起改）
+著作權人 = "SquirrelRay"          # LICENSE-ADDITIONAL-PERMISSION.txt、exe 檔案內容的版權欄位（改這裡時兩處一起改）
 
 
 def 版本們():
