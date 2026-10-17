@@ -1,0 +1,86 @@
+name: 回報問題（Bug）
+description: 程式出錯、當機或結果不如預期
+labels: ["bug", "needs-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝回報！**Issue 是公開的，請不要貼 API 金鑰或個人隱私資料。**
+        不想登入 GitHub 的話，也可以改用 [Google 表單](https://forms.gle/CQpC5R4uDdQVb6mY6) 回報。
+  - type: input
+    id: version
+    attributes:
+      label: 程式版本
+      description: 在程式的設定框或「關於」可以看到，例如 v1.0.0。
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 作業系統
+      options:
+        - Windows 11
+        - Windows 10
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 發生了什麼事
+      description: 請描述你看到的狀況。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重現步驟
+      description: 做了哪些操作會發生這個問題？
+      placeholder: |
+        1. 貼上直播網址並按開始
+        2. ……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期應該怎樣
+    validations:
+      required: false
+  - type: input
+    id: gpu
+    attributes:
+      label: 顯示卡與 VRAM
+      placeholder: 例如 NVIDIA RTX 3080 10GB；沒有請填「無」
+    validations:
+      required: false
+  - type: input
+    id: ai-provider
+    attributes:
+      label: AI 模型或 API 供應商
+      description: 只填名稱，不要填金鑰。
+      placeholder: 例如 Claude Haiku、OpenAI、Gemini
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: 直播平台與語言
+      placeholder: 例如 Twitch／日文
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: 錯誤訊息或截圖
+      description: 可以直接貼上文字或拖曳截圖進來。當機紀錄在 `%LOCALAPPDATA%\LiveSummary\logs\當機紀錄.txt`，貼之前請確認不含隱私。
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隱私確認
+      options:
+        - label: 我已確認內容不含 API 金鑰與個人隱私（Issue 為公開）
+          required: true

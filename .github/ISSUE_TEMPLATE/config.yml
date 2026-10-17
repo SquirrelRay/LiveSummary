@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 一般使用者回報（不用登入，推薦）
+    url: https://forms.gle/CQpC5R4uDdQVb6mY6
+    about: 用 Google 表單回報問題或提出建議，不需要 GitHub 帳號。

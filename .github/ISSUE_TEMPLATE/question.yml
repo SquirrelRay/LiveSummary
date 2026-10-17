@@ -1,0 +1,16 @@
+name: 使用問題
+description: 不確定怎麼操作、設定或費用
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        請先看過 README 與壓縮檔裡的「使用說明.txt」。
+        **Issue 是公開的，請不要貼 API 金鑰或個人隱私資料。**
+  - type: textarea
+    id: question
+    attributes:
+      label: 你的問題
+      description: 想做什麼、卡在哪裡？有需要的話請附上程式版本。
+    validations:
+      required: true

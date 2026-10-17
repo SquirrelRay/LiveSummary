@@ -30,6 +30,14 @@
 `LiveSummary` 資料夾裡的其他檔案都是程式需要的，請整個資料夾放在一起；想搬到別的地方就整個資料夾一起搬。
 這個程式不用安裝，詳細的使用方式在壓縮檔裡的「使用說明.txt」，第一次打開時程式也會帶你走一遍。
 
+## 回報問題與建議
+
+遇到問題或有想法，歡迎到 [Google 表單](https://forms.gle/CQpC5R4uDdQVb6mY6) 回報（**不用登入、不需要 GitHub 帳號**）。
+熟悉 GitHub 的人也可以直接[開 Issue](https://github.com/SquirrelRay/LiveSummary/issues/new/choose)。
+
+請**不要貼 API 金鑰**，Issue 是公開的，表單內容也請避免放個人隱私。
+這是個人副專案，回覆可能需要幾天，謝謝你的耐心。
+
 ## 系統需求
 
 - Windows 10 或 Windows 11（64 位元）

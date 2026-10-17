@@ -1,0 +1,22 @@
+name: 功能建議
+description: 希望新增或改進某個功能
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝建議！**Issue 是公開的，請不要貼 API 金鑰或個人隱私資料。**
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解決什麼問題／現在怎麼處理
+      description: 你遇到什麼不方便？目前是怎麼應付的？
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 希望怎麼運作
+      description: 你想像中的功能是什麼樣子？
+    validations:
+      required: true
