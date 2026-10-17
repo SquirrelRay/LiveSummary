@@ -877,7 +877,23 @@ class 設定頁(QScrollArea):
             鈕.clicked.connect(lambda _=False, u=網址: QDesktopServices.openUrl(QUrl(u)))
         格.addWidget(self.星星鈕, 4, 0, 1, 2)
         格.addWidget(self.咖啡鈕, 4, 2, 1, 2)
+        self.回報鈕 = QPushButton("🐞 回報問題")
+        self.回報鈕.setCursor(Qt.PointingHandCursor)
+        self.回報鈕.setToolTip(f"先預覽診斷資訊（不含 API 金鑰、網址或直播內容），確認後複製並開啟回報表單：{version.回報表單網址}")
+        self.回報鈕.clicked.connect(self.打開回報)
+        格.addWidget(self.回報鈕, 5, 0, 1, 2)
+        self.回報框 = None
         return 框
+
+    def 打開回報(self):
+        """回報問題：先顯示診斷資訊預覽；使用者按「複製並開啟回報表單」才放進剪貼簿、開表單（在 report_dialog）。"""
+        import report_dialog
+        if self.回報框 is not None and self.回報框.isVisible():
+            self.回報框.raise_()
+            self.回報框.activateWindow()
+            return
+        self.回報框 = report_dialog.回報預覽框(self.window())
+        self.回報框.show()
 
     def 打開授權清單(self):
         資料夾 = app_paths.授權清單資料夾()

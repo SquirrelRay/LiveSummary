@@ -174,6 +174,11 @@ def 當機紀錄檔():
     return os.path.join(日誌資料夾(), "當機紀錄.txt")
 
 
+def 上次轉錄模型檔():
+    """上次載入轉錄模型時實際用的裝置（cuda／cpu）與模型名稱（回報問題的診斷資訊讀它；不含路徑）。"""
+    return os.path.join(資料資料夾(), "上次轉錄模型.json")
+
+
 # ---- 程式自己帶的檔案：外部程式、顯示卡函式庫（唯讀；開發和打包版位置不同）----
 # 開發（直接跑 app.py）：專案資料夾；隨附的 ffmpeg 放 vendor\ffmpeg（scripts\下載ffmpeg.py 下載，不進 git）。
 # 打包版（PyInstaller 資料夾形式）：sys._MEIPASS（= exe 旁邊的 _internal）；helper.exe 和主程式 exe 在同一個資料夾。

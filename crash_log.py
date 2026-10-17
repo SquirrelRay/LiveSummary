@@ -9,7 +9,6 @@
 import contextlib
 import faulthandler
 import os
-import platform
 import re
 import sys
 import threading
@@ -17,6 +16,7 @@ import time
 import traceback
 
 import app_paths
+import system_info
 import version
 
 遮蔽字 = "*****"
@@ -61,7 +61,7 @@ def 遮金鑰(文字):
 
 
 def _環境():
-    return (f"Python {platform.python_version()} | {platform.platform()} | "
+    return (f"Python {system_info.Python版本()} | {system_info.平台字()} | "
             f"{'打包版' if app_paths.已打包() else '開發環境'}")
 
 

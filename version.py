@@ -10,6 +10,7 @@ GitHub倉庫 = "SquirrelRay/LiveSummary"                       # 檢查更新查
 專案網址 = f"https://github.com/{GitHub倉庫}"                 # 設定框「關於」的星星按鈕
 發布頁網址 = f"{專案網址}/releases"                           # 查不到下載連結時退回這裡
 贊助網址 = "https://ko-fi.com/squirrelray"                    # 設定框「關於」的咖啡按鈕
+回報表單網址 = "https://forms.gle/CQpC5R4uDdQVb6mY6"           # 設定框「關於」的回報問題按鈕（Google 表單，不用登入）
 著作權人 = "SquirrelRay"          # LICENSE-ADDITIONAL-PERMISSION.txt、exe 檔案內容的版權欄位（改這裡時兩處一起改）
 
 

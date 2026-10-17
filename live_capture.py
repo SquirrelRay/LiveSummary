@@ -21,6 +21,7 @@ import events      # 提示訊息改成送出事件
 import config      # 語言清單（單一來源）
 import startup_timeline as 里程碑   # 啟動時間里程碑紀錄
 import first_run     # 轉錄模型下載過沒有、下載進度（第一次使用）
+import diagnostics   # 回報問題的診斷資訊：記下上次實際用的轉錄裝置與模型
 import stream_info   # 開播時間、標題、分類、直播主（不需要金鑰）
 import stream_clock  # 音訊秒數、收到時刻 → 直播實際進行時間
 import platforms     # 網址 → Twitch／YouTube
@@ -522,6 +523,8 @@ class live_session:
         # 用顯示卡還是退回 CPU 記進 logs\啟動里程碑（無視窗模式看不到印出的退回訊息，打包版靠這行確認）
         裝置 = getattr(getattr(model, "model", None), "device", "?")
         里程碑.標記(里程碑.模型載入完成, 裝置=裝置)
+        # 回報問題的診斷資訊用：實際的裝置與模型（載入模型() 用顯示卡就是 GPU_MODEL，退回 CPU 就是 CPU_MODEL）
+        diagnostics.記錄轉錄模型(裝置, transcribe.GPU_MODEL if 裝置 == "cuda" else transcribe.CPU_MODEL)
         片段時刻 = None
         if self.平台 == platforms.YOUTUBE:
             p1 = external.開啟(external.yt_audio指令(self.網址, self.串流名),
