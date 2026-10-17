@@ -31,6 +31,7 @@ import panel         # 可自由擺放的面板與版面配置（新介面第一
 import capsule       # 浮動膠囊與系統匣圖示（新介面第二階段）
 import platforms     # 網址欄提示文字
 import launcher      # 啟動面板（開程式時出現，取代主控台當作入口）
+import report_dialog # 回報問題的預覽視窗（設定框、膠囊／系統匣選單、當機提示共用）
 import onboarding    # 首次引導（第一次打開時出現；選單「使用說明」可重新打開）
 import startup_timeline  # 啟動時間里程碑紀錄
 import subtitle_speed    # 字幕速度段位（分段秒數與翻譯批次）
@@ -1587,6 +1588,15 @@ class 主控台(QMainWindow):
         if self.設定框 is None:
             self.設定框 = settings_page.設定框(self)
         self.設定框.打開(self.膠囊.膠囊._所在螢幕(), 捲到金鑰=bool(捲到金鑰))
+
+    def 開回報(self):
+        """膠囊／系統匣選單的「回報問題」：和設定框「關於」的按鈕同一個預覽視窗（按確認才複製、才開表單）；已經開著就帶到前面。"""
+        框 = getattr(self, "回報框", None)
+        if 框 is None or not 框.isVisible():
+            self.回報框 = 框 = report_dialog.回報預覽框(self)
+            框.show()
+        框.raise_()
+        框.activateWindow()
 
     # ---------- 檢查更新（開程式後背景查一次；只有 main() 會呼叫，測試不會連網）----------
     def 啟動更新檢查(self):

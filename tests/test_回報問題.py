@@ -421,3 +421,137 @@ def test_使用說明有回報問題段落_不再要附當機紀錄():
     assert "■ 回報問題" in 文字 and "「設定」→「關於」→「🐞 回報問題」" in 文字
     assert "https://forms.gle/CQpC5R4uDdQVb6mY6" in 文字 and "請不要在表單裡貼上 API 金鑰" in 文字
     assert "回報問題時請附上這個檔案" not in 文字
+
+
+# ---------- 入口：膠囊選單、系統匣選單、當機提示 ----------
+def _選單項(台, 含重設):
+    from PySide6.QtWidgets import QMenu
+    m = QMenu()
+    台.膠囊.填選單(m, 含重設=含重設)
+    return m, [a.text() for a in m.actions() if not a.isSeparator()]
+
+
+@pytest.mark.parametrize("含重設", [False, True], ids=["膠囊選單", "系統匣選單"])
+def test_選單有回報問題_在設定旁邊_觸發同一個預覽視窗(環境, monkeypatch, 含重設):
+    import report_dialog
+    建立 = []
+
+    class 替身(report_dialog.回報預覽框):
+        def __init__(self, 父=None, **k):
+            建立.append(父)
+            super().__init__(父, 產生=lambda: "假的診斷", 背景=False)
+
+    monkeypatch.setattr(report_dialog, "回報預覽框", 替身)
+    台 = 環境["台"]
+    m, 字們 = _選單項(台, 含重設)
+    i = 字們.index("🐞 回報問題")
+    assert 字們[i - 1] == "設定" and i != 0
+    項 = next(a for a in m.actions() if a.text() == "🐞 回報問題")
+    項.trigger()
+    框 = 台.回報框
+    assert 建立 == [台] and 框.isVisible() and 框.內容框.toPlainText() == "假的診斷"
+    項.trigger()          # 已開著：不重複建立
+    assert len(建立) == 1 and 台.回報框 is 框
+    框.取消鈕.click()
+
+
+def test_系統匣選單和膠囊選單的回報問題位置一致(環境):
+    台 = 環境["台"]
+    _, 膠囊 = _選單項(台, False)
+    _, 匣 = _選單項(台, True)
+    assert 膠囊.index("🐞 回報問題") == 匣.index("🐞 回報問題")
+
+
+def test_當機提示不再要使用者附上檔案_引導回報():
+    for 有按鈕 in (True, False):
+        文字 = crash_log.提示文字("假路徑", "RuntimeError: x", 有按鈕=有按鈕)
+        assert "請附上這個檔案" not in 文字 and "未預期的錯誤" in 文字 and "回報問題" in 文字
+    assert version.回報表單網址 in crash_log.提示文字("假路徑", 有按鈕=False)
+    assert version.回報表單網址 not in crash_log.提示文字("假路徑", 有按鈕=True)
+    assert "膠囊選單" in crash_log.提示文字(None) and "設定" in crash_log.提示文字(None)
+
+
+def test_當機提示_按回報開預覽(monkeypatch):
+    開過 = []
+    monkeypatch.setattr(crash_log, "開回報預覽", lambda: 開過.append("預覽"))
+    monkeypatch.setattr(crash_log, "純文字回報提示", lambda: 開過.append("純文字"))
+    crash_log._按了回報()
+    assert 開過 == ["預覽"]
+
+
+def test_當機提示_預覽開失敗退回純文字_不丟例外(monkeypatch):
+    開過 = []
+
+    def 壞():
+        raise RuntimeError("預覽開不了")
+
+    monkeypatch.setattr(crash_log, "開回報預覽", 壞)
+    monkeypatch.setattr(crash_log, "純文字回報提示", lambda: 開過.append("純文字"))
+    crash_log._按了回報()
+    assert 開過 == ["純文字"]
+    monkeypatch.setattr(crash_log, "純文字回報提示", 壞)          # 連純文字都壞：照樣不丟例外
+    crash_log._按了回報()
+
+
+def test_當機提示_純文字提示壞了退回Windows訊息框(monkeypatch, qapp):
+    import PySide6.QtWidgets as W
+    Win = []
+    monkeypatch.setattr(W.QMessageBox, "information", staticmethod(lambda *a: (_ for _ in ()).throw(RuntimeError("Qt 壞了"))))
+    monkeypatch.setattr(crash_log, "_訊息框Win32", lambda 文字: Win.append(文字))
+    crash_log._純文字回報提示()
+    assert len(Win) == 1 and version.回報表單網址 in Win[0]
+
+
+def test_當機提示_預覽框真的開失敗時不丟例外(monkeypatch, qapp):
+    import report_dialog
+    純 = []
+    monkeypatch.setattr(report_dialog, "回報預覽框", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("建不起來")))
+    monkeypatch.setattr(crash_log, "純文字回報提示", lambda: 純.append(1))
+    crash_log._按了回報()          # 預設的開回報預覽 → import report_dialog → 建立失敗
+    assert 純 == [1]
+
+
+def test_Qt提示框有回報問題按鈕_按了才開預覽(monkeypatch, qapp):
+    import PySide6.QtWidgets as W
+    動作 = []
+
+    class 假框:
+        Critical, AcceptRole, ActionRole, RejectRole = W.QMessageBox.Critical, W.QMessageBox.AcceptRole, W.QMessageBox.ActionRole, W.QMessageBox.RejectRole
+        點 = "回報問題"
+
+        def __init__(self, 圖示, 標題, 文字):
+            self.文字, self.鈕們 = 文字, {}
+            動作.append(("文字", 文字))
+
+        def setWindowFlag(self, *a):
+            pass
+
+        def addButton(self, 名, 角色):
+            self.鈕們[名] = object()
+            return self.鈕們[名]
+
+        def exec(self):
+            pass
+
+        def clickedButton(self):
+            return self.鈕們.get(假框.點)
+
+    monkeypatch.setattr(W, "QMessageBox", 假框)
+    monkeypatch.setattr(crash_log, "開回報預覽", lambda: 動作.append(("預覽",)))
+    monkeypatch.setattr(crash_log, "_打開資料夾", lambda 路徑: 動作.append(("資料夾",)))
+    crash_log._訊息框Qt("內文", "路徑")
+    assert ("預覽",) in 動作 and ("資料夾",) not in 動作
+    動作.clear()
+    假框.點 = "關閉"
+    crash_log._訊息框Qt("內文", "路徑")
+    assert ("預覽",) not in 動作 and ("資料夾",) not in 動作
+
+
+def test_摘要服務只有一層括號():
+    import config
+    for provider, base in (("anthropic", ""), ("openai_compatible", "https://openrouter.ai/api/v1")):
+        設定 = dict(config.出廠預設(), provider=provider, base_url=base)
+        行 = diagnostics.收集(設定)["摘要服務"]
+        assert 行.count("（") == 1 and 行.count("）") == 1 and 行.endswith(f"（{provider}）"), 行
+    assert diagnostics.收集(dict(config.出廠預設(), provider="openai_compatible",
+                              base_url="https://openrouter.ai/api/v1"))["摘要服務"] == "OpenRouter（openai_compatible）"

@@ -214,7 +214,7 @@ def 收集(設定=None):
 
     上次 = _取(讀上次轉錄模型)
     上次 = 上次 if isinstance(上次, dict) else None
-    服務 = _取(lambda: model_catalog.服務顯示名(model_catalog.設定的服務(設定)))
+    服務 = _取(lambda: model_catalog.服務(model_catalog.設定的服務(設定))["名稱"])
     provider = 設("provider") if 設("provider") in ("anthropic", "openai_compatible") else 無法取得
     return {
         "程式版本": _取(version.版本字),

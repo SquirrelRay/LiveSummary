@@ -623,6 +623,7 @@ class 膠囊管理(QObject):
         a.triggered.connect(台.開名詞清單)
         選單.addAction("使用說明").triggered.connect(台.開引導)
         選單.addAction("設定").triggered.connect(台.開設定框)
+        選單.addAction("🐞 回報問題").triggered.connect(台.開回報)
         選單.addAction("顯示主控台").triggered.connect(self.顯示主控台)
         if 含重設:
             選單.addAction("重設膠囊位置").triggered.connect(self.膠囊.重設位置)

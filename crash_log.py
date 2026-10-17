@@ -105,14 +105,22 @@ def _摘要(三元):
         return ""
 
 
-def 提示文字(路徑, 摘要=""):
+def 回報說明(有按鈕):
+    """引導回報：有「回報問題」按鈕時請使用者按它；沒有時（純文字）說明選單位置並附表單網址。診斷資訊不含 API 金鑰、網址或直播內容。"""
+    if 有按鈕:
+        return "要回報問題的話，請按下面的「回報問題」，會先讓你看過要送出的診斷資訊（不含 API 金鑰、網址或直播內容）。"
+    return ("要回報問題的話，可以從浮動膠囊選單的「回報問題」，或「設定」→「關於」→「回報問題」；"
+            f"也可以直接開回報表單：{version.回報表單網址}")
+
+
+def 提示文字(路徑, 摘要="", 有按鈕=False):
     行 = ["直播摘要發生了未預期的錯誤。", ""]
     if 摘要:
         行 += [摘要, ""]
     if 路徑:
-        行 += ["錯誤內容已記錄在：", 路徑, "", "要回報問題的話，請附上這個檔案（裡面不會有 API 金鑰）。"]
+        行 += ["錯誤內容已記錄在：", 路徑, "", 回報說明(有按鈕)]
     else:
-        行 += ["（錯誤紀錄寫不進去，請確認磁碟還有空間。）"]
+        行 += ["（錯誤紀錄寫不進去，請確認磁碟還有空間。）", "", 回報說明(有按鈕)]
     return "\n".join(行)
 
 
@@ -133,29 +141,61 @@ def _訊息框Win32(文字):
     ctypes.windll.user32.MessageBoxW(None, 文字, "直播摘要", 0x10 | 0x40000)       # 錯誤圖示、最上層
 
 
+def _開回報預覽():
+    """Qt 正常時：開和膠囊選單、設定框同一個回報預覽視窗（擋住直到使用者按完）。"""
+    import report_dialog
+    report_dialog.回報預覽框(None).exec()
+
+
+def _純文字回報提示():
+    """預覽視窗開不了：改跳純文字提示（選單位置＋表單網址）。"""
+    文字 = 回報說明(False)
+    try:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(None, "直播摘要", 文字)
+    except Exception:          # noqa: BLE001  連 Qt 的訊息框都出事就用 Windows 內建的
+        with contextlib.suppress(Exception):
+            _訊息框Win32(文字)
+
+
+開回報預覽 = _開回報預覽          # 測試換成假的（不跳真視窗）
+純文字回報提示 = _純文字回報提示
+
+
+def _按了回報():
+    """當機提示的「回報問題」：預覽視窗開失敗（任何例外）就退回純文字提示，絕不再丟例外。"""
+    try:
+        開回報預覽()
+    except Exception:          # noqa: BLE001  提示壞了不能讓程式更糟
+        with contextlib.suppress(Exception):
+            純文字回報提示()
+
+
 def _訊息框Qt(文字, 路徑):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QMessageBox
     框 = QMessageBox(QMessageBox.Critical, "直播摘要", 文字)
     框.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    回報 = 框.addButton("回報問題", QMessageBox.AcceptRole)
     開 = 框.addButton("打開紀錄資料夾", QMessageBox.ActionRole)
     框.addButton("關閉", QMessageBox.RejectRole)
     框.exec()
-    if 框.clickedButton() is 開:
+    if 框.clickedButton() is 回報:
+        _按了回報()
+    elif 框.clickedButton() is 開:
         _打開資料夾(路徑)
 
 
 def _在主執行緒顯示(路徑, 摘要):
     """主執行緒上真的把提示顯示出來（有 QApplication 用 Qt 訊息框，沒有或出事就用 Windows 內建的）。顯示期間算「提示中」。"""
     global _提示中, _上次提示
-    文字 = 提示文字(路徑, 摘要)
     _提示中 = True
     try:
         with contextlib.suppress(Exception):      # 紀錄、提示壞了不能讓程式更糟
             from PySide6.QtWidgets import QApplication
             if QApplication.instance() is not None:
-                return _訊息框Qt(文字, 路徑)
-        _訊息框Win32(文字)
+                return _訊息框Qt(提示文字(路徑, 摘要, 有按鈕=True), 路徑)
+        _訊息框Win32(提示文字(路徑, 摘要))          # 沒有 Qt：純文字（選單位置＋表單網址）
     finally:
         _提示中 = False
         _上次提示 = time.monotonic()
