@@ -70,8 +70,8 @@ def test_當機紀錄放在logs資料夾(紀錄):
 def test_主執行緒沒被接住的錯誤寫進紀錄且有版本號和完整錯誤(紀錄):
     sys.excepthook(*出錯("找不到這個設定", ValueError))
     內容 = 讀()
-    assert version.版本 == "1.0.0" and f"版本 {version.版本}" in 內容
-    assert re.search(r"==== \d{4}-\d\d-\d\d \d\d:\d\d:\d\d \| 版本 1\.0\.0 \| 主執行緒 ====", 內容)
+    assert version.版本 and f"版本 {version.版本}" in 內容
+    assert re.search(r"==== \d{4}-\d\d-\d\d \d\d:\d\d:\d\d \| 版本 " + re.escape(version.版本) + r" \| 主執行緒 ====", 內容)
     assert "Traceback (most recent call last)" in 內容
     assert "ValueError: 找不到這個設定" in 內容
     assert "test_當機紀錄.py" in 內容                 # 完整堆疊，不只最後一行

@@ -98,7 +98,7 @@ def test_設定框有系統匣說明與關於(qapp, 假開啟):
     頁 = settings_page.設定頁(假主())
     頁.系統匣卡.按鈕.click()
     assert 假開啟 == ["ms-settings:taskbar"]
-    assert 頁.版本標.text() == "直播摘要 v1.0.0"
+    assert 頁.版本標.text() == "直播摘要 v1.0.1"
     assert "GPLv3" in 頁.授權字.text() and "FFmpeg（LGPL v3）" in 頁.授權字.text() and "licenses" in 頁.授權字.text()
     assert not 頁.授權鈕.isEnabled()                      # 開發環境沒有授權清單資料夾
 

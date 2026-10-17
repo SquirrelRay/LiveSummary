@@ -1,4 +1,4 @@
-"""版本號（打包第 5 步之一）：只寫在 version.py（v1 = 1.0.0），其他地方都從那裡讀。
+"""版本號（打包第 5 步之一）：只寫在 version.py，其他地方都從那裡讀。
 顯示在：設定框底部、當機紀錄、exe 檔案內容（詳細資料）、zip 檔名（LiveSummary-v1.0.0.zip）。"""
 import importlib.util
 import re
@@ -18,10 +18,10 @@ def _載入(名稱, 路徑):
 
 
 def test_第一版是1_0_0():
-    assert version.版本 == "1.0.0"
-    assert version.版本們() == (1, 0, 0, 0)
-    assert version.版本字() == "v1.0.0"
-    assert version.壓縮檔名() == "LiveSummary-v1.0.0.zip"
+    assert version.版本 == "1.0.1"
+    assert version.版本們() == (1, 0, 1, 0)
+    assert version.版本字() == "v1.0.1"
+    assert version.壓縮檔名() == "LiveSummary-v1.0.1.zip"
 
 
 def test_版本們補滿四段():
@@ -37,8 +37,8 @@ def test_版本們補滿四段():
 
 
 def test_版本號只寫在version_py一個地方():
-    """其他 .py／.spec 不准自己寫死 1.0.0（tests 除外）。"""
-    樣式 = re.compile(r"(?<![\d.])1\.0\.0(?![\d.])")
+    """其他 .py／.spec 不准自己寫死目前的版本號（tests 除外）。"""
+    樣式 = re.compile(rf"(?<![\d.]){re.escape(version.版本)}(?![\d.])")
     for 檔 in [*專案.glob("*.py"), *(專案 / "scripts").glob("*.py"), 專案 / "LiveSummary.spec"]:
         if 檔.name == "version.py":
             continue
@@ -60,7 +60,7 @@ def test_打包腳本用version_py的檔名做壓縮檔():
         打包 = _載入("build_exe_測試", 專案 / "scripts" / "build_exe.py")
     finally:
         sys.path.remove(str(專案 / "scripts"))
-    assert Path(打包.壓縮檔).name == "LiveSummary-v1.0.0.zip"
+    assert Path(打包.壓縮檔).name == f"LiveSummary-v{version.版本}.zip"
     assert "LiveSummary.exe" in 打包.必要檔案 and "helper.exe" in 打包.必要檔案 and not any("App" in f for f in 打包.必要檔案)
 
 
